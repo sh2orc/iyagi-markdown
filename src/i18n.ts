@@ -1,0 +1,211 @@
+// 프런트 문구(ko/en). Rust 쪽(네이티브 메뉴) 문구는 crates/md-core/src/i18n.rs.
+// 정적 문구(S)와 인자를 받는 문구(F)를 나눠 타입이 정확하게 유지되게 한다.
+
+export type Lang = "en" | "ko";
+
+export function langFromTag(tag: string): Lang | null {
+  const primary = tag.trim().split(/[-_]/)[0]?.toLowerCase();
+  return primary === "en" || primary === "ko" ? primary : null;
+}
+
+export function detectLang(tags: readonly string[]): Lang {
+  for (const tag of tags) {
+    const lang = langFromTag(tag);
+    if (lang) return lang;
+  }
+  return "en";
+}
+
+const en = {
+  appName: "IYAGI Markdown",
+  loading: "Loading…",
+  untitled: "Untitled",
+  save: "Save",
+  cancel: "Cancel",
+  close: "Close",
+  error: "Error",
+  emptyNoDoc: "No document open",
+  emptyNoDocHint: "Open a file (⌘O), a folder (⇧⌘O), or drop a Markdown file here.",
+  newTab: "New tab",
+  closeTab: "Close tab",
+  sidebarTitle: "Documents",
+  openFolder: "Open folder…",
+  closeFolder: "Close folder",
+  recentSection: "Recent",
+  modeEdit: "Editing",
+  modeRead: "Reading",
+  modeSource: "Source",
+  tocTitle: "Table of contents",
+  tocEmpty: "No headings",
+  findPlaceholder: "Find",
+  replacePlaceholder: "Replace with",
+  findNone: "No results",
+  findCaseSensitive: "Match case",
+  findRegex: "Regular expression",
+  findReplaceOne: "Replace",
+  findReplaceAll: "Replace all",
+  saveFailed: "Could not save the file",
+  savedToast: "Saved",
+  dirtyTitle: "Save changes?",
+  dirtyQuoteBefore: "“",
+  dirtyQuoteAfter: "” has unsaved changes.",
+  dirtySave: "Save",
+  dirtyDiscard: "Discard",
+  extChangedTitle: "File changed on disk",
+  extChangedReload: "The file was changed outside the app.",
+  extChangedConflict: "The file was changed outside the app while you were editing.",
+  extReload: "Reload",
+  extKeepMine: "Keep my version",
+  extKeepMineHint: "Your next save overwrites the disk version.",
+  extRemoved: "The file was moved or deleted.",
+  exportTitle: "Export as…",
+  exportHtml: "Web page (HTML)",
+  exportPdf: "PDF",
+  exportDocx: "Word document (DOCX)",
+  exportPaper: "Paper size",
+  exportOrientation: "Orientation",
+  exportPortrait: "Portrait",
+  exportLandscape: "Landscape",
+  exportMargin: "Margins",
+  exportScale: "Content scale",
+  exportPreparing: "Preparing export…",
+  exportFailed: "Export failed",
+  exportReveal: "Show in Finder",
+  settingsTitle: "Settings",
+  setAppearance: "Appearance",
+  setThemeAuto: "Match system",
+  setThemeLight: "Light",
+  setThemeDark: "Dark",
+  setFontSize: "Editor font size",
+  setLineWidth: "Reading column width",
+  setLineWidthOff: "No limit",
+  setDefaultMode: "Default mode",
+  setRemoteImages: "Load remote images",
+  setRemoteImagesHint: "When off, remote images show a placeholder until clicked.",
+  setShowImages: "Preview images while editing",
+  setLanguage: "Language",
+  setLangAuto: "Match system",
+  linkOpen: "Open link",
+  linkCopy: "Copy link",
+  imgLoadBlocked: "Remote image blocked — click to load",
+  imgMissing: "Image not found",
+  mathError: "Math error",
+  diagramError: "Diagram error",
+  notInApp: "Run inside the IYAGI Markdown app to edit files.",
+  ln: "Ln",
+  col: "Col",
+} as const;
+
+export type Key = keyof typeof en;
+type Dict = Record<Key, string>;
+
+const ko: Dict = {
+  appName: "IYAGI Markdown",
+  loading: "불러오는 중…",
+  untitled: "제목 없음",
+  save: "저장",
+  cancel: "취소",
+  close: "닫기",
+  error: "오류",
+  emptyNoDoc: "열린 문서가 없습니다",
+  emptyNoDocHint: "파일(⌘O) 또는 폴더(⇧⌘O)를 열거나 마크다운 파일을 여기에 끌어 놓으세요.",
+  newTab: "새 탭",
+  closeTab: "탭 닫기",
+  sidebarTitle: "문서",
+  openFolder: "폴더 열기…",
+  closeFolder: "폴더 닫기",
+  recentSection: "최근 문서",
+  modeEdit: "편집",
+  modeRead: "읽기",
+  modeSource: "소스",
+  tocTitle: "목차",
+  tocEmpty: "제목이 없습니다",
+  findPlaceholder: "찾기",
+  replacePlaceholder: "바꿀 내용",
+  findNone: "결과 없음",
+  findCaseSensitive: "대소문자 구분",
+  findRegex: "정규식",
+  findReplaceOne: "바꾸기",
+  findReplaceAll: "모두 바꾸기",
+  saveFailed: "파일을 저장할 수 없습니다",
+  savedToast: "저장했습니다",
+  dirtyTitle: "변경 사항 저장",
+  dirtyQuoteBefore: "“",
+  dirtyQuoteAfter: "”에 저장하지 않은 변경 사항이 있습니다.",
+  dirtySave: "저장",
+  dirtyDiscard: "버리기",
+  extChangedTitle: "디스크의 파일이 바뀌었습니다",
+  extChangedReload: "앱 밖에서 파일이 수정되었습니다.",
+  extChangedConflict: "편집 중인 파일이 앱 밖에서 수정되었습니다.",
+  extReload: "다시 읽기",
+  extKeepMine: "내 버전 유지",
+  extKeepMineHint: "다음 저장이 디스크의 버전을 덮어씁니다.",
+  extRemoved: "파일이 이동되었거나 삭제되었습니다.",
+  exportTitle: "내보내기…",
+  exportHtml: "웹 페이지 (HTML)",
+  exportPdf: "PDF",
+  exportDocx: "Word 문서 (DOCX)",
+  exportPaper: "용지 크기",
+  exportOrientation: "방향",
+  exportPortrait: "세로",
+  exportLandscape: "가로",
+  exportMargin: "여백",
+  exportScale: "내용 배율",
+  exportPreparing: "내보내는 중…",
+  exportFailed: "내보내기 실패",
+  exportReveal: "Finder에서 보기",
+  settingsTitle: "설정",
+  setAppearance: "외관",
+  setThemeAuto: "시스템 따르기",
+  setThemeLight: "라이트",
+  setThemeDark: "다크",
+  setFontSize: "편집기 글꼴 크기",
+  setLineWidth: "읽기 단 폭",
+  setLineWidthOff: "제한 없음",
+  setDefaultMode: "기본 모드",
+  setRemoteImages: "원격 이미지 불러오기",
+  setRemoteImagesHint: "끄면 원격 이미지는 클릭할 때만 불러옵니다.",
+  setShowImages: "편집 중 이미지 미리보기",
+  setLanguage: "언어",
+  setLangAuto: "시스템 따르기",
+  linkOpen: "링크 열기",
+  linkCopy: "링크 복사",
+  imgLoadBlocked: "차단된 원격 이미지 — 클릭하여 불러오기",
+  imgMissing: "이미지를 찾을 수 없음",
+  mathError: "수식 오류",
+  diagramError: "다이어그램 오류",
+  notInApp: "파일을 편집하려면 IYAGI Markdown 앱 안에서 실행하세요.",
+  ln: "줄",
+  col: "칸",
+};
+
+// 인자를 받는 문구.
+const enF = {
+  findCount: (n: number, total: number) => `${n} of ${total}`,
+  words: (n: number) => `${n.toLocaleString()} words`,
+  chars: (n: number) => `${n.toLocaleString()} characters`,
+  lines: (n: number) => `${n.toLocaleString()} lines`,
+  exportDone: (name: string) => `Exported ${name}`,
+  replaced: (n: number) => `Replaced ${n.toLocaleString()} matches`,
+};
+const koF = {
+  findCount: (n: number, total: number) => `${total}개 중 ${n}`,
+  words: (n: number) => `단어 ${n.toLocaleString()}개`,
+  chars: (n: number) => `글자 ${n.toLocaleString()}자`,
+  lines: (n: number) => `줄 ${n.toLocaleString()}개`,
+  exportDone: (name: string) => `${name}을(를) 내보냈습니다`,
+  replaced: (n: number) => `${n.toLocaleString()}곳을 바꿨습니다`,
+};
+
+const dicts: Record<Lang, Dict> = { en, ko };
+const fdicts = { en: enF, ko: koF };
+export type FDict = typeof enF;
+
+/** 호출형 t("key")와 속성형 t.key, 함수형 t.f.words(n)을 모두 지원하는 번역기. */
+export type Translate = ((key: Key) => string) & Record<Key, string> & { f: FDict };
+
+export function makeT(lang: Lang): Translate {
+  const t = ((key: Key) => dicts[lang][key]) as Translate;
+  Object.assign(t, dicts[lang], { f: fdicts[lang] });
+  return t;
+}

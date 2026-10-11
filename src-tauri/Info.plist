@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- 일반 문서 앱: Dock 아이콘·앱 메뉴 있는 창 앱(layout의 LSUIElement와 반대). -->
+  <key>CFBundleName</key>
+  <string>IYAGI Markdown</string>
+  <key>CFBundleDisplayName</key>
+  <string>IYAGI Markdown</string>
+  <key>CFBundleIconFile</key>
+  <string>icon</string>
+  <key>NSHumanReadableCopyright</key>
+  <string>Apache-2.0</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+</dict>
+</plist>

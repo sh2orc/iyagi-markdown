@@ -1,0 +1,223 @@
+// Tauri 명령 래퍼. 브라우저(vite dev 단독)에서는 안전하게 실패한다 —
+// 순수 로직 모듈(store·links 등)은 이 파일을 import하지 않고,
+// 컴포넌트/App 레벨에서만 쓴다(단위 테스트 가능성 유지).
+
+export interface DocMeta {
+  hadBom: boolean;
+  crlf: boolean;
+}
+
+export interface LoadedDoc {
+  text: string;
+  meta: DocMeta;
+  mtime: number;
+  size: number;
+}
+
+export interface WriteOutcome {
+  mtime: number;
+  size: number;
+}
+
+export interface TreeNode {
+  kind: "dir" | "file";
+  name: string;
+  path: string;
+  stem?: string;
+  children?: TreeNode[];
+}
+
+export interface Settings {
+  theme: "auto" | "light" | "dark";
+  fontSize: number;
+  lineWidth: number;
+  defaultMode: "edit" | "read" | "source";
+  remoteImages: boolean;
+  language: "auto" | "en" | "ko";
+  showImages: boolean;
+  logLevel: string;
+}
+
+export interface SessionTab {
+  path: string | null;
+  mode: "edit" | "read" | "source";
+  cursor: number;
+  scroll: number;
+}
+
+export interface WindowRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface SessionState {
+  version: number;
+  tabs: SessionTab[];
+  active: string | null;
+  workspace: string | null;
+  sidebarOpen: boolean;
+  sidebarWidth: number;
+  tocOpen: boolean;
+  window: WindowRect | null;
+}
+
+export interface RecentEntry {
+  path: string;
+  name: string;
+}
+
+export interface PdfOptions {
+  paper: "a4" | "letter" | "a5";
+  orientation: "portrait" | "landscape";
+  marginMm: number;
+  scale: number;
+}
+
+export interface DocxManifest {
+  math: Record<string, string>;
+  diagrams: Record<string, string>;
+}
+
+export interface AppInfo {
+  version: string;
+  lang: string;
+  logDir: string | null;
+}
+
+let tauri: typeof import("@tauri-apps/api/core") | null = null;
+let events: typeof import("@tauri-apps/api/event") | null = null;
+let inApp = false;
+
+export function initBridge(): boolean {
+  inApp = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  return inApp;
+}
+
+export function isInApp(): boolean {
+  return inApp;
+}
+
+async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (!inApp) throw new Error(`이 명령은 앱 안에서만 쓸 수 있습니다: ${cmd}`);
+  tauri ??= await import("@tauri-apps/api/core");
+  return tauri.invoke<T>(cmd, args);
+}
+
+export const api = {
+  appReady: () => invoke<void>("app_ready"),
+  appInfo: () => invoke<AppInfo>("app_info"),
+  takePendingFiles: () => invoke<string[]>("take_pending_files"),
+  readDocument: (path: string) => invoke<LoadedDoc>("read_document", { path }),
+  writeDocument: (path: string, text: string, meta: DocMeta) =>
+    invoke<WriteOutcome>("write_document", { path, text, meta }),
+  readFileBytes: (path: string) => invoke<number[]>("read_file_bytes", { path }),
+  scanWorkspace: (root: string) => invoke<TreeNode[]>("scan_workspace", { root }),
+  getSettings: () => invoke<Settings>("get_settings"),
+  setSettings: (settings: Settings) => invoke<void>("set_settings", { settings }),
+  getSession: () => invoke<SessionState | null>("get_session"),
+  saveSession: (session: SessionState) => invoke<void>("save_session", { session }),
+  getRecent: () => invoke<RecentEntry[]>("get_recent"),
+  clearRecent: () => invoke<void>("clear_recent"),
+  setAssetScope: (path: string, recursive: boolean) =>
+    invoke<void>("set_asset_scope", { path, recursive }),
+  watchPaths: (files: string[], dirs: string[]) => invoke<void>("watch_paths", { files, dirs }),
+  exportPdf: (html: string, options: PdfOptions, outPath: string) =>
+    invoke<void>("export_pdf", { html, options, outPath }),
+  exportDocx: (markdown: string, manifest: DocxManifest, outPath: string, baseDir: string) =>
+    invoke<void>("export_docx", { markdown, manifest, outPath, baseDir }),
+  writeExportFile: (path: string, contents: string) =>
+    invoke<void>("write_export_file", { path, contents }),
+  revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),
+  openLogsDir: () => invoke<void>("open_logs_dir"),
+};
+
+// — 이벤트 수신 —
+
+export interface FsEvent {
+  path: string;
+  kind: "changed" | "removed";
+}
+
+export type Unlisten = () => void;
+
+export async function onFsEvent(handler: (e: FsEvent) => void): Promise<Unlisten> {
+  events ??= await import("@tauri-apps/api/event");
+  return events.listen<FsEvent>("fs-event", (ev) => handler(ev.payload));
+}
+
+export async function onMenu(handler: (id: string) => void): Promise<Unlisten> {
+  events ??= await import("@tauri-apps/api/event");
+  return events.listen<string>("menu", (ev) => handler(ev.payload));
+}
+
+export async function onOpenFiles(handler: (paths: string[]) => void): Promise<Unlisten> {
+  events ??= await import("@tauri-apps/api/event");
+  return events.listen<string[]>("open-files", (ev) => handler(ev.payload));
+}
+
+export async function onSettingsChanged(handler: (s: Settings) => void): Promise<Unlisten> {
+  events ??= await import("@tauri-apps/api/event");
+  return events.listen<Settings>("settings-changed", (ev) => handler(ev.payload));
+}
+
+// — 대화상자(plugin-dialog) —
+
+export async function pickOpenFile(): Promise<string | null> {
+  if (!inApp) return null;
+  const dialog = await import("@tauri-apps/plugin-dialog");
+  const picked = await dialog.open({
+    multiple: false,
+    filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+  });
+  return typeof picked === "string" ? picked : null;
+}
+
+export async function pickOpenFolder(): Promise<string | null> {
+  if (!inApp) return null;
+  const dialog = await import("@tauri-apps/plugin-dialog");
+  const picked = await dialog.open({ directory: true, multiple: false });
+  return typeof picked === "string" ? picked : null;
+}
+
+export interface SavePick {
+  path: string;
+}
+
+export async function pickSave(defaultName: string, ext: string): Promise<string | null> {
+  if (!inApp) return null;
+  const dialog = await import("@tauri-apps/plugin-dialog");
+  return (await dialog.save({
+    defaultPath: defaultName,
+    filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
+  })) as string | null;
+}
+
+export async function askDialog(message: string, title?: string): Promise<boolean> {
+  if (!inApp) return window.confirm(message);
+  const dialog = await import("@tauri-apps/plugin-dialog");
+  return dialog.ask(message, { title, kind: "warning" });
+}
+
+// — 창 —
+
+export async function currentWindowApi() {
+  const w = await import("@tauri-apps/api/window");
+  return w.getCurrentWindow();
+}
+
+export async function webviewWindowApi() {
+  const w = await import("@tauri-apps/api/webviewWindow");
+  return w.getCurrentWebviewWindow();
+}
+
+/** 로컬 파일 경로를 asset 프로토콜 URL로 바꾼다(앱 안에서만 유효).
+ *  @tauri-apps/api/core의 convertFileSrc와 같은 internals 경로를 쓴다(동기). */
+export function convertFileSrc(path: string): string {
+  if (!inApp) return path;
+  const internals = (window as unknown as {
+    __TAURI_INTERNALS__: { convertFileSrc: (p: string, proto: string) => string };
+  }).__TAURI_INTERNALS__;
+  return internals.convertFileSrc(path, "asset");
+}

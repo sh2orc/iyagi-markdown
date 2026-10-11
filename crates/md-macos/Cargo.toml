@@ -1,0 +1,12 @@
+[package]
+name = "md-macos"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "IYAGI Markdown — macOS 전용: 선호 언어 감지, 파일 아이콘 등."
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true }
