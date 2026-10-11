@@ -6,7 +6,6 @@ import { EditorView } from "@codemirror/view";
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
 import {
-  computeMatches,
   findNext,
   gotoMatch,
   replaceAll,
@@ -40,13 +39,34 @@ export function SearchPanel({ store, view, t }: Props): JSX.Element {
 
   const query: SearchQuery | null = text ? { text, caseSensitive, regexp, replacement } : null;
 
+  // 검색 적용 — 상태 필드가 매치를 계산하므로 여기서 다시 훑지 않는다(중복
+  // O(문서) 스캔 제거). 입력은 짧게 디바운스해 큰 문서에서 타이핑이 끊기지
+  // 않게 한다.
+  const applyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (applyTimer.current) clearTimeout(applyTimer.current);
+  }, []);
+
   const apply = (q: SearchQuery | null) => {
     view.dispatch({ effects: setSearchState.of({ query: q }) });
-    if (q) {
-      const matches = computeMatches(view.state.doc.toString(), q);
-      if (matches.length > 0) gotoMatch(view, 0);
-    }
+    if (q && searchStateOf(view.state).matches.length > 0) gotoMatch(view, 0);
     force((n) => n + 1);
+  };
+  const applyDebounced = (q: SearchQuery) => {
+    if (applyTimer.current) clearTimeout(applyTimer.current);
+    applyTimer.current = setTimeout(() => {
+      applyTimer.current = null;
+      apply(q);
+    }, 120);
+  };
+  /** 보류 중인 디바운스를 즉시 확정(Enter 등). */
+  const flush = () => {
+    if (applyTimer.current) {
+      clearTimeout(applyTimer.current);
+      applyTimer.current = null;
+      return true;
+    }
+    return false;
   };
 
   const st = searchStateOf(view.state);
@@ -54,6 +74,10 @@ export function SearchPanel({ store, view, t }: Props): JSX.Element {
   const current = st.current + 1;
 
   const close = () => {
+    if (applyTimer.current) {
+      clearTimeout(applyTimer.current);
+      applyTimer.current = null;
+    }
     view.dispatch({ effects: setSearchState.of({ query: null }) });
     store.setSearchOpen(false);
     view.focus();
@@ -68,12 +92,17 @@ export function SearchPanel({ store, view, t }: Props): JSX.Element {
           placeholder={t.findPlaceholder}
           value={text}
           onChange={(e) => {
-            setText(e.target.value);
-            apply(e.target.value ? query : null);
+            const v = e.target.value;
+            setText(v);
+            // 주의: 렌더 시점의 query는 한 글자 뒤처진 값이다 — 여기서 새로 만든다.
+            if (v) applyDebounced({ text: v, caseSensitive, regexp, replacement });
+            else apply(null);
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
+              // 보류 중이던 쿼리를 방금 확정했다면 첫 매치 이동이 이미 일어났다.
+              if (flush()) return;
               findNext(view, !e.shiftKey);
               force((n) => n + 1);
             } else if (e.key === "Escape") {

@@ -13,10 +13,10 @@ interface Props {
 export function StatusBar({ store, t, onOpenSettings, onOpenStyle }: Props): JSX.Element {
   const state = store.getSnapshot();
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
-  const dirty = tab ? tab.state.doc.toString() !== tab.savedText : false;
-  const text = tab?.state.doc.toString() ?? "";
-  const words = countWords(text);
-  const chars = text.length;
+  // 통계는 스토어가 증분 유지한다 — 여기서 문서를 다시 훑지 않는다.
+  const dirty = tab?.dirty ?? false;
+  const words = tab?.words ?? 0;
+  const chars = tab?.chars ?? 0;
 
   return (
     <footer className="statusbar">
@@ -66,9 +66,3 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle }: Props): JSX
   );
 }
 
-function countWords(text: string): number {
-  // 한글은 음절을, 라틴은 단어를 센다 — 대략적 지표.
-  const cjk = (text.match(/[가-힣぀-ヿ一-鿿]/g) ?? []).length;
-  const latin = (text.match(/[A-Za-z0-9'’_-]+/g) ?? []).length;
-  return cjk + latin;
-}

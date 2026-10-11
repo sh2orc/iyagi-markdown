@@ -213,6 +213,20 @@ pub struct DocxManifest {
     pub math: std::collections::HashMap<String, String>,
     /// mermaid 코드 원문 → SVG(순수 벡터, foreignObject 없음).
     pub diagrams: std::collections::HashMap<String, String>,
+    /// 문서별 기본 서체(라이브 프리뷰 스타일 반영).
+    pub style: Option<DocxStyleSpec>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocxStyleSpec {
+    pub font: String,
+    #[serde(default = "default_size_pt")]
+    pub size_pt: f64,
+}
+
+fn default_size_pt() -> f64 {
+    11.0
 }
 
 /// 마크다운 → DOCX(comrak AST → 직접 OOXML 생성, §4-3/§4-4).
@@ -230,6 +244,7 @@ pub fn export_docx(
         &manifest.diagrams,
         &images,
         Path::new(&out_path),
+        manifest.style.as_ref().map(|s| (s.font.as_str(), s.size_pt)),
     )
     .map_err(err)
 }

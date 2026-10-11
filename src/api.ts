@@ -79,6 +79,8 @@ export interface PdfOptions {
 export interface DocxManifest {
   math: Record<string, string>;
   diagrams: Record<string, string>;
+  /** 문서별 스타일(폰트·크기) — DOCX 기본 서체에 반영. */
+  style?: { font: "system" | "serif" | "round" | "mono"; sizePt: number };
 }
 
 /** 문서별 스타일(SQLite 사이드카 — .md 원문은 불변). */
@@ -92,6 +94,10 @@ export interface DocStyle {
   paraSpace: "tight" | "normal" | "relaxed";
   /** 강조색 hex(#RRGGBB). null이면 기본. */
   accent: string | null;
+  /** 문단 첫 줄 들여쓰기(한국어 문서 관례). */
+  firstLineIndent: boolean;
+  /** 이미지 표시 폭(원본 경로 기준 퍼센트) — 원문은 불변, 사이드카에만. */
+  imageWidths: Record<string, number>;
 }
 
 export interface AppInfo {

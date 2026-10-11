@@ -38,6 +38,26 @@ function defaultsFor(theme: "light" | "dark") {
 
 const cache = new Map<string, string>();
 
+// 렌더 큐 — mermaid.render는 CPU를 많이 쓰는 긴 작업이라 동시에 몰리면
+// 프레임이 통째로 걸린다. 한 번에 하나만 직렬 실행해 긴 작업이 겹치지 않게
+// 한다(스크롤로 다이어그램 여러 개가 동시에 보여도 순차 그려진다).
+const renderQueue: Array<() => void> = [];
+let renderActive = 0;
+
+function enqueueRender<T>(job: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    renderQueue.push(() => {
+      renderActive++;
+      job().then(resolve, reject).finally(() => {
+        renderActive--;
+        const next = renderQueue.shift();
+        if (next) next();
+      });
+    });
+    if (renderActive === 0 && renderQueue.length === 1) renderQueue[0]();
+  });
+}
+
 /** mermaid 코드 → SVG 문자열(인라인 마운트용). 실패 시 null. */
 export async function renderMermaid(
   code: string,
@@ -49,7 +69,7 @@ export async function renderMermaid(
   const mermaid = await ensureMermaid(theme);
   const id = `iyagi-mermaid-${seq++}`;
   try {
-    const { svg } = await mermaid.render(id, code);
+    const { svg } = await enqueueRender(() => mermaid.render(id, code));
     cache.set(key, svg);
     return { svg, error: null };
   } catch (e) {

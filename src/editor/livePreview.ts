@@ -52,6 +52,8 @@ export interface PreviewConfig {
   remoteImages: boolean;
   showImages: boolean;
   theme: "light" | "dark";
+  /** 이미지 표시 폭(원본 경로 → %) — 문서 스타일 사이드카. */
+  imageWidths: Record<string, number>;
 }
 
 export const setPreviewConfig = StateEffect.define<PreviewConfig>();
@@ -62,6 +64,7 @@ export const previewConfigField = StateField.define<PreviewConfig>({
     remoteImages: true,
     showImages: true,
     theme: "light",
+    imageWidths: {},
   }),
   update(value, tr) {
     for (const e of tr.effects) {
@@ -177,7 +180,8 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
   const ranges: Range<Decoration>[] = [];
   const doc = view.state.doc;
   const behavior = view.state.facet(previewBehavior);
-  const { baseDir, remoteImages, showImages, theme } = view.state.field(previewConfigField);
+  const { baseDir, remoteImages, showImages, theme, imageWidths } =
+    view.state.field(previewConfigField);
 
   // 노출할 줄 = 편집 모드에서 커서·선택(·조합)이 걸친 줄.
   const revealed = new Set<number>();
@@ -378,7 +382,13 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
             const m = /^!\[([^\]]*)\]\(\s*<?([^)>]*?)>?((?:\s+"[^"]*")?)\s*\)$/.exec(text);
             if (m) {
               const src2 = absPath(m[2].trim());
-              const w: WidgetType = new ImageWidget(src2, m[1], m[3]?.trim().replace(/^"|"$/g, "") || null, { remoteImages, showImages });
+              const w: WidgetType = new ImageWidget(
+                src2,
+                m[1],
+                m[3]?.trim().replace(/^"|"$/g, "") || null,
+                { remoteImages, showImages },
+                imageWidths[src2],
+              );
               ranges.push(replace({ widget: w, block: false }).range(from, to));
             }
             return;

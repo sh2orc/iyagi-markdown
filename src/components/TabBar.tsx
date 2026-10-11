@@ -26,7 +26,7 @@ export function TabBar({ store, t, onClose }: Props): JSX.Element {
         }}
       >
         {state.tabs.map((tab, i) => {
-          const dirty = tab.state.doc.toString() !== tab.savedText;
+          const dirty = tab.dirty;
           const active = tab.id === state.activeId;
           return (
             <div

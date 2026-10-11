@@ -12,7 +12,7 @@ export function CloseConfirm({
   t: Translate;
   onDone: (proceed: boolean) => void;
 }): JSX.Element {
-  const dirtyTabs = store.state.tabs.filter((x) => x.state.doc.toString() !== x.savedText);
+  const dirtyTabs = store.state.tabs.filter((x) => x.dirty);
   const name = dirtyTabs[0]?.path?.split("/").pop() ?? t.untitled;
   return (
     <div className="overlay modal-overlay">
@@ -28,9 +28,17 @@ export function CloseConfirm({
           <button
             className="btn btn-primary"
             onClick={async () => {
-              // 저장 후 진행.
+              // 저장 후 진행 — saveActive는 '활성' 탭만 저장하므로 각 탭으로
+              // 전환해가며 저장하고, 끝나면 원래 활성 탭으로 되돌린다.
+              const restoreId = store.state.activeId;
               for (const tab of dirtyTabs) {
-                if (tab.path) await store.saveActive();
+                if (!tab.path) continue;
+                store.activate(tab.id);
+                await store.saveActive();
+              }
+              if (restoreId && store.state.activeId !== restoreId) {
+                const back = store.state.tabs.find((x) => x.id === restoreId);
+                if (back) store.activate(restoreId);
               }
               onDone(true);
             }}

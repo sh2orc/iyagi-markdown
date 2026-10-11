@@ -2,6 +2,7 @@
 // 모든 위젯은 원문을 수정하지 않는 표시물일 뿐이고, 상호작용(체크박스 등)은
 // 원문 텍스트 편집으로 번역된다(§4-1).
 
+import { EditorState } from "@codemirror/state";
 import { EditorView, WidgetType } from "@codemirror/view";
 
 import { convertFileSrc, isInApp } from "../api";
@@ -54,11 +55,12 @@ export class DiagramWidget extends WidgetType {
     return other.code === this.code && other.#theme === this.#theme;
   }
 
-  toDOM() {
+  toDOM(view: EditorView) {
     const wrap = document.createElement("div");
     wrap.className = "md-diagram";
     wrap.dataset.pending = "1";
     void renderMermaid(this.code, this.#theme).then(({ svg, error }) => {
+      if (!wrap.isConnected) return; // 뷰포트를 벗어나 이미 치워진 위젯
       delete wrap.dataset.pending;
       if (svg) {
         wrap.innerHTML = svg;
@@ -76,6 +78,8 @@ export class DiagramWidget extends WidgetType {
         msg.textContent = error ?? "render failed";
         wrap.append(msg, code);
       }
+      // 높이가 확정되는 비동기 채움 뒤 재측정(뷰포트 계산이 갱신되게).
+      if (view.dom.isConnected) view.requestMeasure();
     });
     return wrap;
   }
@@ -100,6 +104,7 @@ export class ImageWidget extends WidgetType {
     readonly alt: string,
     readonly title: string | null,
     readonly opts: ImageWidgetOpts,
+    readonly widthPct?: number,
   ) {
     super();
     const isRemote = /^https?:\/\//i.test(src);
@@ -113,7 +118,8 @@ export class ImageWidget extends WidgetType {
       other.alt === this.alt &&
       other.title === this.title &&
       other.opts.remoteImages === this.opts.remoteImages &&
-      other.opts.showImages === this.opts.showImages
+      other.opts.showImages === this.opts.showImages &&
+      other.widthPct === this.widthPct
     );
   }
 
@@ -153,6 +159,11 @@ export class ImageWidget extends WidgetType {
     if (this.alt) img.alt = this.alt;
     if (this.title) img.title = this.title;
     img.draggable = false;
+    // 스크롤 부드러움: 삽입 시 동기 디코드를 피하고, 뷰포트에서 먼 이미지는
+    // 가까이 올 때까지 내려받지 않는다(미지원 웹뷰는 무시하는 무해한 힌트).
+    img.decoding = "async";
+    img.loading = "lazy";
+    if (this.widthPct) img.style.width = `${this.widthPct}%`;
     let retried = false;
     img.addEventListener("error", () => {
       // 문서 폴더 바깥 상대 경로(../…)는 asset 범위에 없어 실패한다 —
@@ -171,12 +182,51 @@ export class ImageWidget extends WidgetType {
       }
     });
     wrap.append(img);
+    // 크기 조절 핸들(편집 중에만) — 드래그로 폭(%)을 정하고 놓으면 문서
+    // 스타일 사이드카에 저장한다. **원문은 전혀 수정되지 않는다.**
+    const editable = view.state.facet(EditorState.readOnly).valueOf() !== true;
+    if (editable) {
+      const handle = document.createElement("span");
+      handle.className = "md-img-handle";
+      handle.title = "↔";
+      let base = 0;
+      let basePct = 0;
+      const onMove = (ev: PointerEvent) => {
+        const host = wrap.closest(".editor-host, .cm-content");
+        const containerW = host?.clientWidth ?? wrap.clientWidth;
+        if (containerW <= 0) return;
+        const pct = Math.round(Math.min(100, Math.max(10, basePct + ((ev.clientX - base) / containerW) * 100)));
+        img.style.width = `${pct}%`;
+        handle.dataset.pct = String(pct);
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        const pct = Number(handle.dataset.pct ?? 0);
+        if (pct > 0) imageResizeHandler?.(this.src, pct);
+      };
+      handle.addEventListener("pointerdown", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        base = ev.clientX;
+        basePct = this.widthPct ?? 100;
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+      });
+      wrap.append(handle);
+    }
     return wrap;
   }
 
   ignoreEvent() {
     return true;
   }
+}
+
+/** 이미지 폭 저장 콜백 — App이 스토어와 연결한다(원문 불변 사이드카). */
+export let imageResizeHandler: ((src: string, pct: number) => void) | null = null;
+export function setImageResizeHandler(fn: ((src: string, pct: number) => void) | null): void {
+  imageResizeHandler = fn;
 }
 
 // — 표 —

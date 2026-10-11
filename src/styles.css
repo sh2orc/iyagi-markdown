@@ -145,10 +145,24 @@ body {
   position: relative;
   background: var(--md-bg-side);
   border-right: 1px solid var(--md-border);
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  transition: width 0.18s ease;
+}
+.sidebar:not(.is-open) {
+  border-right-color: transparent;
+}
+/* 드래그 리사이즈 중에는 너비 트랜지션이 따라오지 못해 늘어져 보인다 — 끈다. */
+body.resizing .sidebar {
+  transition: none;
+}
+
+.sidebar-fixed {
+  position: relative;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  min-width: 160px;
-  flex: none;
 }
 
 .sidebar-head {
@@ -183,6 +197,7 @@ body {
 .sidebar-body {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px 0 16px;
 }
 
@@ -492,6 +507,14 @@ body.resizing * {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
   padding: 3px 5px;
   user-select: none;
+  animation: mini-in 0.12s ease;
+}
+
+@keyframes mini-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(3px);
+  }
 }
 
 .mtb-btn {
@@ -720,10 +743,27 @@ body.resizing * {
 /* TOC */
 
 .toc {
-  width: 230px;
   flex: none;
+  min-width: 0;
+  width: 0;
+  overflow: hidden;
   border-left: 1px solid var(--md-border);
   background: var(--md-bg-side);
+  transition: width 0.18s ease;
+}
+.toc.is-open {
+  width: 230px;
+}
+.toc:not(.is-open) {
+  border-left-color: transparent;
+}
+body.resizing .toc {
+  transition: none;
+}
+
+.toc-fixed {
+  width: 230px;
+  height: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -740,6 +780,7 @@ body.resizing * {
 .toc-body {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0 0 16px;
 }
 
@@ -1172,6 +1213,30 @@ body.resizing * {
   z-index: 90;
 }
 
+/* 호버가 튀지 않고 스르륵 — 앱 크롬 버튼들(에디터 본문은 제외). */
+.tb-btn,
+.mtb-btn,
+.status-mode,
+.status-settings,
+.status-style,
+.tab,
+.tab-new,
+.tab-close,
+.ctx-item,
+.btn,
+.tree-row,
+.sidebar-actions button,
+.sidebar-recent-item,
+.toc-item,
+.search-toggle,
+.style-font-btn {
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease,
+    opacity 0.12s ease;
+}
+
 /* 스크롤바 */
 
 ::-webkit-scrollbar {
@@ -1185,4 +1250,15 @@ body.resizing * {
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* 사용자가 시스템에서 모션 줄임을 요청한 경우 — 모든 전환·애니메이션 즉시. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

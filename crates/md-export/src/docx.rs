@@ -72,6 +72,7 @@ pub fn export_docx(
     diagrams: &HashMap<String, String>,
     images: &ImageSource,
     out: &Path,
+    style: Option<(&str, f64)>,
 ) -> Result<(), DocxError> {
     let mut options = Options::default();
     options.extension.table = true;
@@ -100,7 +101,7 @@ pub fn export_docx(
 <w:pgMar w:top=\"1418\" w:right=\"1418\" w:bottom=\"1418\" w:left=\"1418\"/></w:sectPr>",
     );
 
-    write_docx_zip(out, &body, &ctx)?;
+    write_docx_zip(out, &body, &ctx, style)?;
     Ok(())
 }
 
@@ -623,7 +624,7 @@ fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
 
 // — 패키지(zip) 작성 —
 
-fn write_docx_zip(out: &Path, body: &str, ctx: &Ctx) -> Result<(), DocxError> {
+fn write_docx_zip(out: &Path, body: &str, ctx: &Ctx, style: Option<(&str, f64)>) -> Result<(), DocxError> {
     let file = std::fs::File::create(out)?;
     let mut zip = zip::ZipWriter::new(file);
     let opts: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
@@ -642,7 +643,7 @@ fn write_docx_zip(out: &Path, body: &str, ctx: &Ctx) -> Result<(), DocxError> {
         "word/_rels/document.xml.rels",
         &document_rels(ctx),
     )?;
-    add(&mut zip, "word/styles.xml", STYLES)?;
+    add(&mut zip, "word/styles.xml", &styles_xml(style))?;
     add(&mut zip, "word/numbering.xml", NUMBERING)?;
     add(&mut zip, "word/settings.xml", SETTINGS)?;
     add(&mut zip, "docProps/core.xml", &core_props())?;
@@ -745,25 +746,48 @@ fn document_rels(ctx: &Ctx) -> String {
     s
 }
 
-const STYLES: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+/// 문서별 서체(라이브 프리뷰 스타일) — ascii/eastAsia 폰트와 기본 호점 크기.
+fn styles_xml(style: Option<(&str, f64)>) -> String {
+    let (ascii, east_asia, half_points) = match style.map(|(f, pt)| (f, pt)) {
+        Some(("serif", pt)) => ("Georgia", "AppleMyungjo", (pt * 2.0).round() as i64),
+        Some(("mono", pt)) => ("Menlo", "Apple SD Gothic Neo", (pt * 2.0).round() as i64),
+        Some(("round", pt)) => ("Helvetica Neue", "Apple SD Gothic Neo", (pt * 2.0).round() as i64),
+        Some((_, pt)) => ("-apple-system", "Apple SD Gothic Neo", (pt * 2.0).round() as i64),
+        None => ("-apple-system", "Apple SD Gothic Neo", 22),
+    };
+    let heading_scale = |mult: f64, base: i64| ((base as f64 * mult).round() as i64).to_string();
+    let base = half_points;
+    let h1 = heading_scale(1.45, base);
+    let h2 = heading_scale(1.24, base);
+    let h3 = heading_scale(1.12, base);
+    STYLES_TEMPLATE
+        .replace("@ASCII@", ascii)
+        .replace("@EASTASIA@", east_asia)
+        .replace("@SZ@", &base.to_string())
+        .replace("@H1@", &h1)
+        .replace("@H2@", &h2)
+        .replace("@H3@", &h3)
+}
+
+const STYLES_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
 <w:docDefaults><w:rPrDefault><w:rPr>
-<w:rFonts w:ascii="-apple-system, Helvetica Neue" w:hAnsi="-apple-system" w:eastAsia="Apple SD Gothic Neo"/>
-<w:sz w:val="22"/><w:szCs w:val="22"/>
+<w:rFonts w:ascii="@ASCII@" w:hAnsi="@ASCII@" w:eastAsia="@EASTASIA@"/>
+<w:sz w:val="@SZ@"/><w:szCs w:val="@SZ@"/>
 </w:rPr></w:rPrDefault><w:pPrDefault/></w:docDefaults>
 <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>
 <w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/>
 <w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:outlineLvl w:val="0"/>
 <w:spacing w:before="280" w:after="120"/></w:pPr>
-<w:rPr><w:b/><w:sz w:val="40"/><w:szCs w:val="40"/></w:rPr></w:style>
+<w:rPr><w:b/><w:sz w:val="@H1@"/><w:szCs w:val="@H1@"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/>
 <w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:outlineLvl w:val="1"/>
 <w:spacing w:before="240" w:after="100"/></w:pPr>
-<w:rPr><w:b/><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr></w:style>
+<w:rPr><w:b/><w:sz w:val="@H2@"/><w:szCs w:val="@H2@"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Heading3"><w:name w:val="heading 3"/>
 <w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:outlineLvl w:val="2"/>
 <w:spacing w:before="220" w:after="90"/></w:pPr>
-<w:rPr><w:b/><w:sz w:val="27"/><w:szCs w:val="27"/></w:rPr></w:style>
+<w:rPr><w:b/><w:sz w:val="@H3@"/><w:szCs w:val="@H3@"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Heading4"><w:name w:val="heading 4"/>
 <w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:outlineLvl w:val="3"/>
 <w:spacing w:before="200" w:after="80"/></w:pPr>
@@ -869,7 +893,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("basic");
-        export_docx(md, &math, &diagrams, &images, &out).unwrap();
+        export_docx(md, &math, &diagrams, &images, &out, None).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         assert!(bytes.len() > 2000);
         // zip 매직.
@@ -905,7 +929,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("math");
-        export_docx(md, &math, &diagrams, &images, &out).unwrap();
+        export_docx(md, &math, &diagrams, &images, &out, None).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -935,7 +959,7 @@ mod tests {
         let math = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("mermaid");
-        export_docx(md, &math, &diagrams, &images, &out).unwrap();
+        export_docx(md, &math, &diagrams, &images, &out, None).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -976,7 +1000,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(dir.to_string_lossy().into_owned());
         let out = tmp("img");
-        export_docx(md, &math, &diagrams, &images, &out).unwrap();
+        export_docx(md, &math, &diagrams, &images, &out, None).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let zip = zip::ZipArchive::new(cursor).unwrap();

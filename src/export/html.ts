@@ -358,7 +358,7 @@ body{margin:0 auto;padding:24px 16px;max-width:820px;font-family:-apple-system,B
 /** DOCX 내보내기용 매니페스트(수식 MathML·다이어그램 SVG) — §4-4. */
 export async function buildDocxManifest(
   markdown: string,
-): Promise<{ math: Record<string, string>; diagrams: Record<string, string> }> {
+): Promise<{ math: Record<string, string>; diagrams: Record<string, string>; style?: { font: "system" | "serif" | "round" | "mono"; sizePt: number } }> {
   const math: Record<string, string> = {};
   const diagrams: Record<string, string> = {};
   const jobs: Promise<void>[] = [];

@@ -146,6 +146,7 @@ function setPreviewConfigOf(view: EditorView): void {
       remoteImages: true,
       showImages: true,
       theme: "light",
+      imageWidths: {},
     }),
   });
 }

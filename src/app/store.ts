@@ -6,7 +6,7 @@
 
 import { EditorState } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
-import { EditorView } from "@codemirror/view";
+import { EditorView, type ViewUpdate } from "@codemirror/view";
 
 import type {
   DocMeta,
@@ -40,6 +40,12 @@ export interface Tab {
   docStyle: DocStyle | null;
   /** 커서 위치의 활성 서식(도구모음 반영용). */
   marks: { bold: boolean; italic: boolean; strike: boolean; code: boolean; link: boolean };
+  /** 저장 안 됨 표시 — 입력마다 O(문서) 비교 대신 증분 유지(정확성: 길이가
+   *  같을 때만 문자열 비교로 확정한다). */
+  dirty: boolean;
+  /** 단어 수·글자 수 — 상태 줄용. 편집 델타로 증분 갱신한다. */
+  words: number;
+  chars: number;
 }
 
 export type ExportKind = "html" | "pdf" | "docx";
@@ -125,8 +131,28 @@ export class AppStore {
   getSnapshot = (): AppStoreState => this.state;
 
   private emit() {
+    if (this.emitRaf) {
+      // 예약된 rAF emit을 즉시 emit으로 흡수한다(중복 렌더 방지).
+      cancelAnimationFrame(this.emitRaf);
+      this.emitRaf = 0;
+    }
     this.state = { ...this.state };
     for (const fn of this.listeners) fn();
+  }
+
+  private emitRaf = 0;
+
+  /** 프레임 단위로 모아 내보낸다 — 연속 입력이 한 프레임에 렌더 한 번으로 끝난다. */
+  private scheduleEmit() {
+    if (this.emitRaf) return;
+    if (typeof requestAnimationFrame !== "function") {
+      this.emit();
+      return;
+    }
+    this.emitRaf = requestAnimationFrame(() => {
+      this.emitRaf = 0;
+      this.emit();
+    });
   }
 
   // — 탭 —
@@ -164,6 +190,9 @@ export class AppStore {
       conflict: null,
       docStyle: null,
       marks: { bold: false, italic: false, strike: false, code: false, link: false },
+      dirty: false,
+      words: countWords(doc.text),
+      chars: doc.text.length,
     };
     this.state.tabs.push(tab);
     // 문서별 스타일 사이드카 로드(SQLite).
@@ -201,6 +230,9 @@ export class AppStore {
       conflict: null,
       docStyle: null,
       marks: { bold: false, italic: false, strike: false, code: false, link: false },
+      dirty: false,
+      words: 0,
+      chars: 0,
     };
     this.state.tabs.push(tab);
     this.activate(tab.id);
@@ -291,7 +323,7 @@ export class AppStore {
 
   // — 문서 변경 반영(CodeMirror 리스너에서) —
 
-  onDocChanged(): void {
+  onDocChanged(update: ViewUpdate): void {
     const tab = this.active;
     if (!tab || !this.view) return;
     tab.state = this.view.state;
@@ -300,6 +332,20 @@ export class AppStore {
     tab.cursorLine = line.number;
     tab.cursorCol = sel.head - line.from + 1;
     tab.marks = marksAt(this.view.state, sel.head, sel.to);
+    if (update.docChanged) {
+      // 통계는 편집 델타로 증분 갱신 — 키 입력마다 문서 전체를 훑지 않는다.
+      const prevDoc = update.startState.doc;
+      update.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+        const removed = toA > fromA ? prevDoc.sliceString(fromA, toA) : "";
+        const text = inserted.toString();
+        tab.words += countWords(text) - countWords(removed);
+        tab.chars += text.length - removed.length;
+      });
+      // dirty: 길이가 다르면 무조건 dirty, 같을 때만(되돌리기 복귀 등) 문자열로 확정.
+      const doc = this.view.state.doc;
+      if (doc.length !== tab.savedText.length) tab.dirty = true;
+      else tab.dirty = doc.toString() !== tab.savedText;
+    }
     // 초안 자동 저장(Word 자동 저장) — 입력이 멈춘 뒤 저장. 무수정이면 저장하지
     // 않는다(§4-2). 원자적 저장 경로 그대로.
     if (this.state.settings.autosave && tab.path) {
@@ -307,13 +353,13 @@ export class AppStore {
       this.autosaveTimer = setTimeout(() => {
         this.autosaveTimer = null;
         const t = this.active;
-        if (t?.path && t.state.doc.toString() !== t.savedText) {
+        if (t?.path && t.dirty) {
           void this.saveActive();
         }
       }, 1500);
     }
-    // 상태 줄(줄/칸·더티 점) 갱신 — 상태 객체를 새로 만들어 구독자에게 알린다.
-    this.emit();
+    // 상태 줄(줄/칸·더티 점) 갱신 — rAF로 모아 프레임당 한 번 렌더한다.
+    this.scheduleEmit();
   }
 
   private autosaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -333,6 +379,7 @@ export class AppStore {
       tab.title = baseName(path);
       tab.savedText = text;
       tab.savedMtime = out.mtime;
+      tab.dirty = false;
       tab.conflict = null;
       this.lastSavedAt = Date.now();
       this.emit();
@@ -362,7 +409,7 @@ export class AppStore {
       this.emit();
       return;
     }
-    const dirty = tab.state.doc.toString() !== tab.savedText;
+    const dirty = tab.dirty;
     if (dirty) {
       tab.conflict = "conflict";
       this.emit();
@@ -399,6 +446,9 @@ export class AppStore {
       tab.savedText = doc.text;
       tab.meta = doc.meta;
       tab.savedMtime = doc.mtime;
+      tab.dirty = false;
+      tab.words = countWords(doc.text);
+      tab.chars = doc.text.length;
       tab.conflict = null;
       this.emit();
     } catch (e) {
@@ -482,6 +532,7 @@ export class AppStore {
       remoteImages: this.state.settings.remoteImages,
       showImages: this.state.settings.showImages,
       theme: this.state.theme,
+      imageWidths: tab?.docStyle?.imageWidths ?? {},
     });
     this.applyDocStyleVars();
   }
@@ -493,6 +544,17 @@ export class AppStore {
     if (!this.hostEl) return;
     const tab = this.active;
     applyDocStyle(this.hostEl, tab?.docStyle ?? null, this.state.settings.fontSize);
+  }
+
+  /** 이미지 표시 폭 변경(원문 불변 — 사이드카에만 저장). */
+  setImageWidth(src: string, pct: number): void {
+    const tab = this.active;
+    if (!tab) return;
+    const style: DocStyle = {
+      ...(tab.docStyle ?? DEFAULT_DOC_STYLE_T),
+      imageWidths: { ...(tab.docStyle?.imageWidths ?? {}), [src]: pct },
+    };
+    this.setDocStyle(style);
   }
 
   /** 활성 문서 스타일 변경 — 즉시 적용 + SQLite 저장(원문 불변). */
@@ -622,6 +684,14 @@ export class AppStore {
   private emitSearchRefresh(): void {
     // 탭을 바꿀 때 검색 상태는 새 문서 기준으로 초기화된다(패널이 다시 친다).
   }
+}
+
+/** 단어 수 — 한글은 음절을, 라틴은 단어를 센다(대략적 지표).
+ *  편집 델타의 삽입·삭제 조각에만 돌리므로 입력 비용은 입력량에 비례한다. */
+export function countWords(text: string): number {
+  const cjk = (text.match(/[가-힣぀-ヿ一-鿿]/g) ?? []).length;
+  const latin = (text.match(/[A-Za-z0-9'’_-]+/g) ?? []).length;
+  return cjk + latin;
 }
 
 /** 커서 위치의 인라인 서식 조상을 찾는다(도구모음 활성 상태용). */

@@ -36,6 +36,7 @@ async function makeView(mode: "read" | "edit", doc = SAMPLE): Promise<EditorView
       remoteImages: true,
       showImages: true,
       theme: "light",
+      imageWidths: {},
     }),
   });
   await untilParsed(view);
@@ -138,6 +139,7 @@ describe("라이브 프리뷰 증분 갱신", () => {
         remoteImages: true,
         showImages: true,
         theme: "light",
+        imageWidths: {},
       }),
     });
     // 전체 파싱 완료를 기다리지 않는다(jsdom에선 느리다) — 진행 중인 상태로

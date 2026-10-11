@@ -23,6 +23,8 @@ export const DEFAULT_DOC_STYLE: DocStyle = {
   lineHeight: 0,
   paraSpace: "normal",
   accent: null,
+  firstLineIndent: false,
+  imageWidths: {},
 };
 
 /** 스타일을 호스트 요소의 CSS 변수로 반영한다. */
@@ -44,6 +46,10 @@ export function applyDocStyle(el: HTMLElement, style: DocStyle | null, globalFon
   } else {
     el.style.removeProperty("--md-accent");
   }
+  el.style.setProperty(
+    "--md-text-indent",
+    s.firstLineIndent ? "1.25em" : "0em",
+  );
 }
 
 /** 문서가 저장된 스타일을 갖고 있는가(전부 기본이면 저장할 게 없다). */
@@ -53,6 +59,8 @@ export function isDefaultStyle(style: DocStyle): boolean {
     style.fontSize === 0 &&
     style.lineHeight === 0 &&
     style.paraSpace === "normal" &&
-    !style.accent
+    !style.accent &&
+    !style.firstLineIndent &&
+    Object.keys(style.imageWidths ?? {}).length === 0
   );
 }

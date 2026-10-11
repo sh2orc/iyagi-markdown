@@ -109,6 +109,14 @@ export function StylePanel({ store, onClose, t }: Props): JSX.Element | null {
             </div>
           </label>
         </div>
+        <label className="settings-check">
+          <input
+            type="checkbox"
+            checked={style.firstLineIndent}
+            onChange={(e) => update({ firstLineIndent: e.target.checked })}
+          />
+          {t.styleIndent}
+        </label>
         <p className="modal-hint">스타일은 앱 데이터베이스에 저장됩니다 — .md 원문은 수정되지 않습니다.</p>
         <div className="modal-actions">
           <button className="btn" onClick={reset}>

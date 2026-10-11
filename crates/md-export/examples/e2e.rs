@@ -38,6 +38,7 @@ $$x^2 + \frac{1}{2}$$
         &diagrams,
         &images,
         std::path::Path::new("/tmp/iyagi-e2e.docx"),
+        Some(("serif", 12.0)),
     )
     .unwrap();
     println!("DOCX 생성 완료");

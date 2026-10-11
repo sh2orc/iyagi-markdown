@@ -32,6 +32,7 @@ import { ExportSheet } from "./components/ExportSheet";
 import { Toolbar } from "./components/Toolbar";
 import { MiniToolbar } from "./components/MiniToolbar";
 import { ContextMenu } from "./components/ContextMenu";
+import { setImageResizeHandler } from "./editor/widgets";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { StylePanel } from "./components/StylePanel";
 
@@ -107,6 +108,12 @@ export function App(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 이미지 폭 조절 → 문서 스타일 사이드카(원문 불변).
+  useEffect(() => {
+    setImageResizeHandler((src, pct) => store.setImageWidth(src, pct));
+    return () => setImageResizeHandler(null);
+  }, [store]);
+
   // — 에디터 뷰 수명(탭 전환은 setState) —
   useEffect(() => {
     if (!editorHost.current || editorView.current) return;
@@ -114,7 +121,7 @@ export function App(): JSX.Element {
     editorView.current = view;
     store.view = view;
     store.hostEl = editorHost.current;
-    setViewListener(() => store.onDocChanged());
+    setViewListener((update) => store.onDocChanged(update));
     const tab = store.active;
     if (tab) view.setState(tab.state);
     store.applyConfig();
@@ -142,7 +149,7 @@ export function App(): JSX.Element {
   const saveActive = useCallback(async () => {
     const tab = store.active;
     if (!tab) return;
-    if (tab.path && tab.state.doc.toString() === tab.savedText) return; // 무수정 저장 안 함(§4-2)
+    if (tab.path && !tab.dirty) return; // 무수정 저장 안 함(§4-2)
     const ok = tab.path ? await store.saveActive() : await saveAs();
     if (ok) store.toast(t.savedToast);
   }, [store, t, saveAs]);
@@ -194,6 +201,12 @@ export function App(): JSX.Element {
           await api.exportPdf(html, opts, out);
         } else {
           const manifest = await buildDocxManifest(text);
+          // 문서별 스타일 → DOCX 기본 서체(폰트·크기).
+          const ds = tab.docStyle;
+          manifest.style = {
+            font: ds?.font ?? "system",
+            sizePt: ds && ds.fontSize > 0 ? ds.fontSize : 11,
+          };
           await api.exportDocx(text, manifest, out, baseDir);
         }
         store.setBusy(null);
@@ -209,8 +222,7 @@ export function App(): JSX.Element {
   // — 탭 닫기(더티 확인 동반) —
   const closeTabWithConfirm = useCallback(
     async (tab: Tab) => {
-      const dirty = tab.state.doc.toString() !== tab.savedText;
-      if (dirty) {
+      if (tab.dirty) {
         const ok = await new Promise<boolean>((resolve) => setCloseAsk(() => resolve));
         setCloseAsk(null);
         if (!ok) return;
@@ -367,7 +379,7 @@ export function App(): JSX.Element {
       void webviewWindowApi().then(async (win) => {
         const u = await win.onCloseRequested(async (event) => {
           event.preventDefault();
-          const dirty = store.state.tabs.filter((x) => x.state.doc.toString() !== x.savedText);
+          const dirty = store.state.tabs.filter((x) => x.dirty);
           if (dirty.length > 0) {
             const ok = await new Promise<boolean>((resolve) => setCloseAsk(() => resolve));
             setCloseAsk(null);
@@ -446,15 +458,14 @@ export function App(): JSX.Element {
   return (
     <div className={`app ${state.theme}`}>
       <div className="app-columns">
-        {state.sidebarOpen && (
-          <Sidebar
-            store={store}
-            tree={state.tree}
-            workspace={state.workspace}
-            activePath={activeTab?.path ?? null}
-            t={t}
-          />
-        )}
+        <Sidebar
+          store={store}
+          tree={state.tree}
+          workspace={state.workspace}
+          activePath={activeTab?.path ?? null}
+          t={t}
+          open={state.sidebarOpen}
+        />
         <main className="app-main">
           <TabBar store={store} t={t} onClose={(tab) => void closeTabWithConfirm(tab)} />
           <Toolbar store={store} t={t} />
@@ -475,7 +486,7 @@ export function App(): JSX.Element {
           </div>
           <StatusBar store={store} t={t} onOpenSettings={() => setSettingsOpen(true)} onOpenStyle={() => setStyleOpen(true)} />
         </main>
-        {state.tocOpen && <TocPanel store={store} t={t} />}
+        <TocPanel store={store} t={t} open={state.tocOpen} />
       </div>
 
       {/* 오버레이 */}

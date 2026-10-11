@@ -51,6 +51,8 @@ export const editorTheme = EditorView.theme({
   // — 문단: 컴팩트(빈 줄이 리듬을 맡는다) — 문서별 간격 설정 지원.
   ".md-para": {
     paddingBottom: "var(--md-para-space, 0.15em)",
+    // 한국어 문서 관례의 첫 줄 들여쓰기(문서 스타일 옵션).
+    textIndent: "var(--md-text-indent, 0em)",
   },
   // 마크다운 빈 줄은 낮게 — 블록들이 오밀조밀 붙게(불렛↔표 등).
   ".md-blank": {
@@ -178,7 +180,21 @@ export const editorTheme = EditorView.theme({
   },
 
   // — 이미지 —
-  ".md-image": { display: "inline-block", verticalAlign: "bottom", maxWidth: "100%" },
+  ".md-image": { display: "inline-block", verticalAlign: "bottom", maxWidth: "100%", position: "relative" },
+  ".md-img-handle": {
+    position: "absolute",
+    right: "-6px",
+    bottom: "-6px",
+    width: "12px",
+    height: "12px",
+    borderRadius: "3px",
+    background: "var(--md-accent)",
+    border: "2px solid #fff",
+    boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+    cursor: "ew-resize",
+    display: "none",
+  },
+  ".md-image:hover .md-img-handle": { display: "block" },
   ".md-image img": { maxWidth: "100%", borderRadius: "6px", display: "block" },
   ".md-img-line": { textAlign: "center", paddingBottom: "0.3em", paddingTop: "0.3em" },
   ".md-image-missing": {
@@ -229,7 +245,16 @@ export const editorTheme = EditorView.theme({
     padding: "12px",
     contain: "layout style",
   },
-  ".md-diagram[data-pending]": { opacity: 0.4, minHeight: "2em" },
+  ".md-diagram[data-pending]": {
+    opacity: 0.4,
+    minHeight: "2em",
+    // 렌더 중임을 알리는 부드러운 펄스(opacity만 — GPU 컴포지).
+    animation: "md-pending-pulse 1.2s ease-in-out infinite",
+  },
+  "@keyframes md-pending-pulse": {
+    "0%, 100%": { opacity: "0.35" },
+    "50%": { opacity: "0.65" },
+  },
   ".md-diagram-error": { color: "var(--md-error)" },
   ".md-diagram-error-msg": { fontSize: "0.85em", margin: "4px 0" },
   ".md-diagram-error pre": {

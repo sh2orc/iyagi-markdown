@@ -6,7 +6,7 @@
 
 import { searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, Extension } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, keymap, type ViewUpdate } from "@codemirror/view";
 import { defaultKeymap, history, historyField, historyKeymap } from "@codemirror/commands";
 import { GFM } from "@lezer/markdown";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
@@ -31,8 +31,9 @@ export const editableComp = new Compartment();
 export const behaviorComp = new Compartment();
 export const previewEnabledComp = new Compartment();
 
-/** 문서 변경(더티)·커서 이동 알림 — App이 콜백을 건다. */
-export type ViewListener = (view: EditorView) => void;
+/** 문서 변경(더티)·커서 이동 알림 — App이 콜백을 건다. ViewUpdate를 통째로
+ *  넘겨 증분 통계(변경 범위만 훑기)를 가능하게 한다. */
+export type ViewListener = (update: ViewUpdate) => void;
 let listener: ViewListener | null = null;
 export function setViewListener(fn: ViewListener | null) {
   listener = fn;
@@ -49,6 +50,7 @@ export interface PreviewConfigParam {
   remoteImages: boolean;
   showImages: boolean;
   theme: "light" | "dark";
+  imageWidths: Record<string, number>;
 }
 
 function baseExtensions(): Extension[] {
@@ -80,7 +82,7 @@ function baseExtensions(): Extension[] {
     EditorView.lineWrapping,
     previewConfigField,
     EditorView.updateListener.of((u) => {
-      if (u.docChanged || u.selectionSet) listener?.(u.view);
+      if (u.docChanged || u.selectionSet) listener?.(u);
     }),
     // 스마트 붙여넣기 — URL을 선택 텍스트 위에 붙이면 링크로(Word/워프류 동작).
     EditorView.domEventHandlers({
@@ -154,6 +156,7 @@ function currentPreviewConfig(view: EditorView): PreviewConfigParam {
       remoteImages: true,
       showImages: true,
       theme: "light",
+      imageWidths: {},
     }
   );
 }
