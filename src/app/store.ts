@@ -9,12 +9,14 @@ import { EditorView } from "@codemirror/view";
 
 import type {
   DocMeta,
+  DocStyle,
   LoadedDoc,
   RecentEntry,
   SessionState,
   Settings,
   TreeNode,
 } from "../api";
+import { applyDocStyle, DEFAULT_DOC_STYLE as DEFAULT_DOC_STYLE_T } from "./docStyle";
 import { applyPreviewConfig, createDocState, switchMode, type ViewMode } from "../editor/cm";
 import { dirname } from "../paths";
 
@@ -33,6 +35,8 @@ export interface Tab {
   cursorCol: number;
   /** 외부 변경 상태: null | "changed" | "removed" | "conflict". */
   conflict: null | "changed" | "removed" | "conflict";
+  /** 문서별 스타일(SQLite 사이드카). 없으면 기본. */
+  docStyle: DocStyle | null;
 }
 
 export type ExportKind = "html" | "pdf" | "docx";
@@ -71,6 +75,8 @@ export interface StoreIO {
   watchPaths(files: string[], dirs: string[]): Promise<void>;
   pushRecent?(path: string): Promise<void>;
   getSession?(): Promise<SessionState | null>;
+  docStyleGet?(path: string): Promise<string | null>;
+  docStyleSet?(path: string, styleJson: string): Promise<void>;
 }
 
 let nextTabId = 1;
@@ -153,8 +159,22 @@ export class AppStore {
       cursorLine: 1,
       cursorCol: 1,
       conflict: null,
+      docStyle: null,
     };
     this.state.tabs.push(tab);
+    // 문서별 스타일 사이드카 로드(SQLite).
+    if (path && this.io.docStyleGet) {
+      void this.io.docStyleGet(path).then((json) => {
+        if (json) {
+          try {
+            tab.docStyle = { ...DEFAULT_DOC_STYLE_T, ...(JSON.parse(json) as DocStyle) };
+            if (this.state.activeId === tab.id) this.applyDocStyleVars();
+          } catch {
+            /* 손상된 스타일은 무시 */
+          }
+        }
+      });
+    }
     this.activate(tab.id);
     this.emit();
     void this.syncWatch();
@@ -175,6 +195,7 @@ export class AppStore {
       cursorLine: 1,
       cursorCol: 1,
       conflict: null,
+      docStyle: null,
     };
     this.state.tabs.push(tab);
     this.activate(tab.id);
@@ -442,6 +463,28 @@ export class AppStore {
       showImages: this.state.settings.showImages,
       theme: this.state.theme,
     });
+    this.applyDocStyleVars();
+  }
+
+  /** 문서별 스타일을 에디터 컨테이너 CSS 변수로(호스트는 App이 등록한다). */
+  hostEl: HTMLElement | null = null;
+
+  applyDocStyleVars(): void {
+    if (!this.hostEl) return;
+    const tab = this.active;
+    applyDocStyle(this.hostEl, tab?.docStyle ?? null, this.state.settings.fontSize);
+  }
+
+  /** 활성 문서 스타일 변경 — 즉시 적용 + SQLite 저장(원문 불변). */
+  setDocStyle(style: DocStyle): void {
+    const tab = this.active;
+    if (!tab) return;
+    tab.docStyle = style;
+    this.applyDocStyleVars();
+    this.emit();
+    if (tab.path && this.io.docStyleSet) {
+      void this.io.docStyleSet(tab.path, JSON.stringify(style)).catch(() => {});
+    }
   }
 
   // — 세션 —

@@ -80,6 +80,19 @@ export interface DocxManifest {
   diagrams: Record<string, string>;
 }
 
+/** 문서별 스타일(SQLite 사이드카 — .md 원문은 불변). */
+export interface DocStyle {
+  /** 문서 본문 폰트 */
+  font: "system" | "serif" | "round" | "mono";
+  /** pt. 0이면 전역 설정값. */
+  fontSize: number;
+  /** 0이면 기본(1.55). */
+  lineHeight: number;
+  paraSpace: "tight" | "normal" | "relaxed";
+  /** 강조색 hex(#RRGGBB). null이면 기본. */
+  accent: string | null;
+}
+
 export interface AppInfo {
   version: string;
   lang: string;
@@ -130,6 +143,10 @@ export const api = {
   writeExportFile: (path: string, contents: string) =>
     invoke<void>("write_export_file", { path, contents }),
   revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),
+  docStyleGet: (path: string) => invoke<string | null>("doc_style_get", { path }),
+  docStyleSet: (path: string, styleJson: string) =>
+    invoke<void>("doc_style_set", { path, styleJson }),
+  docStyleClear: (path: string) => invoke<void>("doc_style_clear", { path }),
   openLogsDir: () => invoke<void>("open_logs_dir"),
 };
 

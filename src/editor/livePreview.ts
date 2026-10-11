@@ -179,6 +179,13 @@ function buildDecorations(view: EditorView): DecorationSet {
     return revealed.some((n) => n >= first && n <= last);
   };
 
+  // 인라인 요소(**…**·`…`·링크 등)는 커서·선택이 **그 스팬 자체**(±1자)에
+  // 닿을 때만 원문을 노출한다(Typora 모델). 줄 단위 노출보다 정교해 편집 중에도
+  // Word처럼 보인다 — 같은 줄을 편집해도 볼드 마커는 숨겨진 채로 유지된다.
+  const selRanges = behavior === "reveal" ? view.state.selection.ranges : [];
+  const isTouched = (from: number, to: number): boolean =>
+    selRanges.some((r) => from <= r.to + 1 && to >= r.from - 1);
+
   const addLineClasses = (from: number, to: number, cls: string, skipFirst = false) => {
     const first = doc.lineAt(from).number;
     const last = doc.lineAt(to).number;
@@ -197,6 +204,7 @@ function buildDecorations(view: EditorView): DecorationSet {
   };
 
   const src = view.state.doc.toString();
+  const codeRanges: [number, number][] = [];
 
   try {
     // 범위는 모드에 따라(scanRange 참조): 읽기는 전체 문서, 편집은 뷰포트+여유.
@@ -214,6 +222,15 @@ function buildDecorations(view: EditorView): DecorationSet {
         }
       },
     });
+    // 빈 줄은 낮게 — 블록 사이가 오밀조밀 붙게(불렛↔표 등). 코드 블록 안은 제외.
+    const firstLineNo = doc.lineAt(scan.from).number;
+    const lastLineNo = doc.lineAt(Math.min(scan.to, doc.length)).number;
+    for (let n = firstLineNo; n <= lastLineNo; n++) {
+      const line = doc.line(n);
+      if (line.length !== 0) continue;
+      if (codeRanges.some(([cf, ct]) => line.from >= cf && line.from <= ct)) continue;
+      ranges.push(Decoration.line({ class: "md-blank" }).range(line.from));
+    }
     function enterNode(node: SyntaxNode): boolean | undefined {
         const name = node.name;
         const from = node.from;
@@ -249,9 +266,15 @@ function buildDecorations(view: EditorView): DecorationSet {
           return;
         }
 
+        // — 문단(간격 리듬) —
+        if (name === "Paragraph") {
+          addLineClasses(from, to, "md-para");
+          return;
+        }
+
         // — 강조 —
         if (name === "Emphasis" || name === "StrongEmphasis") {
-          if (isRevealed(from, to)) return;
+          if (isTouched(from, to)) return;
           const cls = name === "StrongEmphasis" ? "md-strong" : "md-em";
           let contentFrom = from;
           let contentTo = to;
@@ -272,7 +295,7 @@ function buildDecorations(view: EditorView): DecorationSet {
 
         // — 취소선 —
         if (name === "Strikethrough") {
-          if (isRevealed(from, to)) return;
+          if (isTouched(from, to)) return;
           for (let child = node.firstChild; child; child = child.nextSibling) {
             if (child.name === "StrikethroughMark") {
               ranges.push(replace({}).range(child.from, child.to));
@@ -290,7 +313,7 @@ function buildDecorations(view: EditorView): DecorationSet {
 
         // — 인라인 코드 —
         if (name === "InlineCode") {
-          if (isRevealed(from, to)) return;
+          if (isTouched(from, to)) return;
           for (let child = node.firstChild; child; child = child.nextSibling) {
             if (child.name === "CodeMark") ranges.push(replace({}).range(child.from, child.to));
           }
@@ -306,9 +329,13 @@ function buildDecorations(view: EditorView): DecorationSet {
 
         // — 링크·이미지(원문 정규식 기반 — 자식 구조 규격에 의존하지 않는다) —
         if (name === "Link" || name === "Image") {
-          if (isRevealed(from, to)) return;
+          if (isTouched(from, to)) return;
           const text = src.slice(from, to);
           if (name === "Image") {
+            // 이미지 단독 줄이면 가운데 크게, 아니면 인라인 작게.
+            if (doc.lineAt(from).text.trim().startsWith("!")) {
+              addLineClasses(from, from, "md-img-line");
+            }
             const m = /^!\[([^\]]*)\]\(\s*<?([^)>]*?)>?((?:\s+"[^"]*")?)\s*\)$/.exec(text);
             if (m) {
               const src2 = absPath(m[2].trim());
@@ -348,6 +375,15 @@ function buildDecorations(view: EditorView): DecorationSet {
         // — 코드 블록 —
         if (name === "FencedCode") {
           addLineClasses(from, to, "md-codeblock");
+          const firstLine = doc.lineAt(from);
+          const lastLine = doc.lineAt(to);
+          ranges.push(Decoration.line({ class: "md-code-first" }).range(firstLine.from));
+          ranges.push(
+            Decoration.line({ class: "md-code-last" }).range(
+              lastLine.from > firstLine.from ? lastLine.from : firstLine.from,
+            ),
+          );
+          codeRanges.push([from, to]);
           if (isRevealed(from, to)) return;
           // FencedCode 자식: CodeMark(펜스) → CodeInfo(언어) → CodeText → CodeMark.
           const second = node.firstChild?.nextSibling;
@@ -360,16 +396,14 @@ function buildDecorations(view: EditorView): DecorationSet {
             );
             return;
           }
-          // 펜스 줄은 얇게 접는다.
-          const firstLine = doc.lineAt(from);
-          const lastLine = doc.lineAt(to);
-          ranges.push(replace({ widget: new SpacerWidget(4) }).range(firstLine.from, firstLine.to));
+          // 펜스 줄은 얇게 접는다(둥근 모서리·안쪽 여백은 줄 클래스가 담당).
+          ranges.push(replace({ widget: new SpacerWidget(2) }).range(firstLine.from, firstLine.to));
           const lastTrim = lastLine.text.trim();
           if (
             lastLine.from > firstLine.from &&
             (lastTrim.startsWith("```") || lastTrim.startsWith("~~~"))
           ) {
-            ranges.push(replace({ widget: new SpacerWidget(10) }).range(lastLine.from, lastLine.to));
+            ranges.push(replace({ widget: new SpacerWidget(2) }).range(lastLine.from, lastLine.to));
           }
           return;
         }
@@ -388,13 +422,27 @@ function buildDecorations(view: EditorView): DecorationSet {
           return;
         }
 
+        // — 목록 항목 —
+        if (name === "ListItem") {
+          const line = doc.lineAt(from);
+          const indent = from - line.from;
+          const depth = Math.min(6, Math.floor(indent / 2));
+          addLineClasses(from, from, depth > 0 ? `md-li md-depth-${depth}` : "md-li");
+          // 선행 공백은 시각 들여쓰기가 대체(원문은 불변 — 커서 줄은 원문 유지).
+          if (indent > 0 && !isRevealed(from, to)) {
+            ranges.push(replace({}).range(line.from, from));
+          }
+          return;
+        }
+
         // — 목록 —
         if (name === "ListMark") {
           ranges.push(Decoration.mark({ class: "md-listmark" }).range(from, to));
           return;
         }
         if (name === "TaskMarker") {
-          if (isRevealed(from, to)) return;
+          addLineClasses(from, from, "md-task-line");
+          if (isTouched(from, to)) return;
           const checked = src.slice(from, to).charCodeAt(1) === 120; // x
           ranges.push(
             replace({ widget: new TaskItemWidget(checked) }).range(from, to),
@@ -428,7 +476,7 @@ function buildDecorations(view: EditorView): DecorationSet {
           return;
         }
         if (name === "InlineMath") {
-          if (isRevealed(from, to)) return;
+          if (isTouched(from, to)) return;
           const latex = src.slice(from + 1, to - 1);
           ranges.push(replace({ widget: new MathWidget(latex, false) }).range(from, to));
           return;

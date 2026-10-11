@@ -41,6 +41,7 @@ comrak = "0.56"
 usvg = "0.48"
 roxmltree = "0.21"
 zip = { version = "9", default-features = false, features = ["deflate"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 [profile.dev]
 debug = 1

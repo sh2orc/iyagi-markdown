@@ -29,7 +29,9 @@ import { SearchPanel } from "./components/SearchPanel";
 import { StatusBar } from "./components/StatusBar";
 import { CloseConfirm, ConflictDialog } from "./components/Modals";
 import { ExportSheet } from "./components/ExportSheet";
+import { Toolbar } from "./components/Toolbar";
 import { SettingsSheet } from "./components/SettingsSheet";
+import { StylePanel } from "./components/StylePanel";
 
 const ioAdapter = {
   readDocument: (path: string) => api.readDocument(path),
@@ -59,6 +61,7 @@ export function App(): JSX.Element {
   /** 닫기 확인 진행 중인 콜백(창 닫기·탭 닫기 공용). */
   const [closeAsk, setCloseAsk] = useState<((proceed: boolean) => void) | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [styleOpen, setStyleOpen] = useState(false);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -108,6 +111,7 @@ export function App(): JSX.Element {
     const view = new EditorView({ parent: editorHost.current });
     editorView.current = view;
     store.view = view;
+    store.hostEl = editorHost.current;
     setViewListener(() => store.onDocChanged());
     const tab = store.active;
     if (tab) view.setState(tab.state);
@@ -117,6 +121,7 @@ export function App(): JSX.Element {
       view.destroy();
       editorView.current = null;
       store.view = null;
+      store.hostEl = null;
     };
   }, [store]);
 
@@ -221,8 +226,8 @@ export function App(): JSX.Element {
         return;
       }
       switch (id) {
-        case "settings":
-          setSettingsOpen(true);
+        case "doc-style":
+          setStyleOpen(true);
           break;
         case "new-tab":
           store.newTab();
@@ -447,6 +452,7 @@ export function App(): JSX.Element {
         )}
         <main className="app-main">
           <TabBar store={store} t={t} onClose={(tab) => void closeTabWithConfirm(tab)} />
+          <Toolbar store={store} t={t} />
           {state.searchOpen && editorView.current && (
             <SearchPanel store={store} view={editorView.current} t={t} />
           )}
@@ -461,7 +467,7 @@ export function App(): JSX.Element {
               </div>
             )}
           </div>
-          <StatusBar store={store} t={t} onOpenSettings={() => setSettingsOpen(true)} />
+          <StatusBar store={store} t={t} onOpenSettings={() => setSettingsOpen(true)} onOpenStyle={() => setStyleOpen(true)} />
         </main>
         {state.tocOpen && <TocPanel store={store} t={t} />}
       </div>
@@ -494,6 +500,7 @@ export function App(): JSX.Element {
         onClose={() => setSettingsOpen(false)}
         t={t}
       />
+      {styleOpen && <StylePanel store={store} onClose={() => setStyleOpen(false)} t={t} />}
       <div className="toasts">
         {state.toasts.map((toast) => (
           <div key={toast.id} className={`toast ${toast.kind}`}>

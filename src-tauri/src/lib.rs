@@ -8,6 +8,7 @@ mod logging;
 mod menu;
 mod pdf;
 mod state;
+mod style_db;
 mod watcher;
 mod window;
 
@@ -70,6 +71,9 @@ pub fn run() {
             commands::write_export_file,
             commands::reveal_in_finder,
             commands::open_logs_dir,
+            style_db::doc_style_get,
+            style_db::doc_style_set,
+            style_db::doc_style_clear,
         ])
         .build(tauri::generate_context!())
         .expect("error while building IYAGI Markdown")

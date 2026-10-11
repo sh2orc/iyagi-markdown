@@ -7,9 +7,10 @@ interface Props {
   store: AppStore;
   t: Translate;
   onOpenSettings: () => void;
+  onOpenStyle: () => void;
 }
 
-export function StatusBar({ store, t, onOpenSettings }: Props): JSX.Element {
+export function StatusBar({ store, t, onOpenSettings, onOpenStyle }: Props): JSX.Element {
   const state = store.getSnapshot();
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
   const dirty = tab ? tab.state.doc.toString() !== tab.savedText : false;
@@ -51,6 +52,11 @@ export function StatusBar({ store, t, onOpenSettings }: Props): JSX.Element {
             <span className="status-cell">{t.f.chars(chars)}</span>
             {dirty && <span className="status-dot" title={t.dirtyTitle} />}
           </>
+        )}
+        {tab?.path && (
+          <button className="status-style" title={t.styleTitle} onClick={onOpenStyle}>
+            Aa
+          </button>
         )}
         <button className="status-settings" title={t.settingsTitle} onClick={onOpenSettings}>
           ⚙

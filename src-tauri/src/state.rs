@@ -25,6 +25,8 @@ pub struct AppState {
     pub recent: Mutex<RecentList>,
     /// 창이 뜨기 전에 도착한 열기 요청(더블클릭 두 번째 인스턴스 등).
     pub pending_files: Mutex<Vec<String>>,
+    /// 문서별 스타일 저장소(SQLite 사이드카 — 원문 불변).
+    pub style_db: Option<crate::style_db::StyleDb>,
 }
 
 /// setup에서 한 번만 호출. 상태를 만들어 manage한다.
@@ -55,6 +57,7 @@ pub fn init(app: &AppHandle) {
         session,
         recent: Mutex::new(recent),
         pending_files: Mutex::new(Vec::new()),
+        style_db: crate::style_db::StyleDb::open(app),
     });
 }
 
