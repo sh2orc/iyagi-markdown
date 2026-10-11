@@ -78,6 +78,13 @@ export function TocPanel({ store, t, open }: Props): JSX.Element {
     if (bodyRef.current) bodyRef.current.inert = !open;
   }, [open]);
 
+  // 강조 항목이 TOC 보이는 범위를 벗어나면 따라감.
+  useEffect(() => {
+    if (activeIdx < 0 || !bodyRef.current) return;
+    const el = bodyRef.current.children[activeIdx + 1] as HTMLElement | undefined; // +1 = head
+    if (el?.scrollIntoView) el.scrollIntoView({ block: "nearest" });
+  }, [activeIdx]);
+
   const goto = (pos: number, view: EditorView | null) => {
     if (!view) return;
     smoothScrollIntoView(view, Math.min(pos, view.state.doc.length));

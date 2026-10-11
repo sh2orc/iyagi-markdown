@@ -146,6 +146,20 @@ export const editorTheme = EditorView.theme({
   ".md-link-ref": { color: "var(--md-link)", textDecoration: "underline dotted" },
   ".md-url": { color: "var(--md-link)", opacity: 0.9 },
   ".md-html": { color: "var(--md-raw)" },
+  ".md-footnote-ref": {
+    color: "var(--md-link)",
+    fontSize: "0.72em",
+    verticalAlign: "super",
+    lineHeight: "0",
+    cursor: "help",
+  },
+  ".md-footnote-def": {
+    fontSize: "0.82em",
+    color: "var(--md-fg-dim)",
+    borderTop: "1px solid var(--md-border)",
+    marginTop: "0.5em",
+    paddingTop: "0.35em",
+  },
 
   // — 코드 블록: 하나의 붙는 카드(줄마다 배경이 이어지고 끝만 둥글게) —
   ".md-codeblock": {

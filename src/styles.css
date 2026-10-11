@@ -819,6 +819,13 @@ body.resizing .toc {
 }
 .toc-item.is-active {
   color: var(--md-accent);
+  background: var(--md-accent-soft);
+  font-weight: 600;
+  border-left: 2px solid var(--md-accent);
+  padding-left: 6px;
+}
+.toc-item.is-active {
+  color: var(--md-accent);
   font-weight: 600;
 }
 
@@ -859,6 +866,11 @@ body.resizing .toc {
 .status-mode.is-on {
   color: var(--md-accent);
   background: var(--md-accent-soft);
+  font-weight: 600;
+}
+
+.status-sel {
+  color: var(--md-accent);
   font-weight: 600;
 }
 

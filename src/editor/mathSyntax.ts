@@ -1,5 +1,5 @@
-// $…$ 인라인 수식과 $$…$$ 블록 수식을 lezer-markdown에 추가하는 확장.
-// 문법 요소만 만들고 표시는 livePreview 장식이 맡는다.
+// $…$ 인라인 수식, $$…$$ 블록 수식, [^label] 각주 참조를 lezer-markdown에
+// 추가하는 확장. 문법 요소만 만들고 표시는 livePreview 장식이 맡는다.
 
 import { MarkdownExtension } from "@lezer/markdown";
 
@@ -7,11 +7,25 @@ const DOLLAR = 36;
 const BACKSLASH = 92;
 
 export const mathSyntax: MarkdownExtension = {
-  defineNodes: [
-    { name: "InlineMath" },
-    { name: "MathBlock", block: true },
-  ],
+  defineNodes: [{ name: "InlineMath" }, { name: "MathBlock", block: true }, { name: "FootnoteRef" }],
   parseInline: [
+    {
+      // 각주 참조 [^label] — Link 파서보다 먼저 잡는다.
+      name: "iyagiFootnoteRef",
+      before: "Link",
+      parse(cx, next, pos) {
+        if (next !== 0x5b /* [ */ || cx.char(pos + 1) !== 0x5e /* ^ */) return -1;
+        for (let i = pos + 2; i < cx.end; i++) {
+          const c = cx.char(i);
+          if (c === 0x5d /* ] */) {
+            if (i <= pos + 2) return -1; // [^] 는 각주 아님
+            return cx.addElement(cx.elt("FootnoteRef", pos, i + 1));
+          }
+          if (c === 0x0a || c === 0x20) return -1; // 줄바꿈·공백은 라벨에 없다
+        }
+        return -1;
+      },
+    },
     {
       name: "mathInline",
       before: "Escape",

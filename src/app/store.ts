@@ -40,6 +40,8 @@ export interface Tab {
   docStyle: DocStyle | null;
   /** 커서 위치의 활성 서식(도구모음 반영용). */
   marks: { bold: boolean; italic: boolean; strike: boolean; code: boolean; link: boolean };
+  /** 선택 통계(상태줄) — 선택 중일 때만 표시. */
+  selChars: number;
   /** 저장 안 됨 표시 — 입력마다 O(문서) 비교 대신 증분 유지(정확성: 길이가
    *  같을 때만 문자열 비교로 확정한다). */
   dirty: boolean;
@@ -192,6 +194,7 @@ export class AppStore {
       conflict: null,
       docStyle: null,
       marks: { bold: false, italic: false, strike: false, code: false, link: false },
+      selChars: 0,
       dirty: false,
       words: countWords(doc.text),
       chars: doc.text.length,
@@ -232,6 +235,7 @@ export class AppStore {
       conflict: null,
       docStyle: null,
       marks: { bold: false, italic: false, strike: false, code: false, link: false },
+      selChars: 0,
       dirty: false,
       words: 0,
       chars: 0,
@@ -349,6 +353,8 @@ export class AppStore {
     tab.cursorLine = line.number;
     tab.cursorCol = sel.head - line.from + 1;
     tab.marks = marksAt(this.view.state, sel.head, sel.to);
+    // 선택 통계(Word 상태 표시줄) — 증분 카운터 재사용.
+    tab.selChars = sel.empty ? 0 : this.view.state.sliceDoc(sel.from, sel.to).length;
     if (update.docChanged) {
       // 통계는 편집 델타로 증분 갱신 — 키 입력마다 문서 전체를 훑지 않는다.
       const prevDoc = update.startState.doc;

@@ -1,6 +1,6 @@
 // 상태 줄 — 모드 전환·커서 위치·단어 수·설정 진입.
 
-import type { AppStore } from "../app/store";
+import { countWords, type AppStore } from "../app/store";
 import type { Translate } from "../i18n";
 
 interface Props {
@@ -17,6 +17,9 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle }: Props): JSX
   const dirty = tab?.dirty ?? false;
   const words = tab?.words ?? 0;
   const chars = tab?.chars ?? 0;
+  // 선택 통계 — 선택 중일 때만 (O(선택 길이)).
+  const sel = tab?.state.selection.main;
+  const selText = sel && !sel.empty ? tab!.state.doc.sliceString(sel.from, sel.to) : null;
 
   return (
     <footer className="statusbar">
@@ -48,8 +51,16 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle }: Props): JSX
           <>
             <span className="status-cell">{t.ln} {tab.cursorLine}</span>
             <span className="status-cell">{t.col} {tab.cursorCol}</span>
-            <span className="status-cell">{t.f.words(words)}</span>
-            <span className="status-cell">{t.f.chars(chars)}</span>
+            {tab.selChars > 0 ? (
+              <span className="status-cell status-sel">
+                {t.f.words(countWords(selText ?? ""))} · {t.f.chars(tab.selChars)} {t.sel}
+              </span>
+            ) : (
+              <>
+                <span className="status-cell">{t.f.words(words)}</span>
+                <span className="status-cell">{t.f.chars(chars)}</span>
+              </>
+            )}
             {dirty && <span className="status-dot" title={t.dirtyTitle} />}
           </>
         )}

@@ -435,6 +435,15 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
           return;
         }
 
+        // — 각주 참조 [^label]: 위첨자 —
+        if (name === "FootnoteRef") {
+          if (isTouched(from, to)) return;
+          ranges.push(
+            Decoration.mark({ class: "md-footnote-ref", attributes: { title: slice(from, to) } }).range(from, to),
+          );
+          return;
+        }
+
         // — URL·자동 링크 —
         if (name === "URL" || name === "Autolink") {
           ranges.push(Decoration.mark({ class: "md-url" }).range(from, to));
