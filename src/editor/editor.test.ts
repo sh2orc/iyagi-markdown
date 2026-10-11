@@ -230,3 +230,12 @@ describe("EditorView + 라이브 프리뷰 장식(통합)", () => {
     view.destroy();
   });
 });
+
+describe("서식 복사 프리워머", () => {
+  it("prewarmCopyRenderer는 인스턴스를 만든다(비동기)", async () => {
+    // 지연 청크 로드 — vitest node 환경에서도 동작하는지 확인.
+    const { __testingCopy } = await import("./cm");
+    await __testingCopy.prewarm();
+    expect(__testingCopy.ready()).toBe(true);
+  });
+});

@@ -54,6 +54,26 @@ export interface PreviewConfigParam {
   imageWidths: Record<string, number>;
 }
 
+/** 서식 복사용 markdown-it(지연 로드, 선택 시 예열). */
+let mdItInstance: import("markdown-it").MarkdownIt | null = null;
+let mdItLoading = false;
+
+function prewarmCopyRenderer(): Promise<void> {
+  if (mdItInstance) return Promise.resolve();
+  if (mdItLoading) return mdItPromise ?? Promise.resolve();
+  mdItLoading = true;
+  mdItPromise = import("markdown-it").then((MarkdownIt) => {
+    mdItInstance = new MarkdownIt.default({ html: false, linkify: true, breaks: false });
+    mdItLoading = false;
+  });
+  void mdItPromise.catch(() => {
+    mdItLoading = false; // 다음 선택에서 재시도
+  });
+  return mdItPromise;
+}
+
+let mdItPromise: Promise<void> | null = null;
+
 function baseExtensions(): Extension[] {
   return [
     historyField,
@@ -68,6 +88,18 @@ function baseExtensions(): Extension[] {
       { key: "Mod-i", run: (v) => fmt.toggleItalic(v), preventDefault: true },
       { key: "Mod-Shift-x", run: (v) => fmt.toggleStrikethrough(v), preventDefault: true },
       { key: "Mod-Shift-k", run: (v) => fmt.toggleInlineCode(v), preventDefault: true },
+      // 강제 줄바꿈(Word Shift+Enter) — 마크다운 관례의 두 공백 + 개행.
+      {
+        key: "Shift-Enter",
+        run: (v) => {
+          v.dispatch({
+            changes: { from: v.state.selection.main.head, insert: "  \n" },
+            scrollIntoView: true,
+            userEvent: "input.hardBreak",
+          });
+          return true;
+        },
+      },
       // Mod-e(모드 전환)·Mod-/(소스)는 메뉴 가속기와 앱 레벨 keydown이 처리한다.
     ]),
     markdown({
@@ -88,6 +120,23 @@ function baseExtensions(): Extension[] {
     // 스마트 붙여넣기 — ① URL을 선택 텍스트 위에 붙이면 링크로(Word/워프류),
     // ② HTML 클립보드(Word·브라우저 복사)는 마크다운으로 변환해 삽입.
     EditorView.domEventHandlers({
+      copy(event, view) {
+        // 서식 복사 — 선택한 마크다운을 plain과 HTML로 **같이** 클립보드에 넣는다
+        // (Word·메일에 굵게·제목·표가 유지되어 붙는다). setData는 이벤트 동기창에서만
+        // 유효하므로 변환기는 선택 순간 프리워밍해 둔다(plain은 항상 원문 그대로 §4-2).
+        const sel = view.state.selection.main;
+        if (sel.empty || !event.clipboardData) return false;
+        const md = view.state.sliceDoc(sel.from, sel.to);
+        if (!/[#>*`\[|_]|^\d+\.\s/m.test(md)) return false; // 마크다운 문법이 있을 때만
+        if (mdItInstance) {
+          event.preventDefault();
+          event.clipboardData.setData("text/plain", md);
+          event.clipboardData.setData("text/html", `<meta charset="utf-8">${mdItInstance.render(md)}`);
+          return true;
+        }
+        prewarmCopyRenderer(); // 다음 복사부터 서식 적용
+        return false; // 이번에는 기본(plain) 복사
+      },
       paste(event, view) {
         const text = event.clipboardData?.getData("text/plain") ?? "";
         const sel = view.state.selection.main;
@@ -258,3 +307,10 @@ export function smoothScrollIntoView(view: EditorView, pos: number): void {
   setTimeout(reset, 700);
   view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
 }
+
+/** 테스트 전용 노출. */
+export const __testingCopy = {
+  prewarm: prewarmCopyRenderer,
+  ready: () => mdItInstance !== null,
+  render: (md: string) => mdItInstance?.render(md) ?? null,
+};
