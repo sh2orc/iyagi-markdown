@@ -942,6 +942,24 @@ body.resizing .toc {
   min-width: 340px;
   max-width: 460px;
   box-shadow: var(--md-shadow);
+  animation: modal-in 0.16s ease;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+}
+
+.overlay {
+  animation: fade-in 0.14s ease;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
 }
 
 .modal-title {

@@ -1,4 +1,8 @@
 // 설정 시트(§4-7) — 설정 항목 10개 내외. 즉시 반영 + settings.json 저장.
+// 디스크 저장(및 settings-changed 이벤트 왕복)은 짧게 디바운스 — 슬라이더를
+// 끌 때 매 틱마다 파일을 쓰지 않는다. 화면 반영은 즉시.
+
+import { useRef } from "react";
 
 import type { AppStore } from "../app/store";
 import { api, isInApp, type Settings } from "../api";
@@ -12,13 +16,20 @@ interface Props {
 }
 
 export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element | null {
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const set = (patch: Partial<Settings>) => {
+    const next = { ...store.state.settings, ...patch };
+    store.setSettings(next); // 화면은 즉시
+    if (isInApp()) {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => {
+        saveTimer.current = null;
+        void api.setSettings(next).catch(() => {});
+      }, 300);
+    }
+  };
   if (!open) return null;
   const s = store.state.settings;
-  const set = (patch: Partial<Settings>) => {
-    const next = { ...s, ...patch };
-    store.setSettings(next);
-    if (isInApp()) void api.setSettings(next).catch(() => {});
-  };
 
   return (
     <div className="overlay modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>

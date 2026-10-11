@@ -74,6 +74,26 @@ export const previewConfigField = StateField.define<PreviewConfig>({
   },
 });
 
+/** 두 프리뷰 설정이 내용까지 같은가(캐시 폐기 여부 판정용). */
+function previewConfigEquals(a: PreviewConfig | undefined, b: PreviewConfig): boolean {
+  if (!a) return false;
+  if (
+    a.baseDir !== b.baseDir ||
+    a.remoteImages !== b.remoteImages ||
+    a.showImages !== b.showImages ||
+    a.theme !== b.theme
+  ) {
+    return false;
+  }
+  const ka = Object.keys(a.imageWidths);
+  const kb = Object.keys(b.imageWidths);
+  if (ka.length !== kb.length) return false;
+  for (const k of ka) {
+    if (a.imageWidths[k] !== b.imageWidths[k]) return false;
+  }
+  return true;
+}
+
 // — 모드: 읽기(항상 렌더) vs 편집(커서 줄 원문 노출) —
 
 export type PreviewBehavior = "render" | "reveal";
@@ -576,10 +596,20 @@ const plugin = ViewPlugin.fromClass(
     }
 
     update(u: ViewUpdate) {
+      // 설정 디스패치는 잦고 내용이 같을 때가 많다(모드 전환 재빌드 트리거,
+      // 폰트 슬라이더 등 applyConfig 재실행) — 효과 신원이 아니라 내용이 실제로
+      // 바뀐 경우에만 캐시를 버린다. 그렇지 않으면 슬라이더 한 번에 전체 재계산.
+      const prevConfig = u.startState.field(previewConfigField, false);
       const configChanged = u.transactions.some((tr) =>
-        tr.effects.some((e) => e.is(setPreviewConfig)),
+        tr.effects.some(
+          (e) => e.is(setPreviewConfig) && !previewConfigEquals(prevConfig, e.value),
+        ),
       );
-      if (u.docChanged || configChanged) {
+      // 모드 전환(읽기↔편집)은 노출 규칙 자체가 바뀐다 — 장식을 전부 다시
+      // 계산해야 한다(과거엔 같은 내용의 config 디스패치에 얹혀 있던 트리거).
+      const behaviorChanged =
+        u.startState.facet(previewBehavior) !== u.state.facet(previewBehavior);
+      if (u.docChanged || configChanged || behaviorChanged) {
         // 문서 좌표·설정이 달라졌다 — 청크 계획과 캐시를 전부 폐기한다.
         this.ends = [];
         this.plannedTreeLen = -1;
@@ -594,7 +624,7 @@ const plugin = ViewPlugin.fromClass(
           this.invalidate(u.view, Math.min(prevFirst, this.selFirst), Math.max(prevLast, this.selLast));
         }
       }
-      if (u.docChanged || u.viewportChanged || u.selectionSet || u.focusChanged || configChanged) {
+      if (u.docChanged || u.viewportChanged || u.selectionSet || u.focusChanged || configChanged || behaviorChanged) {
         // 갱신 주기 안에서의 dispatch는 금지다("update is in progress" 크래시 —
         // 장식이 중간에 끊기는 원인). 마이크로태스크로 미루면 연속 갱신도 자연
         // 병합된다.
