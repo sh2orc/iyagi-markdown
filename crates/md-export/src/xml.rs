@@ -11,9 +11,7 @@ pub fn esc(s: &str) -> String {
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&apos;"),
             // XML 1.0이 허용하지 않는 제어 문자는 U+FFFD로 대체(Word 호환).
-            c if (c as u32) < 0x20 && c != '\t' && c != '\n' && c != '\r' => {
-                out.push('\u{FFFD}')
-            }
+            c if (c as u32) < 0x20 && c != '\t' && c != '\n' && c != '\r' => out.push('\u{FFFD}'),
             c => out.push(c),
         }
     }

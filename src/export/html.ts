@@ -7,6 +7,7 @@
 // 편집 화면(CM6 위젯)과는 별개 파이프라인이다 — 모양 차이는 공통 CSS 토큰으로 관리(§4-4).
 
 import MarkdownIt, { type MarkdownIt as MarkdownItType, type StateInline, type Token } from "markdown-it";
+import footnote from "markdown-it-footnote";
 
 import { ensureHighlight, escapeHtml, highlightHtml } from "../plugins/highlight";
 import { ensureKatex, renderMathMl } from "../plugins/katex";
@@ -30,6 +31,7 @@ export interface ExportHtmlOptions {
 
 function makeMd(): MarkdownItType {
   const md = new MarkdownIt({ html: true, linkify: true, breaks: false, typographer: false });
+  md.use(footnote);
   // $…$ · $$…$$ 수식 규칙(§4-4: KaTeX로 렌더).
   md.inline.ruler.before("escape", "iyagi_math", (state: StateInline, silent: boolean) => {
     const src = state.src;
@@ -336,6 +338,8 @@ body{margin:0 auto;padding:24px 16px;max-width:820px;font-family:-apple-system,B
 .markdown-body .diagram{text-align:center;margin:1em 0;overflow-x:auto;}
 .markdown-body .diagram svg{max-width:100%;height:auto;}
 .markdown-body .math-fallback{color:#d33;}
+.markdown-body .footnotes{margin-top:2.5em;border-top:1px solid ${c.border};font-size:.92em;color:${c.quote};}
+.markdown-body .footnote-backref{text-decoration:none;}
 .katex-display{margin:.85em 0;overflow-x:auto;overflow-y:hidden;}
 .hljs-keyword,.hljs-selector-tag,.hljs-built_in{color:${c.synK};}
 .hljs-string,.hljs-attr{color:${c.synS};}

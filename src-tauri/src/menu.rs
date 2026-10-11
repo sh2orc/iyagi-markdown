@@ -40,7 +40,12 @@ pub fn is_custom(id: &str) -> bool {
 
 /// 앱 메뉴 전체를 (재)구성해 설치한다. 언어 변경·최근 문서 변경 시에도 다시 불린다.
 pub fn install(app: &AppHandle) -> tauri::Result<()> {
-    let lang = crate::commands::lang_of(&app.state::<crate::state::AppState>().settings.read().unwrap());
+    let lang = crate::commands::lang_of(
+        &app.state::<crate::state::AppState>()
+            .settings
+            .read()
+            .unwrap(),
+    );
     let t = |m: Msg| m.text(lang);
 
     // — 앱 메뉴(macOS 첫 메뉴, 앱 이름) —
@@ -117,8 +122,16 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         file_menu.append(&mi(app, id, label, None)?)?;
     }
     file_menu.append(&PredefinedMenuItem::separator(app)?)?;
-    file_menu.append(&mi(app, "close-tab", t(Msg::CloseTab), Some("CmdOrCtrl+W"))?)?;
-    file_menu.append(&PredefinedMenuItem::close_window(app, Some(t(Msg::CloseWindow)))?)?;
+    file_menu.append(&mi(
+        app,
+        "close-tab",
+        t(Msg::CloseTab),
+        Some("CmdOrCtrl+W"),
+    )?)?;
+    file_menu.append(&PredefinedMenuItem::close_window(
+        app,
+        Some(t(Msg::CloseWindow)),
+    )?)?;
 
     // — 편집 —
     let edit_menu = Submenu::with_items(
@@ -136,7 +149,12 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
             &PredefinedMenuItem::separator(app)?,
             &mi(app, "find", t(Msg::Find), Some("CmdOrCtrl+F"))?,
             &mi(app, "find-next", t(Msg::FindNext), Some("CmdOrCtrl+G"))?,
-            &mi(app, "find-prev", t(Msg::FindPrev), Some("Shift+CmdOrCtrl+G"))?,
+            &mi(
+                app,
+                "find-prev",
+                t(Msg::FindPrev),
+                Some("Shift+CmdOrCtrl+G"),
+            )?,
             &mi(app, "replace", t(Msg::Replace), Some("Alt+CmdOrCtrl+F"))?,
         ],
     )?;
@@ -151,8 +169,18 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
             &mi(app, "mode-read", t(Msg::ModeRead), Some("CmdOrCtrl+E"))?,
             &mi(app, "mode-source", t(Msg::ModeSource), Some("CmdOrCtrl+/"))?,
             &PredefinedMenuItem::separator(app)?,
-            &mi(app, "toggle-sidebar", t(Msg::ToggleSidebar), Some("Shift+CmdOrCtrl+B"))?,
-            &mi(app, "toggle-toc", t(Msg::ToggleToc), Some("Shift+CmdOrCtrl+T"))?,
+            &mi(
+                app,
+                "toggle-sidebar",
+                t(Msg::ToggleSidebar),
+                Some("Shift+CmdOrCtrl+B"),
+            )?,
+            &mi(
+                app,
+                "toggle-toc",
+                t(Msg::ToggleToc),
+                Some("Shift+CmdOrCtrl+T"),
+            )?,
             &PredefinedMenuItem::separator(app)?,
             &mi(app, "zoom-in", t(Msg::ZoomIn), Some("CmdOrCtrl+="))?,
             &mi(app, "zoom-out", t(Msg::ZoomOut), Some("CmdOrCtrl+-"))?,
@@ -176,7 +204,10 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         ],
     )?;
 
-    let menu = Menu::with_items(app, &[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu])?;
+    let menu = Menu::with_items(
+        app,
+        &[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu],
+    )?;
     app.set_menu(menu).map(|_| ())
 }
 

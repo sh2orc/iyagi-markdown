@@ -83,7 +83,12 @@ pub fn update_watch(app: &AppHandle, files: Vec<String>, dirs: Vec<String>) {
 
     let mut new_dirs: HashSet<PathBuf> = files
         .iter()
-        .map(|f| Path::new(f).parent().map(|p| p.to_path_buf()).unwrap_or_default())
+        .map(|f| {
+            Path::new(f)
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_default()
+        })
         .filter(|p| !p.as_os_str().is_empty())
         .collect();
     let new_recursive: HashSet<PathBuf> = dirs.iter().map(PathBuf::from).collect();

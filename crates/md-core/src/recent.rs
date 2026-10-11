@@ -39,7 +39,10 @@ impl RecentList {
         self.entries.retain(|e| e.path != path);
         self.entries.insert(
             0,
-            RecentEntry { path: path.to_string(), name },
+            RecentEntry {
+                path: path.to_string(),
+                name,
+            },
         );
         self.entries.truncate(RECENT_CAP);
         before != self.entries

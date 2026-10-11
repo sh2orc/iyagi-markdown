@@ -13,8 +13,8 @@
 //!
 //! 이 크레이트는 Tauri·macOS에 의존하지 않아 리눅스 CI에서 단위 테스트가 돈다.
 
-pub mod io;
 pub mod i18n;
+pub mod io;
 pub mod links;
 pub mod recent;
 pub mod session;

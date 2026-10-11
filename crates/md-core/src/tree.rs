@@ -7,7 +7,15 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 /// 무시할 디렉터리 이름(숨김 `.`/`__` 접두사는 별도 규칙으로 처리).
-const IGNORED_DIRS: &[&str] = &["node_modules", "target", ".git", "dist", "build", "out", "vendor"];
+const IGNORED_DIRS: &[&str] = &[
+    "node_modules",
+    "target",
+    ".git",
+    "dist",
+    "build",
+    "out",
+    "vendor",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
@@ -50,10 +58,10 @@ pub fn is_markdown_name(name: &str) -> bool {
 /// 않는다(순환 방지 — metadata가 아닌 symlink_metadata로 판별).
 /// 깊이 제한(기본 12)도 같은 이유다.
 pub fn scan_tree(root: &Path) -> std::io::Result<Vec<TreeNode>> {
-    scan_dir(root, root, 0, 12)
+    scan_dir(root, 0, 12)
 }
 
-fn scan_dir(root: &Path, dir: &Path, depth: u32, max_depth: u32) -> std::io::Result<Vec<TreeNode>> {
+fn scan_dir(dir: &Path, depth: u32, max_depth: u32) -> std::io::Result<Vec<TreeNode>> {
     let mut out: Vec<TreeNode> = Vec::new();
     if depth > max_depth {
         return Ok(out);
@@ -65,7 +73,8 @@ fn scan_dir(root: &Path, dir: &Path, depth: u32, max_depth: u32) -> std::io::Res
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') || name.starts_with("__") || IGNORED_DIRS.contains(&name.as_str()) {
+        if name.starts_with('.') || name.starts_with("__") || IGNORED_DIRS.contains(&name.as_str())
+        {
             continue;
         }
         let ft = match entry.file_type() {
@@ -73,7 +82,7 @@ fn scan_dir(root: &Path, dir: &Path, depth: u32, max_depth: u32) -> std::io::Res
             Err(_) => continue,
         };
         if ft.is_dir() {
-            let children = scan_dir(root, &entry.path(), depth + 1, max_depth)?;
+            let children = scan_dir(&entry.path(), depth + 1, max_depth)?;
             // 빈 폴더(마크다운 없음)는 보여 봤자 클릭할 게 없다 — 접는다.
             if !children.is_empty() {
                 out.push(TreeNode::Dir {

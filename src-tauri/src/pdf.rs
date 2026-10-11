@@ -1,15 +1,21 @@
 //! PDF 내보내기 — 숨은 WKWebView에서 완성된 HTML을 벡터 PDF로 변환한다(§4-4).
 //!
-//! - HTML은 `loadHTMLString:`로 메모리에서 직접 올린다 — 임시 파일을 만들지 않는다.
-//! - 로드 완료 대기는 WKNavigationDelegate 대신 `isLoading` 폴링: 런루프를
-//!   돌리며 주기적으로 검사한다(델리게이트 클래스 등록이 필요 없다).
-//! - 페이지 크기는 WKPDFConfiguration.rect로 준다 — WebKit이 인쇄용으로
-//!   콘텐츠를 페이지로 나눠 벡터로 뽑는다(코드블록·표 분할 포함).
-//! - mermaid 인라인 SVG·KaTeX 수식은 WebKit PDF 경로에서 벡터로 그대로
-//!   살아남는다(§4-3 — 래스터화 없음).
+//! 페이지 분할 방식(2026-10-11 실패 시행에 따라 확정):
+//! 1. HTML을 메모리에서 바로 올린다(`loadHTMLString:`) — 임시 파일 없음.
+//! 2. 로드 뒤 **CSS 다단 컬럼 페이지네이션**을 주입한다: 내용을 페이지 폭의
+//!    컬럼·페이지 높이로 흘려 보내면 문서가 **가로로** 이어지는 컬럼들이 된다.
+//!    컬럼 경계 = 페이지 경계라서 텍스트가 경계 중간에 잘리지 않는다.
+//! 3. `createPDF`로 전체 컬럼 폭을 **한 넓은 페이지**로 받는다(전부 벡터).
+//! 4. CoreGraphics로 그 넓은 페이지를 페이지 폭마다 잘라 여러 페이지 PDF으로
+//!    재조립한다(소스 PDF를 페이지 객체로 삽입 — 2차 전부 벡터, 래스터화 없음 §4-3).
+//! 5. 결과는 최종 파일에 곧바로 쓴다(`CGPDFContextCreateWithURL`).
 //!
-//! 모든 Objective-C 호출은 메인 스레드에서(`run_on_main_thread`) 일어나며,
-//! 오토릴리즈 풀 하나 안에서 끝낸다. 실패는 그대로 Err 문자열로 반환.
+//! 크기: WebKit은 CSS px를 PDF point처럼 내보낸다(실측). 종이 물리 크기(pt =
+//! mm/25.4×72)에 맞추려면 재조립 단계에서 CTM을 축소한다.
+//!
+//! 로드 완료 대기는 `isLoading` 폴링(델리게이트 클래스 등록이 필요 없다).
+//! 모든 Objective-C 호출은 메인 스레드에서(`run_on_main_thread`) 일어나며
+//! 오토릴리즈 풀 하나 안에서 끝난다.
 
 use std::path::Path;
 use std::sync::mpsc;
@@ -19,7 +25,7 @@ use block2::RcBlock;
 use objc2::rc::autoreleasepool;
 use objc2::runtime::AnyClass;
 use objc2::{class, msg_send};
-use objc2_foundation::{NSData, NSString, NSPoint, NSRect, NSSize};
+use objc2_foundation::{NSData, NSPoint, NSRect, NSSize, NSString};
 use tauri::AppHandle;
 
 use crate::commands::PdfOptions;
@@ -28,24 +34,27 @@ use crate::commands::PdfOptions;
 #[link(name = "WebKit", kind = "framework")]
 extern "C" {}
 
-/// 종이 규격(px @96dpi — CSS 픽셀과 WKWebView 좌표가 일치).
-fn paper_px(paper: &str, orientation: &str) -> (f64, f64) {
+const LOAD_START_TIMEOUT: Duration = Duration::from_secs(5);
+const LOAD_TIMEOUT: Duration = Duration::from_secs(45);
+const JS_TIMEOUT: Duration = Duration::from_secs(10);
+const RENDER_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// 종이 규격(px @96dpi — CSS 픽셀과 WKWebView 좌표가 일치) + 물리 크기(pt).
+fn paper_px(paper: &str, orientation: &str) -> (f64, f64, f64, f64) {
     let mm = match paper {
         "letter" => (215.9, 279.4),
         "a5" => (148.0, 210.0),
         _ => (210.0, 297.0), // a4 기본
     };
-    let (w, h) = (mm.0 / 25.4 * 96.0, mm.1 / 25.4 * 96.0);
-    if orientation.eq_ignore_ascii_case("landscape") {
-        (h, w)
+    let (w, h) = if orientation.eq_ignore_ascii_case("landscape") {
+        (mm.1, mm.0)
     } else {
-        (w, h)
-    }
+        (mm.0, mm.1)
+    };
+    let px = |x: f64| x / 25.4 * 96.0;
+    let pt = |x: f64| x / 25.4 * 72.0;
+    (px(w), px(h), pt(w), pt(h))
 }
-
-const LOAD_START_TIMEOUT: Duration = Duration::from_secs(5);
-const LOAD_TIMEOUT: Duration = Duration::from_secs(45);
-const JS_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub async fn export_pdf(
     app: &AppHandle,
@@ -53,27 +62,28 @@ pub async fn export_pdf(
     options: &PdfOptions,
     out_path: &Path,
 ) -> Result<(), String> {
-    // margin_mm·scale는 프런트가 HTML(CSS)에 이미 반영했다 — 여기선 로그만.
+    let margin_px = options.margin_mm.max(0.0) / 25.4 * 96.0;
+    let dims = paper_px(&options.paper, &options.orientation);
+    let config = (
+        dims.0.round() as i64,
+        dims.1.round() as i64,
+        dims.2,
+        dims.3,
+        margin_px.round() as i64,
+    );
     tracing::debug!(
         paper = %options.paper,
         orientation = %options.orientation,
         margin_mm = options.margin_mm,
         scale = options.scale,
-        "PDF 내보내기"
+        "PDF 내보내기(컬럼 페이지네이션)"
     );
-    let (page_w, page_h) = paper_px(&options.paper, &options.orientation);
-    let opts = (page_w, page_h);
     let (tx, rx) = mpsc::channel::<Result<(), String>>();
     let html_out = out_path.to_path_buf();
 
     app.run_on_main_thread(move || {
-        let result = autoreleasepool(|_| run_on_main(&html, opts));
-        let outcome = match result {
-            Ok(b) => md_core::io::write_bytes_atomic(&html_out, &b)
-                .map_err(|e| e.to_string()),
-            Err(e) => Err(e),
-        };
-        let _ = tx.send(outcome);
+        let result = autoreleasepool(|_| run_on_main(&html, config, &html_out));
+        let _ = tx.send(result);
     })
     .map_err(|e| format!("메인 스레드 작업 예약 실패: {e}"))?;
 
@@ -81,7 +91,9 @@ pub async fn export_pdf(
 }
 
 /// 메인 스레드에서 실제 WebKit 작업을 수행한다.
-fn run_on_main(html: &str, (page_w, page_h): (f64, f64)) -> Result<Vec<u8>, String> {
+/// config = (페이지폭px, 페이지높이px, 폭pt, 높이pt, 여백px).
+fn run_on_main(html: &str, config: (i64, i64, f64, f64, i64), out: &Path) -> Result<(), String> {
+    let (page_w, page_h, pt_w, pt_h, margin) = config;
     unsafe {
         let wk_class: &AnyClass = class!(WKWebView);
         let cfg_class: &AnyClass = class!(WKWebViewConfiguration);
@@ -90,8 +102,7 @@ fn run_on_main(html: &str, (page_w, page_h): (f64, f64)) -> Result<Vec<u8>, Stri
         let cfg: *mut objc2::runtime::AnyObject = msg_send![cfg_class, alloc];
         let cfg: *mut objc2::runtime::AnyObject = msg_send![cfg, init];
 
-        // 폭은 종이 폭, 높이는 일단 한 페이지 — 로드 뒤 내용 높이로 늘린다.
-        let frame = rect(0.0, 0.0, page_w, page_h);
+        let frame = rect(0.0, 0.0, page_w as f64, page_h as f64);
         let webview: *mut objc2::runtime::AnyObject = msg_send![wk_class, alloc];
         let webview: *mut objc2::runtime::AnyObject =
             msg_send![webview, initWithFrame: frame, configuration: cfg];
@@ -104,8 +115,7 @@ fn run_on_main(html: &str, (page_w, page_h): (f64, f64)) -> Result<Vec<u8>, Stri
         let _: *mut objc2::runtime::AnyObject =
             msg_send![webview, loadHTMLString: &*html_str, baseURL: nil_url];
 
-        // 1) 로드 시작 대기 → 2) 완료 대기. isLoading 폴링.
-        //    아주 작은 문서는 시작 신호를 놓칠 수 있어 최소 한 틱은 돈다.
+        // 1) 로드 시작 대기 → 완료 대기(isLoading 폴링).
         run_loop_tick();
         let mut saw_loading = false;
         let start_deadline = Instant::now() + LOAD_START_TIMEOUT;
@@ -123,52 +133,85 @@ fn run_on_main(html: &str, (page_w, page_h): (f64, f64)) -> Result<Vec<u8>, Stri
                 !loading
             })?;
         } else {
-            // 시작도 관측 못 했다면 이미 끝났을 가능성 — 레이아웃 정정 시간만 준다.
             let settle = Instant::now() + Duration::from_millis(250);
             while Instant::now() < settle {
                 run_loop_tick();
             }
         }
 
-        // 내용 높이 측정 → 프레임 확장(스크롤 영역 전체가 PDF 대상이 되게).
-        let height = eval_number(
-            webview,
-            "Math.ceil(Math.max(document.body.scrollHeight, \
-             document.documentElement.scrollHeight, document.body.offsetHeight || 0))",
-        )?;
-        let full_h = height.max(page_h);
-        let full_frame = rect(0.0, 0.0, page_w, full_h);
-        let _: () = msg_send![webview, setFrame: full_frame];
-        // 프레임 변경 레이아웃이 정리될 시간을 조금 준다.
-        spin_until(Duration::from_millis(300), || false).ok();
+        // 2) 컬럼 페이지네이션 주입 — 문서가 가로 컬럼들로 흐른다.
+        let inject = format!(
+            r#"(function() {{
+  var W = {W}, H = {H}, M = {M};
+  var body = document.body;
+  var bg = getComputedStyle(body).backgroundColor || '#fff';
+  var wrap = document.createElement('div');
+  wrap.id = 'iyagi-page-wrap';
+  while (body.firstChild) wrap.appendChild(body.firstChild);
+  body.appendChild(wrap);
+  var st = document.createElement('style');
+  st.textContent = 'html,body{{margin:0!important;padding:0!important;}}' +
+    // 컬럼 간격을 여백의 2배로 둬야 W 폭 창이 페이지 경계에 정확히 타일링된다.
+    '#iyagi-page-wrap{{box-sizing:border-box;padding:' + M + 'px;height:' + H + 'px;width:' + W + 'px;' +
+    'column-width:' + (W - 2 * M) + 'px;column-gap:' + (2 * M) + 'px;column-fill:auto;background:' + bg + ';}}' +
+    '#iyagi-page-wrap pre,#iyagi-page-wrap table,#iyagi-page-wrap .diagram,' +
+    '#iyagi-page-wrap .katex-display{{break-inside:avoid;}}';
+  document.head.appendChild(st);
+}})();"#,
+            W = page_w,
+            H = page_h,
+            M = margin,
+        );
+        eval_js(webview, &inject)?;
+        // 폰트/이미지 자리잡기를 위한 짧은 정산.
+        let settle = Instant::now() + Duration::from_millis(350);
+        while Instant::now() < settle {
+            run_loop_tick();
+        }
 
-        // PDF 생성 — rect가 페이지 크기, WebKit이 페이지 단위로 나눈다.
-        let pdf_cfg: *mut objc2::runtime::AnyObject = msg_send![pdf_cfg_class, alloc];
-        let pdf_cfg: *mut objc2::runtime::AnyObject = msg_send![pdf_cfg, init];
-        let page_rect = rect(0.0, 0.0, page_w, page_h);
+        // 3) 전체 컬럼 폭 측정 → 프레임 확장.
+        let total_w = eval_number(
+            webview,
+            "Math.ceil(Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0))",
+        )?;
+        if !(1.0..=200_000.0).contains(&total_w) {
+            return Err(format!("페이지 폭 측정 실패: {total_w}"));
+        }
+        let full_frame = rect(0.0, 0.0, total_w, page_h as f64);
+        let _: () = msg_send![webview, setFrame: full_frame];
+        let settle = Instant::now() + Duration::from_millis(300);
+        while Instant::now() < settle {
+            run_loop_tick();
+        }
+
+        // 4) createPDF — 전체 폭을 한 페이지로(전부 벡터).
+        let pdf_cfg: *mut objc2::runtime::AnyObject = msg_send![pdf_cfg_class, new];
+        let page_rect = rect(0.0, 0.0, total_w, page_h as f64);
         let _: () = msg_send![pdf_cfg, setRect: page_rect];
 
         let (tx, rx) = mpsc::channel::<Result<Vec<u8>, String>>();
-        let block = RcBlock::new(move |data: *mut NSData, error: *mut objc2::runtime::AnyObject| {
-            if !error.is_null() {
-                // localizedDescription는 자동해제 반환 — 오토릴리즈 풀 안에서만 쓴다.
-                let desc: *mut NSString = msg_send![error, localizedDescription];
-                let _ = tx.send(Err(format!("PDF 생성 실패: {}", &*desc)));
-                return;
-            }
-            if data.is_null() {
-                let _ = tx.send(Err("PDF 생성 실패: 결과가 비었습니다".into()));
-                return;
-            }
-            let len = (*data).len();
-            let raw: *const std::ffi::c_void = msg_send![data, bytes];
-            let bytes = std::slice::from_raw_parts(raw as *const u8, len);
-            let _ = tx.send(Ok(bytes.to_vec()));
-        });
-        let _: () = msg_send![webview, createPDFWithConfiguration: pdf_cfg, completionHandler: &*block];
-        // 블록은 WebKit 쪽에서 곧 부르지만, 우리가 runloop을 돌려야 실행된다.
-        let deadline = Instant::now() + JS_TIMEOUT;
-        let result = loop {
+        let block = RcBlock::new(
+            move |data: *mut NSData, error: *mut objc2::runtime::AnyObject| {
+                if !error.is_null() {
+                    // localizedDescription는 자동해제 반환 — 오토릴리즈 풀 안에서만 쓴다.
+                    let desc: *mut NSString = msg_send![error, localizedDescription];
+                    let _ = tx.send(Err(format!("PDF 생성 실패: {}", &*desc)));
+                    return;
+                }
+                if data.is_null() {
+                    let _ = tx.send(Err("PDF 생성 실패: 결과가 비었습니다".into()));
+                    return;
+                }
+                let len = (*data).len();
+                let raw: *const std::ffi::c_void = msg_send![data, bytes];
+                let bytes = std::slice::from_raw_parts(raw as *const u8, len);
+                let _ = tx.send(Ok(bytes.to_vec()));
+            },
+        );
+        let _: () =
+            msg_send![webview, createPDFWithConfiguration: pdf_cfg, completionHandler: &*block];
+        let deadline = Instant::now() + RENDER_TIMEOUT;
+        let wide = loop {
             if let Ok(res) = rx.try_recv() {
                 break res;
             }
@@ -177,12 +220,75 @@ fn run_on_main(html: &str, (page_w, page_h): (f64, f64)) -> Result<Vec<u8>, Stri
             }
             run_loop_tick();
         };
-        // 명시적 정리(alloc으로 얻은 소유분 — 오토릴리즈 풀이 대신해 주지 않는다).
         let _: () = msg_send![webview, stopLoading];
         let _: () = msg_send![webview, release];
         let _: () = msg_send![cfg, release];
         let _: () = msg_send![pdf_cfg, release];
-        result
+        let wide = wide?;
+
+        // 5) 슬라이스 재조립 — 소스는 그대로 벡터로 삽입된다.
+        slice_pdf_pages(&wide, total_w, page_w as f64, pt_w, pt_h, out)
+    }
+}
+
+/// 넓은 한 페이지 PDF를 종이 크기 여러 페이지로 자른다.
+/// NSData·NSURL는 CFData·CFURL과 무료 브리지(toll-free)라 포인터 그대로 쓴다.
+fn slice_pdf_pages(
+    wide: &[u8],
+    total_w: f64,
+    page_w: f64,
+    pt_w: f64,
+    pt_h: f64,
+    out: &Path,
+) -> Result<(), String> {
+    use objc2_core_foundation::{CFRetained, CGPoint, CGRect, CGSize};
+    use objc2_core_graphics::{
+        CGDataProvider, CGPDFContextBeginPage, CGPDFContextClose, CGPDFContextEndPage, CGContext,
+        CGPDFDocument, CGPDFPage,
+    };
+
+    unsafe {
+        let nsdata = NSData::with_bytes(wide);
+        let cf_data: &objc2_core_foundation::CFData =
+            &*(&*nsdata as *const NSData as *const objc2_core_foundation::CFData);
+        let provider =
+            CGDataProvider::with_cf_data(Some(cf_data)).ok_or("PDF 데이터 공급자 생성 실패")?;
+        let doc = CGPDFDocument::with_provider(Some(&provider)).ok_or("PDF 문서 해석 실패")?;
+        let src_page: CFRetained<CGPDFPage> =
+            CGPDFDocument::page(Some(&doc), 1).ok_or("원본 PDF에 페이지가 없습니다")?;
+
+        // 출력 PDF 컨텍스트 — 최종 파일에 직접 쓴다.
+        let url = {
+            let s = NSString::from_str(&out.to_string_lossy());
+            let url_class: &AnyClass = class!(NSURL);
+            let u: *mut objc2::runtime::AnyObject = msg_send![url_class, fileURLWithPath: &*s];
+            if u.is_null() {
+                return Err("출력 파일 URL 생성 실패".into());
+            }
+            &*(u as *const objc2_core_foundation::CFURL)
+        };
+        // mediaBox는 물리 pt 단위.
+        let scale = pt_w / page_w;
+        let media: CGRect = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(pt_w, pt_h));
+        let ctx: CFRetained<CGContext> = objc2_core_graphics::CGPDFContextCreateWithURL(
+            Some(url),
+            &media as *const CGRect,
+            None,
+        )
+        .ok_or("PDF 컨텍스트 생성 실패")?;
+
+        let page_count = (total_w / page_w).ceil().max(1.0) as i64;
+        for i in 0..page_count {
+            CGPDFContextBeginPage(Some(&ctx), None);
+            // 소스(px 좌표) → 종이(pt): 배율 + 페이지별 가로 이동.
+            CGContext::scale_ctm(Some(&ctx), scale, scale);
+            CGContext::translate_ctm(Some(&ctx), -(i as f64) * page_w, 0.0);
+            CGContext::draw_pdf_page(Some(&ctx), Some(&src_page));
+            CGPDFContextEndPage(Some(&ctx));
+        }
+        CGPDFContextClose(Some(&ctx));
+        // ctx는 CFRetained — drop이 해제한다.
+        Ok(())
     }
 }
 
@@ -203,7 +309,6 @@ unsafe fn run_loop_tick() {
 /// 조건이 참이 되거나 시간이 지날 때까지 런루프를 돌린다.
 unsafe fn spin_until(timeout: Duration, mut cond: impl FnMut() -> bool) -> Result<(), String> {
     let deadline = Instant::now() + timeout;
-    // 조건이 이미 참이면(로드 시작 대기 등) 즉시 통과.
     while !cond() {
         if Instant::now() > deadline {
             return Err("페이지 로드 시간 초과".into());
@@ -213,28 +318,17 @@ unsafe fn spin_until(timeout: Duration, mut cond: impl FnMut() -> bool) -> Resul
     Ok(())
 }
 
-/// JavaScript를 돌려 숫자 결과를 얻는다(내용 높이 측정).
-unsafe fn eval_number(webview: *mut objc2::runtime::AnyObject, js: &str) -> Result<f64, String> {
-    let (tx, rx) = mpsc::channel::<Result<f64, String>>();
+/// JavaScript를 실행하고 완료를 기다린다(결과 무시).
+unsafe fn eval_js(webview: *mut objc2::runtime::AnyObject, js: &str) -> Result<(), String> {
+    let (tx, rx) = mpsc::channel::<Result<(), String>>();
     let js_str = NSString::from_str(js);
     let block = RcBlock::new(
-        move |result: *mut objc2::runtime::AnyObject, error: *mut objc2::runtime::AnyObject| {
-            if !error.is_null() {
-                let _ = tx.send(Err("스크립트 평가 실패".into()));
-                return;
-            }
-            if result.is_null() {
-                let _ = tx.send(Ok(page_h_default()));
-                return;
-            }
-            let ns_number_class: &AnyClass = class!(NSNumber);
-            let is_number: bool = msg_send![result, isKindOfClass: ns_number_class];
-            if is_number {
-                let v: f64 = msg_send![result, doubleValue];
-                let _ = tx.send(Ok(v));
+        move |_result: *mut objc2::runtime::AnyObject, error: *mut objc2::runtime::AnyObject| {
+            let _ = tx.send(if error.is_null() {
+                Ok(())
             } else {
-                let _ = tx.send(Ok(page_h_default()));
-            }
+                Err("스크립트 실패".into())
+            });
         },
     );
     let _: () = msg_send![webview, evaluateJavaScript: &*js_str, completionHandler: &*block];
@@ -250,8 +344,41 @@ unsafe fn eval_number(webview: *mut objc2::runtime::AnyObject, js: &str) -> Resu
     }
 }
 
-fn page_h_default() -> f64 {
-    1123.0
+/// JavaScript를 돌려 숫자 결과를 얻는다.
+unsafe fn eval_number(webview: *mut objc2::runtime::AnyObject, js: &str) -> Result<f64, String> {
+    let (tx, rx) = mpsc::channel::<Result<f64, String>>();
+    let js_str = NSString::from_str(js);
+    let block = RcBlock::new(
+        move |result: *mut objc2::runtime::AnyObject, error: *mut objc2::runtime::AnyObject| {
+            if !error.is_null() {
+                let _ = tx.send(Err("스크립트 평가 실패".into()));
+                return;
+            }
+            if result.is_null() {
+                let _ = tx.send(Err("스크립트 결과 없음".into()));
+                return;
+            }
+            let ns_number_class: &AnyClass = class!(NSNumber);
+            let is_number: bool = msg_send![result, isKindOfClass: ns_number_class];
+            let _ = tx.send(if is_number {
+                let v: f64 = msg_send![result, doubleValue];
+                Ok(v)
+            } else {
+                Err("스크립트 결과가 숫자가 아님".into())
+            });
+        },
+    );
+    let _: () = msg_send![webview, evaluateJavaScript: &*js_str, completionHandler: &*block];
+    let deadline = Instant::now() + JS_TIMEOUT;
+    loop {
+        if let Ok(res) = rx.try_recv() {
+            return res;
+        }
+        if Instant::now() > deadline {
+            return Err("스크립트 평가 시간 초과".into());
+        }
+        run_loop_tick();
+    }
 }
 
 /// CGRect 조립 헬퍼(포인트·크기).

@@ -15,13 +15,17 @@ pub struct ImageSource {
 
 impl ImageSource {
     pub fn new(base_dir: String) -> Self {
-        Self { base_dir: PathBuf::from(base_dir) }
+        Self {
+            base_dir: PathBuf::from(base_dir),
+        }
     }
 
     /// 경로(절대 또는 base_dir 상대)의 바이트. 없으면 None.
     pub fn read(&self, path: &str) -> Option<Vec<u8>> {
         let p = PathBuf::from(path);
-        let p = if p.is_absolute() { p } else {
+        let p = if p.is_absolute() {
+            p
+        } else {
             let joined = self.base_dir.join(path.replace('\\', "/"));
             lexical_clean(&joined)
         };
@@ -29,12 +33,14 @@ impl ImageSource {
     }
 }
 
-fn lexical_clean(path: &PathBuf) -> PathBuf {
+fn lexical_clean(path: &std::path::Path) -> PathBuf {
     let mut out = PathBuf::new();
     for comp in path.components() {
         match comp {
             std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => { out.pop(); }
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
             other => out.push(other.as_os_str()),
         }
     }

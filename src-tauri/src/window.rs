@@ -8,15 +8,11 @@ pub fn create_main(app: &AppHandle, rect: Option<WindowRect>) -> tauri::Result<(
     if app.get_webview_window("main").is_some() {
         return Ok(());
     }
-    let mut builder = WebviewWindowBuilder::new(
-        app,
-        "main",
-        WebviewUrl::App("index.html".into()),
-    )
-    .title("IYAGI Markdown")
-    .inner_size(1200.0, 820.0)
-    .min_inner_size(680.0, 480.0)
-    .visible(false); // 프런트가 준비되면 app_ready에서 보여준다(흰 플래시 방지)
+    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+        .title("IYAGI Markdown")
+        .inner_size(1200.0, 820.0)
+        .min_inner_size(680.0, 480.0)
+        .visible(false); // 프런트가 준비되면 app_ready에서 보여준다(흰 플래시 방지)
     if let Some(r) = rect {
         if r.width >= 400.0 && r.height >= 320.0 {
             builder = builder.inner_size(r.width, r.height).position(r.x, r.y);

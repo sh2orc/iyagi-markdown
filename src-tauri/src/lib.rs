@@ -78,7 +78,11 @@ pub fn run() {
                 // macOS: 실행 중 파일 더블클릭/Dock 드롭으로 열기.
                 let files: Vec<String> = urls
                     .iter()
-                    .filter_map(|u| u.to_file_path().ok().map(|p| p.to_string_lossy().into_owned()))
+                    .filter_map(|u| {
+                        u.to_file_path()
+                            .ok()
+                            .map(|p| p.to_string_lossy().into_owned())
+                    })
                     .collect();
                 tracing::info!(?files, "files opened via RunEvent::Opened");
                 state::queue_pending_files(app, files);

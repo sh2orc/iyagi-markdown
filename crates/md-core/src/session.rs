@@ -154,7 +154,12 @@ mod tests {
             sidebar_open: false,
             sidebar_width: 300.0,
             toc_open: true,
-            window: Some(WindowRect { x: 1.0, y: 2.0, width: 900.0, height: 700.0 }),
+            window: Some(WindowRect {
+                x: 1.0,
+                y: 2.0,
+                width: 900.0,
+                height: 700.0,
+            }),
         };
         save(&path, &state).unwrap();
         assert_eq!(load(&path).unwrap(), state);

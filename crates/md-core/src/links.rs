@@ -13,7 +13,10 @@ pub enum LinkTarget {
     /// 같은 문서 안의 앵커(`#heading`) — TOC/스크롤 이동.
     Anchor(String),
     /// 다른 마크다운 문서(상대 경로) — 앱 내 새 탭. anchor가 붙을 수 있다.
-    Markdown { path: PathBuf, anchor: Option<String> },
+    Markdown {
+        path: PathBuf,
+        anchor: Option<String>,
+    },
     /// 문서 폴더 기준 상대 이미지·자원. 원격 이미지 정책은 프런트 설정이 결정.
     Asset { path: PathBuf },
     /// 그 밖의 스킴(file:, custom:) — 기본 앱/브라우저로 넘긴다.
@@ -41,7 +44,7 @@ pub fn resolve(link: &str, base_dir: &Path) -> LinkTarget {
     if let Some(rest) = link.strip_prefix('#') {
         return LinkTarget::Anchor(percent_decode(rest));
     }
-    if link.contains("://") || lower.starts_with("data:") || lower.starts_with("javascript:") {
+    if link.contains("://") || lower.starts_with("data:") {
         return LinkTarget::Other(link.to_string());
     }
     // 상대 경로: 앵커 부분을 분리하고 percent-decode한 뒤 base_dir에 결합.
@@ -61,7 +64,10 @@ pub fn resolve(link: &str, base_dir: &Path) -> LinkTarget {
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
     match lower_ext.as_str() {
-        "md" | "markdown" | "mdown" | "mkd" => LinkTarget::Markdown { path: normalized, anchor },
+        "md" | "markdown" | "mdown" | "mkd" => LinkTarget::Markdown {
+            path: normalized,
+            anchor,
+        },
         _ => LinkTarget::Asset { path: normalized },
     }
 }
@@ -112,10 +118,8 @@ pub fn slug_heading(text: &str) -> String {
             for lc in c.to_lowercase() {
                 slug.push(lc);
             }
-        } else if c.is_whitespace() {
-            if !slug.ends_with('-') {
-                slug.push('-');
-            }
+        } else if c.is_whitespace() && !slug.ends_with('-') {
+            slug.push('-');
         }
         // 그 외 문장부호는 제거.
     }
@@ -141,28 +145,43 @@ mod tests {
             resolve("https://example.com/a?b=1", &base()),
             LinkTarget::External("https://example.com/a?b=1".into())
         );
-        assert!(matches!(resolve("mailto:a@b.c", &base()), LinkTarget::Mail(_)));
+        assert!(matches!(
+            resolve("mailto:a@b.c", &base()),
+            LinkTarget::Mail(_)
+        ));
     }
 
     #[test]
     fn anchor_only() {
         assert_eq!(resolve("#개요", &base()), LinkTarget::Anchor("개요".into()));
-        assert_eq!(resolve("#section-2", &base()), LinkTarget::Anchor("section-2".into()));
+        assert_eq!(
+            resolve("#section-2", &base()),
+            LinkTarget::Anchor("section-2".into())
+        );
     }
 
     #[test]
     fn relative_markdown_link() {
         assert_eq!(
             resolve("notes/today.md", &base()),
-            LinkTarget::Markdown { path: PathBuf::from("/Users/x/docs/notes/today.md"), anchor: None }
+            LinkTarget::Markdown {
+                path: PathBuf::from("/Users/x/docs/notes/today.md"),
+                anchor: None
+            }
         );
         assert_eq!(
             resolve("./up/../a.md#head", &base()),
-            LinkTarget::Markdown { path: PathBuf::from("/Users/x/docs/a.md"), anchor: Some("head".into()) }
+            LinkTarget::Markdown {
+                path: PathBuf::from("/Users/x/docs/a.md"),
+                anchor: Some("head".into())
+            }
         );
         assert_eq!(
             resolve("b.MARKDOWN", &base()),
-            LinkTarget::Markdown { path: PathBuf::from("/Users/x/docs/b.MARKDOWN"), anchor: None }
+            LinkTarget::Markdown {
+                path: PathBuf::from("/Users/x/docs/b.MARKDOWN"),
+                anchor: None
+            }
         );
     }
 
@@ -170,11 +189,16 @@ mod tests {
     fn percent_encoded_paths() {
         assert_eq!(
             resolve("my%20file.md", &base()),
-            LinkTarget::Markdown { path: PathBuf::from("/Users/x/docs/my file.md"), anchor: None }
+            LinkTarget::Markdown {
+                path: PathBuf::from("/Users/x/docs/my file.md"),
+                anchor: None
+            }
         );
         assert_eq!(
             resolve("img/_%EC%82%AC%EC%A7%84.png", &base()),
-            LinkTarget::Asset { path: PathBuf::from("/Users/x/docs/img/_사진.png") }
+            LinkTarget::Asset {
+                path: PathBuf::from("/Users/x/docs/img/_사진.png")
+            }
         );
     }
 
@@ -182,9 +206,14 @@ mod tests {
     fn assets_and_other_schemes() {
         assert_eq!(
             resolve("media/diagram.svg", &base()),
-            LinkTarget::Asset { path: PathBuf::from("/Users/x/docs/media/diagram.svg") }
+            LinkTarget::Asset {
+                path: PathBuf::from("/Users/x/docs/media/diagram.svg")
+            }
         );
-        assert!(matches!(resolve("file:///tmp/a.md", &base()), LinkTarget::Other(_)));
+        assert!(matches!(
+            resolve("file:///tmp/a.md", &base()),
+            LinkTarget::Other(_)
+        ));
     }
 
     #[test]

@@ -82,7 +82,9 @@ impl Settings {
                 Ok(s) => (s, None),
                 Err(e) => (
                     Settings::default(),
-                    Some(format!("settings.json을 해석하지 못해 기본값을 씁니다: {e}")),
+                    Some(format!(
+                        "settings.json을 해석하지 못해 기본값을 씁니다: {e}"
+                    )),
                 ),
             },
             Ok(_) => (Settings::default(), None),
@@ -117,7 +119,10 @@ mod tests {
     use crate::session::ViewMode;
 
     fn tp(tag: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("md-core-settings-{tag}-{}.json", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "md-core-settings-{tag}-{}.json",
+            std::process::id()
+        ))
     }
 
     #[test]
@@ -156,7 +161,11 @@ mod tests {
     #[test]
     fn roundtrip() {
         let p = tp("rt");
-        let s = Settings { font_size: 20.0, remote_images: false, ..Settings::default() };
+        let s = Settings {
+            font_size: 20.0,
+            remote_images: false,
+            ..Settings::default()
+        };
         s.save(&p).unwrap();
         let (s2, err) = Settings::load(&p);
         assert!(err.is_none());
