@@ -12,7 +12,7 @@ import { languages } from "@codemirror/language-data";
 
 import { mathSyntax } from "./mathSyntax";
 import { parseTable } from "./widgets";
-import { computeMatches } from "../search/searchCm";
+import { computeMatches, updateMatchesForChanges } from "../search/searchCm";
 import { createDocState } from "./cm";
 
 const parse = (doc: string) => {
@@ -119,6 +119,87 @@ describe("computeMatches (검색)", () => {
 
   it("한글 검색", () => {
     expect(computeMatches("다양한 한글 텍스트 한글", q("한글"))).toHaveLength(2);
+  });
+});
+
+describe("updateMatchesForChanges (편집 증분 매치)", () => {
+  const q = (text: string, o: Partial<Parameters<typeof computeMatches>[1]> = {}) => ({
+    text,
+    caseSensitive: false,
+    regexp: false,
+    replacement: "",
+    ...o,
+  });
+
+  /** 초기 문서에서 매치를 잡고 edits를 순서대로 적용한 뒤 증분 결과가
+   *  전체 재스캔과 동일한지 비교한다(정합성 오라클). */
+  const steps = (initial: string, needle: string, edits: Array<{ from: number; to?: number; insert: string }>) => {
+    let state = EditorState.create({ doc: initial });
+    let matches = computeMatches(initial, q(needle));
+    for (const e of edits) {
+      const tr = state.update({ changes: { from: e.from, to: e.to ?? e.from, insert: e.insert } });
+      matches = updateMatchesForChanges(matches, tr.changes, tr.state.doc, q(needle));
+      state = tr.state;
+    }
+    return { matches, expected: computeMatches(state.doc.toString(), q(needle)), doc: state.doc.toString() };
+  };
+
+  it("삽입이 경계 걸침 매치를 만든다", () => {
+    const r = steps("ap ap", "apple", [{ from: 2, insert: "ple" }]);
+    expect(r.matches).toEqual(r.expected);
+    expect(r.doc).toBe("apple ap");
+  });
+
+  it("삭제가 매치를 파괴한다", () => {
+    const r = steps("apple app", "apple", [{ from: 0, to: 3, insert: "" }]);
+    expect(r.matches).toEqual(r.expected); // "le app" — 매치 없음
+    expect(r.matches).toHaveLength(0);
+  });
+
+  it("매치 내부 교체는 그 매치만 없앤다", () => {
+    const r = steps("apple apple", "apple", [{ from: 1, to: 2, insert: "x" }]);
+    expect(r.matches).toEqual(r.expected); // "axple apple" — 뒤 매치만
+    expect(r.matches).toHaveLength(1);
+  });
+
+  it("매치 경계 밖 삽입은 기존 매치를 시프트만", () => {
+    const r = steps("apple XX apple", "apple", [{ from: 5, insert: "YY" }]);
+    expect(r.matches).toEqual(r.expected);
+    expect(r.matches.map((m) => m.from)).toEqual([0, 11]);
+  });
+
+  it("매치 시작/끝 경계의 삽입은 흡수하지 않는다", () => {
+    const r = steps("apple apple", "apple", [{ from: 5, insert: "|" }, { from: 12, insert: "|" }]);
+    expect(r.matches).toEqual(r.expected);
+  });
+
+  it("여러 매치를 건드리는 대체", () => {
+    const r = steps("ab ab ab", "ab", [{ from: 3, to: 5, insert: "ab ab" }]);
+    expect(r.matches).toEqual(r.expected);
+  });
+
+  it("대소문자 무시 증분", () => {
+    const r = steps("Apple apple", "apple", [{ from: 0, to: 5, insert: "APPLE" }]);
+    expect(r.matches).toEqual(r.expected);
+  });
+
+  it("연속 편집 시퀀스(무작위) — 전체 재스캔과 항상 동일", () => {
+    let s = 12345;
+    const rand = (n: number) => ((s = (s * 1103515245 + 12345) & 0x7fffffff) % n);
+    for (let trial = 0; trial < 120; trial++) {
+      const needle = trial % 2 === 0 ? "one" : "two";
+      const initial = "one two one two one two three";
+      const edits: Array<{ from: number; to?: number; insert: string }> = [];
+      let len = initial.length;
+      for (let i = 0; i < 10; i++) {
+        const from = rand(len);
+        const to = Math.min(len, from + rand(6));
+        edits.push({ from, to, insert: ["one ", "x", "", "two", "o", "two one"][rand(6)] });
+        len += edits[edits.length - 1].insert.length - (to - from);
+      }
+      const r = steps(initial, needle, edits);
+      expect(r.matches).toEqual(r.expected);
+    }
   });
 });
 

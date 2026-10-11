@@ -1,7 +1,7 @@
 //! 프런트에서 부르는 Tauri 명령. 모든 파일 IO는 여기를 지난다 — 원문 보존
 //! 원칙(§4-2)상 저장 경로는 md_core::io의 원자적 쓰기 하나뿐이다.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -63,12 +63,18 @@ pub fn take_pending_files(state: State<'_, AppState>) -> Vec<String> {
 // — 문서 IO —
 
 #[tauri::command]
-pub fn read_document(app: AppHandle, path: String) -> Result<LoadedDoc, String> {
-    let p = Path::new(&path);
-    let doc = read_doc(p).map_err(err)?;
+pub async fn read_document(app: AppHandle, path: String) -> Result<LoadedDoc, String> {
+    // 파일 읽기는 스레드 풀로 — 동기 커맨드는 앱 메인 스레드에서 돌아 큰 문서를
+    // 열 때 이벤트 루프가 멈춘다(스크롤·입력이 끊기는 원인).
+    let doc = tauri::async_runtime::spawn_blocking({
+        let path = path.clone();
+        move || read_doc(Path::new(&path)).map_err(err)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     // 이미지 표시용 asset 프로토콜 허용 범위를 문서 폴더 **하위 트리**로 확장.
     // (바깥 상대 경로 ../…는 위젯의 온디맨드 허용으로 처리된다.)
-    if let Some(dir) = p.parent() {
+    if let Some(dir) = Path::new(&path).parent() {
         let _ = app.asset_protocol_scope().allow_directory(dir, true);
     }
     push_recent(&app, &path);
@@ -83,16 +89,21 @@ pub struct WriteOutcome {
 }
 
 #[tauri::command]
-pub fn write_document(
+pub async fn write_document(
     app: AppHandle,
     path: String,
     text: String,
     meta: DocMeta,
 ) -> Result<WriteOutcome, String> {
-    let p = Path::new(&path);
-    write_doc_atomic(p, &text, meta).map_err(err)?;
-    crate::watcher::note_self_write(&app, p);
-    let m = std::fs::metadata(p).map_err(err)?;
+    let p = PathBuf::from(&path);
+    // 원자적 저장도 스레드 풀로(쓰기+rename+메타데이터 조회).
+    let m = tauri::async_runtime::spawn_blocking(move || {
+        write_doc_atomic(&p, &text, meta).map_err(err)?;
+        std::fs::metadata(&p).map_err(err)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    crate::watcher::note_self_write(&app, Path::new(&path));
     push_recent(&app, &path);
     Ok(WriteOutcome {
         mtime: m
@@ -108,13 +119,20 @@ pub fn write_document(
 /// 내보내기 HTML 조립용 이미지 등 바이너리 읽기(경로 제한 없음 — 샌드박스 없는
 /// 앱의 최소 명령면 중 하나, §4-6).
 #[tauri::command]
-pub fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
-    std::fs::read(&path).map_err(err)
+pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
+    // 이미지 같은 큰 바이너리 — 메인 스레드를 지키기 위해 풀로.
+    tauri::async_runtime::spawn_blocking(move || std::fs::read(&path).map_err(err))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn scan_workspace(root: String) -> Result<Vec<TreeNode>, String> {
-    scan_tree(Path::new(&root)).map_err(err)
+pub async fn scan_workspace(root: String) -> Result<Vec<TreeNode>, String> {
+    // 재귀 폴더 스캔은 수 밀리초~수 초짜리 무거운 IO — 반드시 스레드 풀에서.
+    // (동기 커맨드는 앱 메인 스레드에서 돌아 폴더를 여는 동안 창이 얼어붙는다.)
+    tauri::async_runtime::spawn_blocking(move || scan_tree(Path::new(&root)).map_err(err))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 // — 설정·세션·최근 문서 —
@@ -144,8 +162,14 @@ pub fn get_session(state: State<'_, AppState>) -> Option<SessionState> {
 }
 
 #[tauri::command]
-pub fn save_session(state: State<'_, AppState>, session: SessionState) -> Result<(), String> {
-    md_core::session::save(&state.paths.session, &session).map_err(err)
+pub async fn save_session(app: AppHandle, session: SessionState) -> Result<(), String> {
+    // 탭 전환·열기/닫기마다(디바운스됨) 도는 저장 — 메인 스레드에서 내보낸다.
+    let path = app.state::<AppState>().paths.session.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        md_core::session::save(&path, &session).map_err(err)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

@@ -8,6 +8,38 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- 첫 페인트 전 JS 번드가 도착할 때까지 창을 비우지 않는다(네이티브앱 느낌).
+         App이 마운트되면 스스로 치운다. -->
+    <div id="iyagi-boot" class="boot-splash" aria-hidden="true"><div class="boot-mark">M↓</div></div>
+    <style>
+      .boot-splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #ffffff;
+        z-index: 999;
+      }
+      .boot-mark {
+        font-size: 40px;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+        color: #b8bcc4;
+        animation: boot-breathe 1.4s ease-in-out infinite;
+      }
+      @keyframes boot-breathe {
+        0%, 100% { opacity: 0.45; }
+        50% { opacity: 1; }
+      }
+      @media (prefers-color-scheme: dark) {
+        .boot-splash { background: #1e1e21; }
+        .boot-mark { color: #4a4d54; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-mark { animation: none; }
+      }
+    </style>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

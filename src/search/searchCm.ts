@@ -1,7 +1,7 @@
 // 문서 내 검색 — CM 하이라이트 장식 + 매칭 목록. UI 패널은 React(search/).
 // 대소문자·정규식 지원, 현재 매치 강조, Enter/Shift+Enter 이동.
 
-import { EditorState, Range, StateEffect, StateField } from "@codemirror/state";
+import { ChangeSet, EditorState, Range, StateEffect, StateField, type Text } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
 
 export interface SearchQuery {
@@ -54,9 +54,13 @@ export const searchField = StateField.define<SearchState>({
         }
       }
     }
-    // 문서가 바뀌면 매치 위치를 다시 계산한다.
+    // 문서가 바뀌면 매치를 증분 갱신한다 — 일반 텍스트 검색은 변경 영역
+    // 주변만 다시 훑고 나머지 매치는 좌표만 옮긴다(편집 한 번이 O(문서)
+    // 재스캔이 되지 않게). 정규식은 전역 상태(lookbehind 등) 때문에 전체 재스캔.
     if (tr.docChanged && next.query) {
-      const matches = computeMatches(tr.state.doc.toString(), next.query);
+      const matches = next.query.regexp
+        ? computeMatches(tr.state.doc.toString(), next.query)
+        : updateMatchesForChanges(next.matches, tr.changes, tr.state.doc, next.query);
       next = {
         ...next,
         matches,
@@ -66,6 +70,68 @@ export const searchField = StateField.define<SearchState>({
     return next;
   },
 });
+
+/** 편집 델타로 매치 증분 갱신: 살아남은 매치는 mapPos으로 시프트하고,
+ *  변경 영역 ±(검색어 길이-1) 창만 다시 스캔해 새 매치를 합친다. */
+export function updateMatchesForChanges(
+  matches: SearchMatch[],
+  changes: ChangeSet,
+  doc: Text,
+  query: SearchQuery,
+): SearchMatch[] {
+  if (!query.text) return [];
+  const needle = query.caseSensitive ? query.text : query.text.toLowerCase();
+  const pad = needle.length - 1;
+  // 재스캔 창(새 문서 좌표) — 오름차순 병합.
+  const windows: Array<{ from: number; to: number }> = [];
+  const oldRanges: Array<[number, number]> = [];
+  changes.iterChanges((fromA, toA, fromB, toB) => {
+    oldRanges.push([fromA, toA]);
+    const from = Math.max(0, fromB - pad);
+    const to = Math.min(doc.length, toB + pad);
+    const last = windows[windows.length - 1];
+    if (last && from <= last.to) last.to = Math.max(last.to, to);
+    else windows.push({ from, to });
+  });
+  // 살아남은 매치: 변경 전 좌표에서 내부를 건드린(삽입이 아닌) 매치는 제거하고,
+  // 나머지는 시프트(경계 삽입은 흡수하지 않게 assoc -1).
+  const kept: SearchMatch[] = [];
+  for (const m of matches) {
+    if (oldRanges.some(([a, b]) => a < m.to && b > m.from)) continue; // 내용 침범
+    // 시작은 삽입 뒤로(텍스트가 밀린다), 끝은 삽입 앞으로(흡수하지 않는다).
+    const from = changes.mapPos(m.from, 1);
+    const to = changes.mapPos(m.to, -1);
+    if (to <= from) continue; // 매칭 텍스트가 통째로 사라졌다
+    kept.push({ from, to });
+  }
+  // 창 안에서 새 매치 수집 + 병합 정렬(중복 제거).
+  const out: SearchMatch[] = [];
+  let ki = 0;
+  for (const w of windows) {
+    const hay = query.caseSensitive
+      ? doc.sliceString(w.from, w.to)
+      : doc.sliceString(w.from, w.to).toLowerCase();
+    let i = 0;
+    while (i <= hay.length - needle.length) {
+      const hit = hay.indexOf(needle, i);
+      if (hit === -1) break;
+      const nm = { from: w.from + hit, to: w.from + hit + needle.length };
+      while (ki < kept.length && kept[ki].from < nm.from) {
+        const k = kept[ki++];
+        if (out.length === 0 || out[out.length - 1].from !== k.from) out.push(k);
+      }
+      const last = out[out.length - 1];
+      const dup = last != null && last.from === nm.from && last.to === nm.to;
+      if (!dup && out.length < MAX_MATCHES) out.push(nm);
+      i = hit + needle.length;
+    }
+  }
+  while (ki < kept.length) {
+    const k = kept[ki++];
+    if (out.length === 0 || out[out.length - 1].from !== k.from) out.push(k);
+  }
+  return out.length > MAX_MATCHES ? out.slice(0, MAX_MATCHES) : out;
+}
 
 const MAX_MATCHES = 5000;
 

@@ -186,3 +186,22 @@ export function replaceDoc(view: EditorView, text: string): void {
     changes: { from: 0, to: view.state.doc.length, insert: text },
   });
 }
+
+/** 앵커·목차 이동용 부드러운 스크롤 — 이동하는 동안만 scroll-behavior를 켠다.
+ *  (상시 켜면 편집 중 CM의 스크롤 보정까지 애니메이션돼 뛰는 느낌을 낸다.)
+ *  읽기 모드는 스크롤 컨테이너가 editor-area라 그쪽도 같이 켠다. */
+export function smoothScrollIntoView(view: EditorView, pos: number): void {
+  const scroller = view.scrollDOM;
+  const area = scroller.closest(".editor-area.read-mode");
+  const targets: HTMLElement[] = area instanceof HTMLElement ? [scroller, area] : [scroller];
+  for (const el of targets) el.style.scrollBehavior = "smooth";
+  let done = false;
+  const reset = () => {
+    if (done) return;
+    done = true;
+    for (const el of targets) el.style.scrollBehavior = "";
+  };
+  scroller.addEventListener("scrollend", reset, { once: true });
+  setTimeout(reset, 700);
+  view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+}

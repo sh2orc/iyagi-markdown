@@ -18,7 +18,7 @@ import {
   webviewWindowApi,
 } from "./api";
 import { AppStore, resolveTheme, type ExportKind, type Tab } from "./app/store";
-import { setLinkClickHandler, setViewListener } from "./editor/cm";
+import { setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
 import { buildDocxManifest, buildExportHtml } from "./export/html";
 import { collectHeadings, resolveLink } from "./links";
 import { makeT, type Lang } from "./i18n";
@@ -77,6 +77,8 @@ export function App(): JSX.Element {
   useEffect(() => {
     let disposed = false;
     initBridge();
+    // 앱 셸 첫 페인트가 나왔다 — index.html의 부트 스플래시를 치운다.
+    document.getElementById("iyagi-boot")?.remove();
     store.state.ready = false;
     (async () => {
       try {
@@ -419,15 +421,11 @@ export function App(): JSX.Element {
       const text = view.state.doc.toString();
       const target = collectHeadings(text).find((h) => h.slug === id || h.slug.startsWith(id));
       if (target) {
-        let pos = 0;
-        let line = 1;
-        for (const l of text.split("\n")) {
-          if (pos >= target.pos) break;
-          pos += l.length + 1;
-          line++;
-        }
-        const l = view.state.doc.line(Math.min(line, view.state.doc.lines));
-        view.dispatch({ selection: { anchor: l.from }, scrollIntoView: true });
+        const line = Math.min(
+          view.state.doc.lineAt(target.pos).number,
+          view.state.doc.lines,
+        );
+        smoothScrollIntoView(view, view.state.doc.line(line).from);
       }
     },
     [],
@@ -521,7 +519,7 @@ export function App(): JSX.Element {
       <ContextMenu store={store} t={t} />
       <div className="toasts">
         {state.toasts.map((toast) => (
-          <div key={toast.id} className={`toast ${toast.kind}`}>
+          <div key={toast.id} className={`toast ${toast.kind} ${toast.leaving ? "is-leaving" : ""}`}>
             {toast.text}
           </div>
         ))}

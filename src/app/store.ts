@@ -54,6 +54,8 @@ export interface Toast {
   id: number;
   text: string;
   kind: "info" | "error";
+  /** 퇴장 애니메이션 중. */
+  leaving?: boolean;
 }
 
 export interface AppStoreState {
@@ -251,12 +253,27 @@ export class AppStore {
     const tab = this.active;
     if (tab && this.view) {
       this.view.setState(tab.state);
-      this.view.scrollDOM.scrollTop = tab.scroll;
+      this.restoreScroll(tab.scroll);
       this.applyConfig();
       if (this.state.searchOpen) this.emitSearchRefresh();
     }
     this.emit();
     this.scheduleSessionSave();
+  }
+
+  /** setState 직후 스크롤 복원 — 큰 문서는 높이 추정이 갱신되기 전이라
+   *  scrollTop이 잘릴 수 있다. 즉시 한 번, 측정 마친 뒤 한 번 더 맞춘다. */
+  private restoreScroll(top: number): void {
+    const view = this.view;
+    if (!view) return;
+    view.scrollDOM.scrollTop = top;
+    view.requestMeasure({
+      read: () => null,
+      write: () => {
+        const v = this.view;
+        if (v && Math.abs(v.scrollDOM.scrollTop - top) > 1) v.scrollDOM.scrollTop = top;
+      },
+    });
   }
 
   closeTab(id: string): void {
@@ -269,7 +286,7 @@ export class AppStore {
       const tab = this.active;
       if (tab && this.view) {
         this.view.setState(tab.state);
-        this.view.scrollDOM.scrollTop = tab.scroll;
+        this.restoreScroll(tab.scroll);
         this.applyConfig();
       }
     }
@@ -435,7 +452,7 @@ export class AppStore {
           selection: { anchor: newSel },
         }).state;
         this.view.setState(tab.state);
-        this.view.scrollDOM.scrollTop = scroll;
+        this.restoreScroll(scroll);
       } else {
         const sel = Math.min(tab.state.selection.main.head, doc.text.length);
         tab.state = tab.state.update({
@@ -672,12 +689,19 @@ export class AppStore {
   }
 
   toast(text: string, kind: "info" | "error" = "info"): void {
-    const t = { id: nextToastId++, text, kind };
+    const t = { id: nextToastId++, text, kind, leaving: false };
     this.state.toasts = [...this.state.toasts, t];
     this.emit();
     setTimeout(() => {
-      this.state.toasts = this.state.toasts.filter((x) => x.id !== t.id);
+      // 퇴장 애니메이션(0.18s)을 보여준 뒤 치운다 — 깜빡 사라지지 않게.
+      this.state.toasts = this.state.toasts.map((x) =>
+        x.id === t.id ? { ...x, leaving: true } : x,
+      );
       this.emit();
+      setTimeout(() => {
+        this.state.toasts = this.state.toasts.filter((x) => x.id !== t.id);
+        this.emit();
+      }, 200);
     }, kind === "error" ? 6000 : 2600);
   }
 

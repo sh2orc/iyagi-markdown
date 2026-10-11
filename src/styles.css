@@ -342,6 +342,14 @@ body.resizing * {
   border-bottom: none;
   max-width: 220px;
   user-select: none;
+  animation: tab-in 0.14s ease;
+}
+
+@keyframes tab-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
 }
 
 .tab:hover {
@@ -809,6 +817,10 @@ body.resizing .toc {
   color: var(--md-fg);
   background: var(--md-accent-soft);
 }
+.toc-item.is-active {
+  color: var(--md-accent);
+  font-weight: 600;
+}
 
 /* 상태 줄 */
 
@@ -1193,10 +1205,21 @@ body.resizing .toc {
   color: #fff;
 }
 
+.toast.is-leaving {
+  animation: toast-out 0.18s ease forwards;
+}
+
 @keyframes toast-in {
   from {
     opacity: 0;
     transform: translateY(6px);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px);
   }
 }
 
