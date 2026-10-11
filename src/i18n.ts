@@ -70,6 +70,8 @@ const en = {
   exportScale: "Content scale",
   exportPreparing: "Preparing export…",
   exportFailed: "Export failed",
+  printPreviewTitle: "Print Preview",
+  printPreviewHint: "This is how the document will be printed. Export from the buttons below.",
   exportReveal: "Show in Finder",
   exportVectorHint: "Diagrams and formulas are exported as editable vector objects.",
   settingsTitle: "Settings",
@@ -139,6 +141,11 @@ const en = {
   ctxDelRow: "Delete Row",
   ctxDelCol: "Delete Column",
   ctxPasteBlocked: "Clipboard is not accessible — use ⌘V",
+  ctxAlign: "Align",
+  alignLeft: "Left",
+  alignCenter: "Center",
+  alignRight: "Right",
+  alignNone: "Default",
 } as const;
 
 export type Key = keyof typeof en;
@@ -198,6 +205,8 @@ const ko: Dict = {
   exportScale: "내용 배율",
   exportPreparing: "내보내는 중…",
   exportFailed: "내보내기 실패",
+  printPreviewTitle: "인쇄 미리보기",
+  printPreviewHint: "인쇄될 모습입니다. 아래 버튼으로 내보내세요.",
   exportReveal: "Finder에서 보기",
   exportVectorHint: "다이어그램·수식은 편집 가능한 벡터 객체로 내보내진다.",
   settingsTitle: "설정",
@@ -267,6 +276,11 @@ const ko: Dict = {
   ctxDelRow: "행 삭제",
   ctxDelCol: "열 삭제",
   ctxPasteBlocked: "클립보드 접근이 막혀 있습니다 — ⌘V를 사용하세요",
+  ctxAlign: "정렬",
+  alignLeft: "왼쪽",
+  alignCenter: "가운데",
+  alignRight: "오른쪽",
+  alignNone: "기본",
 };
 
 // 인자를 받는 문구.

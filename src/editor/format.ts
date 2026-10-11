@@ -316,3 +316,52 @@ export function tableDeleteColumn(view: EditorView): boolean {
   view.dispatch({ changes, userEvent: "delete.tableColumn" });
   return true;
 }
+
+/** 열 정렬 변경 — 구분 줄의 해당 셀만 :---:/:---/---:로 바꾼다(그 셀만 수정). */
+export function tableAlignColumn(
+  view: EditorView,
+  align: "left" | "center" | "right" | "none",
+): boolean {
+  const t = tableAround(view);
+  if (!t) return false;
+  const sep = view.state.doc.line(t.firstLine + 1);
+  const col = columnAtForAlign(view, t.cursorLine);
+  // 구분 줄의 col번째 셀 찾기.
+  let pipes = 0;
+  let open = -1;
+  let close = -1;
+  for (let i = 0; i < sep.text.length; i++) {
+    if (sep.text[i] === "|" && sep.text[i - 1] !== "\\") {
+      if (pipes === col) open = i + 1;
+      else if (pipes === col + 1) {
+        close = i;
+        break;
+      }
+      pipes += 1;
+    }
+  }
+  if (open === -1 || close === -1 || close <= open) return false;
+  // 기존 셀의 대시 수를 유지 — 콜론만 붙였다 뗐다 한다(왕복해도 폭 일정).
+  const existing = sep.text.slice(open, close);
+  const dashes = Math.max(3, (existing.match(/-/g) ?? []).length);
+  const body = "-".repeat(dashes);
+  const cell =
+    align === "center" ? `:${body}:` : align === "left" ? `:${body}` : align === "right" ? `${body}:` : body;
+  view.dispatch({
+    changes: { from: sep.from + open, to: sep.from + close, insert: cell },
+    userEvent: "input.tableAlign",
+  });
+  return true;
+}
+
+/** 정렬용 열 인덱스 — 커서 줄 기준(내부 재사용). */
+function columnAtForAlign(view: EditorView, lineNo: number): number {
+  const line = view.state.doc.line(Math.min(Math.max(lineNo, 1), view.state.doc.lines));
+  const head = view.state.selection.main.head;
+  const rel = Math.min(Math.max(head - line.from, 0), line.length);
+  let col = 0;
+  for (let i = 0; i < rel; i++) {
+    if (line.text[i] === "|" && line.text[i - 1] !== "\\") col += 1;
+  }
+  return Math.max(0, col - 1);
+}

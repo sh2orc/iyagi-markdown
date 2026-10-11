@@ -232,6 +232,9 @@ body.resizing .sidebar {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* 큰 워크스페이스 — 화면 밖 행은 렌더·레이아웃을 건너뛴다(스크롤 가상화). */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 26px;
 }
 
 .tree-row:hover {
@@ -274,6 +277,8 @@ body.resizing .sidebar {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 25px;
 }
 .sidebar-recent-item:hover {
   color: var(--md-fg);
@@ -812,6 +817,9 @@ body.resizing .toc {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* 목차가 길어도 화면 밖 항목은 건너뛴다. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 27px;
 }
 .toc-item:hover {
   color: var(--md-fg);
@@ -1314,4 +1322,66 @@ body.resizing .toc {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* 인쇄 미리보기 */
+
+.print-overlay {
+  z-index: 65;
+}
+
+.print-frame {
+  width: min(860px, 92vw);
+  height: min(88vh, 900px);
+  background: var(--md-bg-side);
+  border: 1px solid var(--md-border);
+  border-radius: 14px;
+  box-shadow: var(--md-shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.print-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--md-border);
+}
+
+.print-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  flex: 1;
+}
+
+.print-paper {
+  border: 1px solid var(--md-border-strong);
+  border-radius: 6px;
+  background: var(--md-bg);
+  color: var(--md-fg);
+  padding: 4px 8px;
+  font-size: 12.5px;
+}
+
+.print-hint {
+  margin: 0;
+  padding: 6px 16px;
+  font-size: 11.5px;
+  color: var(--md-fg-dim);
+  border-bottom: 1px solid var(--md-border);
+}
+
+.print-page {
+  flex: 1;
+  border: none;
+  background: #fff;
+}
+
+.print-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }

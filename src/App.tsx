@@ -35,6 +35,7 @@ import { ContextMenu } from "./components/ContextMenu";
 import { setImageResizeHandler } from "./editor/widgets";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { StylePanel } from "./components/StylePanel";
+import { PrintPreview } from "./components/PrintPreview";
 
 const ioAdapter = {
   readDocument: (path: string) => api.readDocument(path),
@@ -65,6 +66,7 @@ export function App(): JSX.Element {
   const [closeAsk, setCloseAsk] = useState<((proceed: boolean) => void) | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [styleOpen, setStyleOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -268,7 +270,7 @@ export function App(): JSX.Element {
           void saveAs();
           break;
         case "print":
-          store.setExportKind("pdf");
+          setPrintOpen(true);
           break;
         case "export-html":
         case "export-pdf":
@@ -402,6 +404,26 @@ export function App(): JSX.Element {
     };
   }, [store, handleMenu, saveActive, saveAs]);
 
+  // — Esc로 시트 닫기(macOS 앱 관례) — 확인 대화상자가 떠 있으면 비켜주고,
+  // 에디터가 먼저 처리한 Esc(자동완성 닫기 등)는 존중한다.
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (closeAsk) return;
+      if (state.exportKind) {
+        store.setExportKind(null);
+        return;
+      }
+      if (styleOpen) {
+        setStyleOpen(false);
+        return;
+      }
+      if (settingsOpen) setSettingsOpen(false);
+    };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [closeAsk, state.exportKind, styleOpen, settingsOpen, store]);
+
   // — CSS 변수로 테마·글꼴 반영 —
   useEffect(() => {
     const root = document.documentElement;
@@ -516,6 +538,17 @@ export function App(): JSX.Element {
         t={t}
       />
       {styleOpen && <StylePanel store={store} onClose={() => setStyleOpen(false)} t={t} />}
+      {printOpen && (
+        <PrintPreview
+          store={store}
+          t={t}
+          onExport={(kind, opts) => {
+            setPrintOpen(false);
+            void runExport(kind, opts);
+          }}
+          onCancel={() => setPrintOpen(false)}
+        />
+      )}
       <ContextMenu store={store} t={t} />
       <div className="toasts">
         {state.toasts.map((toast) => (

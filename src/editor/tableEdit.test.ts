@@ -83,3 +83,29 @@ describe("표 편집(Word 표 도구)", () => {
     document.body.innerHTML = "";
   });
 });
+
+// 정렬 명령은 6차에서 추가 — 같은 파일에 이어서.
+import { tableAlignColumn } from "./format";
+
+describe("표 정렬(6차)", () => {
+  it("커서 열 정렬 변경 — 구분 줄의 해당 셀만 수정", () => {
+    const view = viewWith(TABLE, TABLE.indexOf("| a") + 3);
+    tableAlignColumn(view, "center");
+    const lines = view.state.doc.toString().split("\n");
+    expect(lines[1]).toBe("|:---:|:---:|---:|"); // 0번 열만 :---: 로
+    // 나머지 행 불변.
+    expect(lines[2]).toBe("| a | 1 | x |");
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("오른쪽 정렬 → 기본 해제 왕복", () => {
+    const view = viewWith(TABLE, TABLE.indexOf("| a") + 3);
+    tableAlignColumn(view, "right");
+    expect(view.state.doc.toString().split("\n")[1]).toBe("|---:|:---:|---:|");
+    tableAlignColumn(view, "none");
+    expect(view.state.doc.toString().split("\n")[1]).toBe("|---|:---:|---:|");
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+});

@@ -580,17 +580,25 @@ export class AppStore {
     this.setDocStyle(style);
   }
 
-  /** 활성 문서 스타일 변경 — 즉시 적용 + SQLite 저장(원문 불변). */
+  /** 활성 문서 스타일 변경 — 즉시 적용 + SQLite 저장(원문 불변).
+   *  디스크 저장은 디바운스 — 슬라이더를 끌 때 매 틱마다 쓰지 않는다. */
   setDocStyle(style: DocStyle): void {
     const tab = this.active;
     if (!tab) return;
     tab.docStyle = style;
     this.applyDocStyleVars();
     this.emit();
-    if (tab.path && this.io.docStyleSet) {
-      void this.io.docStyleSet(tab.path, JSON.stringify(style)).catch(() => {});
-    }
+    if (this.docStyleTimer) clearTimeout(this.docStyleTimer);
+    this.docStyleTimer = setTimeout(() => {
+      this.docStyleTimer = null;
+      const t = this.active;
+      if (t?.path && this.io.docStyleSet) {
+        void this.io.docStyleSet(t.path, JSON.stringify(t.docStyle)).catch(() => {});
+      }
+    }, 350);
   }
+
+  private docStyleTimer: ReturnType<typeof setTimeout> | null = null;
 
   // — 세션 —
 

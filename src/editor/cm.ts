@@ -103,6 +103,15 @@ function baseExtensions(): Extension[] {
       },
       mousedown(event, view) {
         const target = event.target as HTMLElement | null;
+        // 각주 참조 → 정의 줄로 이동(Word 각주 이동).
+        const fnEl = target?.closest?.(".md-footnote-ref");
+        if (fnEl) {
+          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (pos != null && gotoFootnoteDefinition(view, pos)) {
+            event.preventDefault();
+            return true;
+          }
+        }
         const linkEl = target?.closest?.(".md-link, .md-url");
         if (!linkEl) return false;
         const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
@@ -146,6 +155,36 @@ export function createDocState(doc: string, mode: ViewMode): EditorState {
 /** 상태에 프리뷰 설정 반영(문서 경로·이미지 정책·테마). */
 export function applyPreviewConfig(view: EditorView, config: PreviewConfigParam): void {
   view.dispatch({ effects: setPreviewConfig.of(config) });
+}
+
+/** pos 근처 각주 참조의 라벨을 얻는다. */
+function footnoteLabelAt(state: EditorState, pos: number): string | null {
+  const doc = state.doc;
+  const line = doc.lineAt(pos);
+  const re = /\[\^([^\]\s]+)\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line.text))) {
+    const from = line.from + m.index;
+    if (pos >= from && pos <= from + m[0].length) return m[1];
+  }
+  return null;
+}
+
+/** 각주 참조 클릭 → 정의 줄로 커서 이동. 정의가 없으면 첫 참조로. */
+function gotoFootnoteDefinition(view: EditorView, pos: number): boolean {
+  const label = footnoteLabelAt(view.state, pos);
+  if (!label) return false;
+  const doc = view.state.doc;
+  const defRe = new RegExp(`^\\s*\\[\\^${label.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&")}\\]:`);
+  for (let n = 1; n <= doc.lines; n++) {
+    const line = doc.line(n);
+    if (defRe.test(line.text)) {
+      smoothScrollIntoView(view, line.from);
+      view.dispatch({ selection: { anchor: line.from } });
+      return true;
+    }
+  }
+  return false;
 }
 
 /** 현재 프리뷰 설정 회독(재빌드 트리거용). */

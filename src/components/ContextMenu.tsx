@@ -157,6 +157,11 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
           {item(t.ctxAddCol, () => run(() => fmt.tableAddColumn(view)))}
           {item(t.ctxDelRow, () => run(() => fmt.tableDeleteRow(view)))}
           {item(t.ctxDelCol, () => run(() => fmt.tableDeleteColumn(view)))}
+          <span className="ctx-sep" />
+          {item(`⬅ ${t.ctxAlign}: ${t.alignLeft}`, () => run(() => fmt.tableAlignColumn(view, "left")))}
+          {item(`↔ ${t.ctxAlign}: ${t.alignCenter}`, () => run(() => fmt.tableAlignColumn(view, "center")))}
+          {item(`➡ ${t.ctxAlign}: ${t.alignRight}`, () => run(() => fmt.tableAlignColumn(view, "right")))}
+          {item(t.alignNone, () => run(() => fmt.tableAlignColumn(view, "none")))}
         </>
       )}
     </div>

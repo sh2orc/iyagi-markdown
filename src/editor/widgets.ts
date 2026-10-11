@@ -191,17 +191,30 @@ export class ImageWidget extends WidgetType {
       handle.title = "↔";
       let base = 0;
       let basePct = 0;
+      let containerW = 0;
+      let pendingPct = 0;
+      let raf = 0;
+      // 폭 쓰기는 rAF로 모은다 — pointermove마다 스타일을 쓰면 매 이벤트마다
+      // 레이아웃이 잡히고(읽기-쓰기 스래시), 초당 120회 이벤트 장치에서 끊긴다.
+      const applyPct = () => {
+        raf = 0;
+        if (pendingPct > 0) img.style.width = `${pendingPct}%`;
+      };
       const onMove = (ev: PointerEvent) => {
-        const host = wrap.closest(".editor-host, .cm-content");
-        const containerW = host?.clientWidth ?? wrap.clientWidth;
         if (containerW <= 0) return;
         const pct = Math.round(Math.min(100, Math.max(10, basePct + ((ev.clientX - base) / containerW) * 100)));
-        img.style.width = `${pct}%`;
+        pendingPct = pct;
         handle.dataset.pct = String(pct);
+        if (!raf) raf = requestAnimationFrame(applyPct);
       };
       const onUp = () => {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
+        if (raf) {
+          cancelAnimationFrame(raf);
+          raf = 0;
+        }
+        applyPct(); // 마지막 값 즉시 반영 — 놓은 시점과 저장값이 일치하게
         const pct = Number(handle.dataset.pct ?? 0);
         if (pct > 0) imageResizeHandler?.(this.src, pct);
       };
@@ -210,6 +223,9 @@ export class ImageWidget extends WidgetType {
         ev.stopPropagation();
         base = ev.clientX;
         basePct = this.widthPct ?? 100;
+        const host = wrap.closest(".editor-host, .cm-content");
+        containerW = host?.clientWidth ?? wrap.clientWidth; // 드래그 중엔 다시 안 읽는다
+        pendingPct = 0;
         window.addEventListener("pointermove", onMove);
         window.addEventListener("pointerup", onUp);
       });
