@@ -22,6 +22,7 @@ import {
 } from "./livePreview";
 import { editorSyntaxHighlighting, editorTheme } from "./theme";
 import { mathSyntax } from "./mathSyntax";
+import { htmlToMarkdown } from "./htmlPaste";
 import * as fmt from "./format";
 import { resetSearch, searchHighlight } from "../search/searchCm";
 
@@ -84,7 +85,8 @@ function baseExtensions(): Extension[] {
     EditorView.updateListener.of((u) => {
       if (u.docChanged || u.selectionSet) listener?.(u);
     }),
-    // 스마트 붙여넣기 — URL을 선택 텍스트 위에 붙이면 링크로(Word/워프류 동작).
+    // 스마트 붙여넣기 — ① URL을 선택 텍스트 위에 붙이면 링크로(Word/워프류),
+    // ② HTML 클립보드(Word·브라우저 복사)는 마크다운으로 변환해 삽입.
     EditorView.domEventHandlers({
       paste(event, view) {
         const text = event.clipboardData?.getData("text/plain") ?? "";
@@ -98,6 +100,18 @@ function baseExtensions(): Extension[] {
             userEvent: "input.pasteLink",
           });
           return true;
+        }
+        const html = event.clipboardData?.getData("text/html") ?? "";
+        if (html.trim()) {
+          const md = htmlToMarkdown(html);
+          if (md && md !== text) {
+            event.preventDefault();
+            view.dispatch({
+              changes: { from: sel.from, to: sel.to, insert: md },
+              userEvent: "input.pasteHtml",
+            });
+            return true;
+          }
         }
         return false;
       },

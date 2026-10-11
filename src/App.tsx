@@ -489,9 +489,7 @@ export function App(): JSX.Element {
         <main className="app-main">
           <TabBar store={store} t={t} onClose={(tab) => void closeTabWithConfirm(tab)} />
           <Toolbar store={store} t={t} />
-          {state.searchOpen && editorView.current && (
-            <SearchPanel store={store} view={editorView.current} t={t} />
-          )}
+          <SearchPanel store={store} view={editorView.current} t={t} open={state.searchOpen} />
           <div className={`editor-area ${activeTab?.mode === "read" ? "read-mode" : ""}`}>
             <MiniToolbar store={store} t={t} />
             <div className="editor-host" ref={editorHost} />

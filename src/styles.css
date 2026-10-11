@@ -613,13 +613,33 @@ body.resizing * {
 /* 검색 바 */
 
 .searchbar {
-  border-bottom: 1px solid var(--md-border);
   background: var(--md-bg);
+  border-bottom: 1px solid transparent;
+  /* 항상 마운트 — 슬라이드로 열고 닫는다(패널 내용은 보존). */
+  max-height: 0;
+  padding: 0 14px;
+  opacity: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+  transition:
+    max-height 0.16s ease,
+    padding 0.16s ease,
+    opacity 0.12s ease,
+    border-color 0.16s ease;
+}
+.searchbar.is-open {
+  max-height: 120px;
   padding: 8px 14px;
+  opacity: 1;
+  border-bottom-color: var(--md-border);
+}
+
+.searchbar-fixed {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  user-select: none;
 }
 
 .searchbar-row {

@@ -1,4 +1,6 @@
 // 문서 내 검색 패널(M09): 찾기·바꾸기, 대소문자·정규식, 매치 수·이동.
+// 항상 마운트된 채 슬라이드로 열고 닫는다 — 검색어·옵션이 세션 내 보존되고
+// 열림이 툭 튀지 않는다.
 
 import { useEffect, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
@@ -17,11 +19,12 @@ import {
 
 interface Props {
   store: AppStore;
-  view: EditorView;
+  view: EditorView | null;
   t: Translate;
+  open: boolean;
 }
 
-export function SearchPanel({ store, view, t }: Props): JSX.Element {
+export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null {
   const [text, setText] = useState("");
   const [replacement, setReplacement] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
@@ -29,13 +32,9 @@ export function SearchPanel({ store, view, t }: Props): JSX.Element {
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [, force] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
   const [, closeSignal] = useState(0);
   void closeSignal;
-
-  useEffect(() => {
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, []);
 
   const query: SearchQuery | null = text ? { text, caseSensitive, regexp, replacement } : null;
 
@@ -48,6 +47,7 @@ export function SearchPanel({ store, view, t }: Props): JSX.Element {
   }, []);
 
   const apply = (q: SearchQuery | null) => {
+    if (!view) return;
     view.dispatch({ effects: setSearchState.of({ query: q }) });
     if (q && searchStateOf(view.state).matches.length > 0) gotoMatch(view, 0);
     force((n) => n + 1);
@@ -69,11 +69,28 @@ export function SearchPanel({ store, view, t }: Props): JSX.Element {
     return false;
   };
 
-  const st = searchStateOf(view.state);
+  const st = view ? searchStateOf(view.state) : { query: null, matches: [], current: -1 };
   const count = st.matches.length;
   const current = st.current + 1;
 
+  // 열림 — 포커스·선택. 검색어를 유지 중이면 매치도 다시 살린다(닫힘 때
+  // 하이라이트는 지웠으므로). 닫힘 — 입력으로 포커스가 새지 않게 inert.
+  useEffect(() => {
+    if (!view) return;
+    if (open) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+      if (text) apply(query);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, view]);
+
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.inert = !open;
+  }, [open]);
+
   const close = () => {
+    if (!view) return;
     if (applyTimer.current) {
       clearTimeout(applyTimer.current);
       applyTimer.current = null;
@@ -84,7 +101,8 @@ export function SearchPanel({ store, view, t }: Props): JSX.Element {
   };
 
   return (
-    <div className="searchbar">
+    <div className={`searchbar ${open ? "is-open" : ""}`} aria-hidden={!open}>
+      <div ref={bodyRef} className="searchbar-fixed">
       <div className="searchbar-row">
         <input
           ref={inputRef}
@@ -102,7 +120,7 @@ export function SearchPanel({ store, view, t }: Props): JSX.Element {
             if (e.key === "Enter") {
               e.preventDefault();
               // 보류 중이던 쿼리를 방금 확정했다면 첫 매치 이동이 이미 일어났다.
-              if (flush()) return;
+              if (flush() || !view) return;
               findNext(view, !e.shiftKey);
               force((n) => n + 1);
             } else if (e.key === "Escape") {
@@ -138,7 +156,7 @@ export function SearchPanel({ store, view, t }: Props): JSX.Element {
           className="search-toggle"
           title={t.findPlaceholder}
           onClick={() => {
-            if (!text) return;
+            if (!text || !view) return;
             findNext(view, false);
             force((n) => n + 1);
           }}
@@ -149,7 +167,7 @@ export function SearchPanel({ store, view, t }: Props): JSX.Element {
           className="search-toggle"
           title={t.findPlaceholder}
           onClick={() => {
-            if (!text) return;
+            if (!text || !view) return;
             findNext(view, true);
             force((n) => n + 1);
           }}
@@ -181,7 +199,7 @@ export function SearchPanel({ store, view, t }: Props): JSX.Element {
             className="search-toggle"
             disabled={!query || count === 0}
             onClick={() => {
-              if (!query) return;
+              if (!query || !view) return;
               replaceCurrent(view, { ...query, replacement });
               force((n) => n + 1);
             }}
@@ -192,7 +210,7 @@ export function SearchPanel({ store, view, t }: Props): JSX.Element {
             className="search-toggle"
             disabled={!query || count === 0}
             onClick={() => {
-              if (!query) return;
+              if (!query || !view) return;
               const n = replaceAll(view, { ...query, replacement });
               store.toast(t.f.replaced(n));
               force((x) => x + 1);
@@ -202,6 +220,7 @@ export function SearchPanel({ store, view, t }: Props): JSX.Element {
           </button>
         </div>
       )}
+      </div>
     </div>
   );
 }
