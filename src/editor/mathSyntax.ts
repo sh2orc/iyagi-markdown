@@ -55,13 +55,18 @@ export const mathSyntax: MarkdownExtension = {
           return true;
         }
         // 여러 줄: 닫는 $$ 줄이 나올 때까지 소비한다.
-        let closed = false;
+        // eager leaf 파서 규칙(§BlockParser.parse): 블록이 끝난 시점에서
+        // 현재 줄은 블록 **뒤**의 줄이어야 한다 — 닫는 줄을 찾으면 한 번 더
+        // nextLine()로 지나간다(lezer 자체 FencedCode와 동일한 소비 규칙).
+        // 이 규칙을 어기면 닫는 줄 뒤의 문서가 통째로 트리에서 사라진다.
         let end = cx.lineStart + line.text.length;
+        let closed = false;
         while (cx.nextLine()) {
           end = cx.lineStart + line.text.length;
           const t = line.text.slice(line.pos);
           if (t.trim() === "$$" || t.trim().startsWith("$$")) {
             closed = true;
+            cx.nextLine();
             break;
           }
         }

@@ -131,6 +131,18 @@ export function applyPreviewConfig(view: EditorView, config: PreviewConfigParam)
   view.dispatch({ effects: setPreviewConfig.of(config) });
 }
 
+/** 현재 프리뷰 설정 회독(재빌드 트리거용). */
+function currentPreviewConfig(view: EditorView): PreviewConfigParam {
+  return (
+    (view.state.field(previewConfigField, false) as PreviewConfigParam | undefined) ?? {
+      baseDir: "",
+      remoteImages: true,
+      showImages: true,
+      theme: "light",
+    }
+  );
+}
+
 /** 모드 전환 — 같은 버퍼 위에서 확장만 재구성(내용 불변, §4-2 5항 (c)). */
 export function switchMode(view: EditorView, mode: ViewMode): void {
   const editable =
@@ -142,6 +154,9 @@ export function switchMode(view: EditorView, mode: ViewMode): void {
       editableComp.reconfigure(editable),
       behaviorComp.reconfigure(previewBehavior.of(mode === "read" ? "render" : "reveal")),
       previewEnabledComp.reconfigure(mode === "source" ? [] : livePreviewExtension()),
+      // 모드 전환 자체는 doc/선택/뷰포트를 바꾸지 않는다 — 설정 이펙트로 재빌드를
+      // 트리거한다(예: 읽기→편집 전환 시 커서 줄 원문 노출이 즉시 반영되게).
+      setPreviewConfig.of(currentPreviewConfig(view)),
     ],
   });
   resetSearch(view);

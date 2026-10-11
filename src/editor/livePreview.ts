@@ -4,7 +4,8 @@
 // 커서/선택/IME 조합 중인 블록은 장식을 풀어 원문을 보여 준다(Obsidian 방식).
 // 읽기 모드는 같은 장식을 항상 켠다.
 
-import { syntaxTree, syntaxTreeAvailable } from "@codemirror/language";
+import { syntaxTree } from "@codemirror/language";
+import type { SyntaxNode } from "@lezer/common";
 import { EditorState, Facet, Range, StateEffect, StateField } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import {
@@ -94,7 +95,10 @@ const plugin = ViewPlugin.fromClass(
         u.focusChanged ||
         u.transactions.some((tr) => tr.effects.some((e) => e.is(setPreviewConfig)))
       ) {
-        this.build(u.view);
+        // 갱신 주기 안에서의 dispatch는 금지다("update is in progress" 크래시 —
+        // 장식이 중간에 끊기는 원인). 마이크로태스크로 미루면 연속 갱신도 자연
+        // 병합된다.
+        queueMicrotask(() => this.buildIfAlive(u.view));
       }
     }
     buildIfAlive(view: EditorView) {
@@ -102,18 +106,24 @@ const plugin = ViewPlugin.fromClass(
       if (view.dom.isConnected) this.build(view);
     }
 
+    lastTreeLen = -1;
+
     build(view: EditorView) {
-      // 구문 트리가 아직 범위를 덮지 못했으면(비동기 파싱 진행 중) 완료 후 재시도.
-      const upto = view.viewport.to > view.viewport.from
-        ? view.viewport.to
-        : Math.min(view.state.doc.length, 50_000);
-      if (!syntaxTreeAvailable(view.state, upto)) {
+      // 트리 커버리지로 진행을 판단한다. syntaxTreeAvailable(isDone)은 파서가
+      // 여러 조각으로 완료되면 트리가 전체를 덮어도 계속 false(2026-10-11 실측).
+      //
+      // 파싱이 덜 끝났어도 **지금 덮인 범위부터 즉시 장식**하고, 트리가 자라면
+      // 다시 붙인다 — 전체 파싱을 기다리면 큰 문서에서 첫 렌더가 늦어진다.
+      const { to: upto } = scanRange(view);
+      const treeLen = syntaxTree(view.state).length;
+      if (treeLen < upto) {
         setTimeout(() => this.buildIfAlive(view), 50);
-        return;
       }
-      // 항상 dispatch한다 — 이 dispatch는 doc/선택/뷰포트를 바꾸지 않으므로
-      // 재귀 빌드가 일어나지 않는다.
-      view.dispatch({ effects: setDecorations.of(buildDecorations(view)) });
+      if (treeLen !== this.lastTreeLen) {
+        this.lastTreeLen = treeLen;
+        // 이 dispatch는 doc/선택/뷰포트를 바꾸지 않으므로 재귀 빌드가 없다.
+        view.dispatch({ effects: setDecorations.of(buildDecorations(view)) });
+      }
     }
   },
 );
@@ -125,6 +135,22 @@ export function livePreviewExtension(): Extension {
 // — 장식 빌더 —
 
 const replace = Decoration.replace;
+
+/** 장식을 계산할 범위.
+ *  - 읽기 모드(render): 문서 전체를 한 번에(리더로서의 페이지 렌더. 상한 300k).
+ *  - 편집 모드(reveal): 뷰포트 + 여유(§7 — 스크롤 직전에 위젯이 준비되게). */
+function scanRange(view: EditorView): { from: number; to: number } {
+  const docLen = view.state.doc.length;
+  const behavior = view.state.facet(previewBehavior);
+  if (behavior === "render") {
+    return { from: 0, to: Math.min(docLen, 300_000) };
+  }
+  const from = Math.max(0, view.viewport.from - 2000);
+  const to = view.viewport.to > view.viewport.from
+    ? Math.min(docLen, view.viewport.to + 3000)
+    : Math.min(docLen, 50_000);
+  return { from, to };
+}
 
 function buildDecorations(view: EditorView): DecorationSet {
   const behavior = view.state.facet(previewBehavior);
@@ -173,17 +199,22 @@ function buildDecorations(view: EditorView): DecorationSet {
   const src = view.state.doc.toString();
 
   try {
-    // 뷰포트 범위만 계산한다(§7). 측정 전(jsdom·첫 프레임) 뷰포트가 비어 있으면
-    // 문서 전체를 한 번 본다 — 실제 앱에서는 곧바로 실측 뷰포트로 좁혀진다.
-    const scanTo =
-      view.viewport.to > view.viewport.from
-        ? view.viewport.to
-        : Math.min(doc.length, 50_000);
+    // 범위는 모드에 따라(scanRange 참조): 읽기는 전체 문서, 편집은 뷰포트+여유.
+    const scan = scanRange(view);
     syntaxTree(view.state).iterate({
-      from: view.viewport.from,
-      to: scanTo,
+      from: scan.from,
+      to: scan.to,
       enter: (ref) => {
-        const node = ref.node;
+        try {
+          return enterNode(ref.node) ?? undefined;
+        } catch (e) {
+          // 한 요소의 실패가 문서 전체 렌더를 무너뜨리지 않게 한다.
+          console.warn("livePreview: 노드 장식 실패", ref.node.name, e);
+          return undefined;
+        }
+      },
+    });
+    function enterNode(node: SyntaxNode): boolean | undefined {
         const name = node.name;
         const from = node.from;
         const to = node.to;
@@ -318,10 +349,10 @@ function buildDecorations(view: EditorView): DecorationSet {
         if (name === "FencedCode") {
           addLineClasses(from, to, "md-codeblock");
           if (isRevealed(from, to)) return;
-          const first = node.firstChild;
-          const info = first && first.name === "HeaderMark"
-            ? src.slice(first.from, first.to).replace(/^[`~]+/, "").trim()
-            : "";
+          // FencedCode 자식: CodeMark(펜스) → CodeInfo(언어) → CodeText → CodeMark.
+          const second = node.firstChild?.nextSibling;
+          const info =
+            second && second.name === "CodeInfo" ? src.slice(second.from, second.to).trim() : "";
           if (info === "mermaid") {
             const code = extractFenceBody(src, from, to);
             ranges.push(
@@ -408,8 +439,8 @@ function buildDecorations(view: EditorView): DecorationSet {
           ranges.push(Decoration.mark({ class: "md-html" }).range(from, to));
           return;
         }
-      },
-    });
+        return undefined;
+    }
   } catch (e) {
     // 장식 실패는 표시를 원문으로 되돌릴 뿐 앱을 죽이지 않는다.
     console.error("livePreview 장식 실패", e);
@@ -451,3 +482,6 @@ export function findLinkAt(
   });
   return found;
 }
+
+/** 테스트 전용 내부 노출. */
+export const __testing = { decorationField: decorationField, buildDecorations };

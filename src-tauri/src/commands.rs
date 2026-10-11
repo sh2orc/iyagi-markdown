@@ -66,9 +66,10 @@ pub fn take_pending_files(state: State<'_, AppState>) -> Vec<String> {
 pub fn read_document(app: AppHandle, path: String) -> Result<LoadedDoc, String> {
     let p = Path::new(&path);
     let doc = read_doc(p).map_err(err)?;
-    // 이미지 표시용 asset 프로토콜 허용 범위를 문서 폴더로 확장.
+    // 이미지 표시용 asset 프로토콜 허용 범위를 문서 폴더 **하위 트리**로 확장.
+    // (바깥 상대 경로 ../…는 위젯의 온디맨드 허용으로 처리된다.)
     if let Some(dir) = p.parent() {
-        let _ = app.asset_protocol_scope().allow_directory(dir, false);
+        let _ = app.asset_protocol_scope().allow_directory(dir, true);
     }
     push_recent(&app, &path);
     Ok(doc)

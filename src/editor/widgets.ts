@@ -149,7 +149,15 @@ export class ImageWidget extends WidgetType {
     if (this.alt) img.alt = this.alt;
     if (this.title) img.title = this.title;
     img.draggable = false;
+    let retried = false;
     img.addEventListener("error", () => {
+      // 문서 폴더 바깥 상대 경로(../…)는 asset 범위에 없어 실패한다 —
+      // 그 이미지의 폴더만 허용받아 한 번 재시도하고, 그래도 안 되면 대체 텍스트.
+      if (!retried && !/^https?:/i.test(this.src) && isInApp()) {
+        retried = true;
+        void grantAndRetry(img, this.src);
+        return;
+      }
       wrap.classList.add("md-image-missing");
       img.replaceWith(document.createTextNode(this.alt || this.src));
     });
@@ -211,6 +219,18 @@ export function parseTable(src: string): ParsedTable | null {
   const header = splitRow(lines[0]);
   const rows = lines.slice(2).map(splitRow);
   return { align, header, rows };
+}
+
+/** 이미지 경로의 폴더를 asset 범위에 추가하고 다시 불러온다(온디맨드 허용). */
+async function grantAndRetry(img: HTMLImageElement, src: string): Promise<void> {
+  try {
+    const { api } = await import("../api");
+    const dir = src.substring(0, src.lastIndexOf("/"));
+    if (dir) await api.setAssetScope(dir, false);
+    img.src = convertFileSrc(src);
+  } catch {
+    // 무시 — 두 번째 실패에서 대체 텍스트로 떨어진다.
+  }
 }
 
 const tableCellText = (raw: string): DocumentFragment => {
