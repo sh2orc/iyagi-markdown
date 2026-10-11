@@ -461,7 +461,7 @@ export function App(): JSX.Element {
           {state.searchOpen && editorView.current && (
             <SearchPanel store={store} view={editorView.current} t={t} />
           )}
-          <div className="editor-area">
+          <div className={`editor-area ${activeTab?.mode === "read" ? "read-mode" : ""}`}>
             <MiniToolbar store={store} t={t} />
             <div className="editor-host" ref={editorHost} />
             {!state.ready && <div className="app-splash">{t.loading}</div>}

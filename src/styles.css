@@ -655,6 +655,30 @@ body.resizing * {
   overflow: hidden;
 }
 
+/* 읽기 모드 — 문서 "페이지" 카드(Word 페이지 느낌): 배경 살짝 내리고
+   본문에 흰 종이 카드 + 그림자. */
+.editor-area.read-mode {
+  background: var(--md-bg-side);
+  overflow-y: auto;
+  display: block;
+}
+.editor-area.read-mode .editor-host {
+  overflow: visible;
+  padding: 28px 16px;
+}
+.editor-area.read-mode .cm-scroller {
+  overflow: visible;
+}
+.editor-area.read-mode .cm-content {
+  background: var(--md-bg);
+  border: 1px solid var(--md-border);
+  border-radius: 6px;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.08);
+  padding: 44px 52px 60px !important;
+  min-height: 100%;
+  margin: 0 auto;
+}
+
 .editor-host .cm-editor {
   height: 100%;
 }

@@ -82,8 +82,23 @@ function baseExtensions(): Extension[] {
     EditorView.updateListener.of((u) => {
       if (u.docChanged || u.selectionSet) listener?.(u.view);
     }),
-    // 링크 클릭 — 텍스트 장식이라 DOM 이벤트로 역산한다.
+    // 스마트 붙여넣기 — URL을 선택 텍스트 위에 붙이면 링크로(Word/워프류 동작).
     EditorView.domEventHandlers({
+      paste(event, view) {
+        const text = event.clipboardData?.getData("text/plain") ?? "";
+        const sel = view.state.selection.main;
+        const isUrl = /^https?:\/\/\S+$/i.test(text.trim()) && !/\s/.test(text.trim());
+        if (!sel.empty && isUrl) {
+          event.preventDefault();
+          const selected = view.state.sliceDoc(sel.from, sel.to);
+          view.dispatch({
+            changes: { from: sel.from, to: sel.to, insert: `[${selected}](${text.trim()})` },
+            userEvent: "input.pasteLink",
+          });
+          return true;
+        }
+        return false;
+      },
       mousedown(event, view) {
         const target = event.target as HTMLElement | null;
         const linkEl = target?.closest?.(".md-link, .md-url");

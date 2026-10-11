@@ -273,7 +273,7 @@ export class TableWidget extends WidgetType {
     return other.src === this.src;
   }
 
-  toDOM() {
+  toDOM(view: EditorView) {
     const parsed = parseTable(this.src) ?? { align: [], header: [], rows: [] };
     const wrap = document.createElement("div");
     wrap.className = "md-table-wrap";
@@ -304,6 +304,43 @@ export class TableWidget extends WidgetType {
     }
     table.append(tbody);
     wrap.append(table);
+    // 더블클릭한 셀의 **원문 위치**로 커서를 옮긴다 — 커서 줄 노출이 그 표를
+    // 원문으로 되돌려 바로 편집할 수 있게 한다(Word 표 더블클릭).
+    wrap.addEventListener("dblclick", (e) => {
+      const cell = (e.target as HTMLElement | null)?.closest?.("td, th");
+      const rowEl = cell?.closest?.("tr");
+      if (!(cell instanceof HTMLElement) || !(rowEl instanceof HTMLElement)) return;
+      e.preventDefault();
+      const tableEl = rowEl.closest("table");
+      const rows = tableEl ? Array.from(tableEl.querySelectorAll("tr")) : [];
+      const domRow = rows.indexOf(rowEl);
+      const domCol = Array.from(rowEl.children).indexOf(cell);
+      const pos = view.posAtDOM(wrap);
+      const doc = view.state.doc;
+      const firstLine = doc.lineAt(pos).number;
+      // DOM 행 0 = 헤더(소스 0번 줄), 이후 = 데이터(구분 줄 하나 건너뜀).
+      const sourceLine = domRow <= 0 ? firstLine : firstLine + domRow + 1;
+      if (sourceLine > doc.lines) return;
+      const line = doc.line(sourceLine);
+      // domCol번째 셀 내용 시작 = (domCol+1)번째 파이프 뒤 공백.
+      let pipes = 0;
+      let content = -1;
+      for (let i = 0; i < line.text.length; i++) {
+        if (line.text[i] === "|" && line.text[i - 1] !== "\\") {
+          if (pipes === domCol + 1) {
+            content = i + 1;
+            break;
+          }
+          pipes += 1;
+        }
+      }
+      if (content === -1) content = line.text.length;
+      const skip = line.text.slice(content).length - line.text.slice(content).trimStart().length;
+      view.dispatch({
+        selection: { anchor: line.from + content + skip },
+        scrollIntoView: true,
+      });
+    });
     return wrap;
   }
 
