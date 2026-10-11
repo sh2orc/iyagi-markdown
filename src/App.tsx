@@ -30,6 +30,7 @@ import { StatusBar } from "./components/StatusBar";
 import { CloseConfirm, ConflictDialog } from "./components/Modals";
 import { ExportSheet } from "./components/ExportSheet";
 import { Toolbar } from "./components/Toolbar";
+import { MiniToolbar } from "./components/MiniToolbar";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { StylePanel } from "./components/StylePanel";
 
@@ -457,6 +458,7 @@ export function App(): JSX.Element {
             <SearchPanel store={store} view={editorView.current} t={t} />
           )}
           <div className="editor-area">
+            <MiniToolbar store={store} t={t} />
             <div className="editor-host" ref={editorHost} />
             {!state.ready && <div className="app-splash">{t.loading}</div>}
             {state.ready && state.tabs.length === 0 && (

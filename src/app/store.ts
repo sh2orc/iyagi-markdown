@@ -5,6 +5,7 @@
 // 순수 로직(의존 주입형 IO)이라 단위 테스트가 가능하다.
 
 import { EditorState } from "@codemirror/state";
+import { syntaxTree } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 
 import type {
@@ -37,6 +38,8 @@ export interface Tab {
   conflict: null | "changed" | "removed" | "conflict";
   /** 문서별 스타일(SQLite 사이드카). 없으면 기본. */
   docStyle: DocStyle | null;
+  /** 커서 위치의 활성 서식(도구모음 반영용). */
+  marks: { bold: boolean; italic: boolean; strike: boolean; code: boolean; link: boolean };
 }
 
 export type ExportKind = "html" | "pdf" | "docx";
@@ -160,6 +163,7 @@ export class AppStore {
       cursorCol: 1,
       conflict: null,
       docStyle: null,
+      marks: { bold: false, italic: false, strike: false, code: false, link: false },
     };
     this.state.tabs.push(tab);
     // 문서별 스타일 사이드카 로드(SQLite).
@@ -196,6 +200,7 @@ export class AppStore {
       cursorCol: 1,
       conflict: null,
       docStyle: null,
+      marks: { bold: false, italic: false, strike: false, code: false, link: false },
     };
     this.state.tabs.push(tab);
     this.activate(tab.id);
@@ -294,9 +299,24 @@ export class AppStore {
     const line = this.view.state.doc.lineAt(sel.head);
     tab.cursorLine = line.number;
     tab.cursorCol = sel.head - line.from + 1;
+    tab.marks = marksAt(this.view.state, sel.head, sel.to);
+    // 초안 자동 저장(Word 자동 저장) — 입력이 멈춘 뒤 저장. 무수정이면 저장하지
+    // 않는다(§4-2). 원자적 저장 경로 그대로.
+    if (this.state.settings.autosave && tab.path) {
+      if (this.autosaveTimer) clearTimeout(this.autosaveTimer);
+      this.autosaveTimer = setTimeout(() => {
+        this.autosaveTimer = null;
+        const t = this.active;
+        if (t?.path && t.state.doc.toString() !== t.savedText) {
+          void this.saveActive();
+        }
+      }, 1500);
+    }
     // 상태 줄(줄/칸·더티 점) 갱신 — 상태 객체를 새로 만들어 구독자에게 알린다.
     this.emit();
   }
+
+  private autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 
   // — 저장 —
 
@@ -604,6 +624,48 @@ export class AppStore {
   }
 }
 
+/** 커서 위치의 인라인 서식 조상을 찾는다(도구모음 활성 상태용). */
+function marksAt(
+  state: EditorState,
+  head: number,
+  to: number,
+): Tab["marks"] {
+  const marks = { bold: false, italic: false, strike: false, code: false, link: false };
+  try {
+    const pos = head !== to ? head : Math.min(head, Math.max(0, state.doc.length));
+    const tree = syntaxTree(state);
+    if (tree.length === 0) return marks;
+    let node = tree.resolveInner(pos, -1);
+    for (;;) {
+      switch (node.name) {
+        case "StrongEmphasis":
+          marks.bold = true;
+          break;
+        case "Emphasis":
+          marks.italic = true;
+          break;
+        case "Strikethrough":
+          marks.strike = true;
+          break;
+        case "InlineCode":
+          marks.code = true;
+          break;
+        case "Link":
+        case "Image":
+          marks.link = true;
+          break;
+        default:
+          break;
+      }
+      if (!node.parent || node.parent.name === "Document") break;
+      node = node.parent;
+    }
+  } catch {
+    /* 트리 미완료 등 — 기본값 유지 */
+  }
+  return marks;
+}
+
 export function defaultSettings(): Settings {
   return {
     theme: "auto",
@@ -614,6 +676,7 @@ export function defaultSettings(): Settings {
     language: "auto",
     showImages: true,
     logLevel: "info",
+    autosave: false,
   };
 }
 

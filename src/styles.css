@@ -461,6 +461,11 @@ body.resizing * {
   opacity: 0.35;
   cursor: default;
 }
+.tb-btn.is-active {
+  background: var(--md-accent-soft);
+  color: var(--md-accent);
+  box-shadow: inset 0 0 0 1px var(--md-accent);
+}
 .tb-btn b {
   font-weight: 800;
 }
@@ -470,6 +475,49 @@ body.resizing * {
 }
 .tb-btn .tb-link-ico {
   font-size: 12px;
+}
+
+/* 선택 미니 서식 바 */
+
+.mini-tb {
+  position: absolute;
+  z-index: 40;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  background: var(--md-bg);
+  border: 1px solid var(--md-border);
+  border-radius: 9px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
+  padding: 3px 5px;
+  user-select: none;
+}
+
+.mtb-btn {
+  border: none;
+  background: none;
+  color: var(--md-fg);
+  font-family: var(--md-prose-font);
+  font-size: 12.5px;
+  line-height: 1;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.mtb-btn:hover {
+  background: var(--md-accent-soft);
+}
+.mtb-sep {
+  width: 1px;
+  height: 14px;
+  background: var(--md-border);
+  margin: 0 3px;
 }
 
 /* 검색 바 */

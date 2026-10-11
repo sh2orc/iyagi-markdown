@@ -22,10 +22,14 @@ export class MathWidget extends WidgetType {
     return other.latex === this.latex && other.display === this.display;
   }
 
-  toDOM() {
+  toDOM(view: EditorView) {
     const el = document.createElement(this.display ? "div" : "span");
     el.className = this.display ? "md-math md-math-block" : "md-math md-math-inline";
-    renderMathInto(el, this.latex, this.display);
+    // 첫 렌더는 프레임 예산 큐로 나뉘어 그려진다(캐시 히트는 즉시) — 수식이
+    // 몰려 스크롤해도 동기 KaTeX 렌더가 스크롤 프레임을 뺏지 않게.
+    renderMathInto(el, this.latex, this.display, () => {
+      if (view.dom.isConnected) view.requestMeasure();
+    });
     return el;
   }
 

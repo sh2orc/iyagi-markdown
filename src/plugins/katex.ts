@@ -76,23 +76,57 @@ export async function renderMathMl(latex: string): Promise<string | null> {
   }
 }
 
-/** 위젯 DOM에 렌더 — 준비 안 됐으면 비동기로 채운다. */
+/** 위젯 DOM에 렌더 — 캐시 히트는 즉시, 첫 렌더는 프레임 예산 큐로 나눠 그린다.
+ *  수식이 몰린 문서를 스크롤할 때 toDOM 안의 동기 KaTeX 렌더가 프레임을
+ *  통째로 뺏지 않게 한다(한 프레임 ≤ MATH_FRAME_BUDGET_MS). onFill은 높이가
+ *  변하는 비동기 채움 뒤에 불린다(재측정 트리거용). */
 export function renderMathInto(
   el: HTMLElement,
   latex: string,
   display: boolean,
+  onFill?: () => void,
 ): void {
-  const sync = renderMathSync(latex, display);
-  if (sync) {
-    applyResult(el, latex, sync, display);
+  const hit = mod ? cache.get(`${display ? "D" : "I"}:${latex}`) : undefined;
+  if (hit) {
+    applyResult(el, latex, hit, display);
     return;
   }
   el.classList.add("md-math-pending");
-  void ensureKatex().then(() => {
-    const res = renderMathSync(latex, display);
-    if (res) applyResult(el, latex, res, display);
-    el.classList.remove("md-math-pending");
+  queueMath(() => {
+    void ensureKatex().then(() => {
+      const res = renderMathSync(latex, display);
+      el.classList.remove("md-math-pending");
+      if (res) {
+        applyResult(el, latex, res, display);
+        onFill?.();
+      }
+    });
   });
+}
+
+const MATH_FRAME_BUDGET_MS = 5;
+const mathQueue: Array<() => void> = [];
+let mathPumpRunning = false;
+
+function pumpMathQueue(): void {
+  const start = performance.now();
+  while (mathQueue.length > 0 && performance.now() - start < MATH_FRAME_BUDGET_MS) {
+    mathQueue.shift()!();
+  }
+  if (mathQueue.length > 0) scheduleMathPump();
+  else mathPumpRunning = false;
+}
+
+function scheduleMathPump(): void {
+  mathPumpRunning = true;
+  // rAF가 없는 환경(테스트 일부)은 타이머로.
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(pumpMathQueue);
+  else setTimeout(pumpMathQueue, 16);
+}
+
+function queueMath(job: () => void): void {
+  mathQueue.push(job);
+  if (!mathPumpRunning) scheduleMathPump();
 }
 
 function applyResult(

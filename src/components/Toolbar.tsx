@@ -15,16 +15,18 @@ function ToolBtn({
   onClick,
   disabled,
   narrow,
+  active,
 }: {
   label: React.ReactNode;
   title: string;
   onClick: () => void;
   disabled?: boolean;
   narrow?: boolean;
+  active?: boolean;
 }) {
   return (
     <button
-      className={`tb-btn ${narrow ? "tb-btn-narrow" : ""}`}
+      className={`tb-btn ${narrow ? "tb-btn-narrow" : ""} ${active ? "is-active" : ""}`}
       title={title}
       disabled={disabled}
       onMouseDown={(e) => e.preventDefault()} // 에디터 포커스 유지
@@ -53,11 +55,11 @@ export function Toolbar({ store, t }: Props): JSX.Element {
   return (
     <div className="toolbar" role="toolbar">
       <div className="tb-group">
-        <ToolBtn label={<b>B</b>} title={`${t.tbBold} (⌘B)`} disabled={disabled} onClick={() => run(fmt.toggleBold)} />
-        <ToolBtn label={<i>I</i>} title={`${t.tbItalic} (⌘I)`} disabled={disabled} onClick={() => run(fmt.toggleItalic)} />
-        <ToolBtn label={<s>S</s>} title={`${t.tbStrike} (⌘⇧X)`} disabled={disabled} onClick={() => run(fmt.toggleStrikethrough)} />
-        <ToolBtn label={<span className="tb-mono">{"</>"}</span>} title={t.tbCode} disabled={disabled} onClick={() => run(fmt.toggleInlineCode)} />
-        <ToolBtn label={<span className="tb-link-ico">🔗</span>} title={t.tbLink} disabled={disabled} onClick={() => run((v) => fmt.insertLink(v))} />
+        <ToolBtn label={<b>B</b>} title={`${t.tbBold} (⌘B)`} disabled={disabled} active={!!tab?.marks.bold} onClick={() => run(fmt.toggleBold)} />
+        <ToolBtn label={<i>I</i>} title={`${t.tbItalic} (⌘I)`} disabled={disabled} active={!!tab?.marks.italic} onClick={() => run(fmt.toggleItalic)} />
+        <ToolBtn label={<s>S</s>} title={`${t.tbStrike} (⌘⇧X)`} disabled={disabled} active={!!tab?.marks.strike} onClick={() => run(fmt.toggleStrikethrough)} />
+        <ToolBtn label={<span className="tb-mono">{"</>"}</span>} title={t.tbCode} disabled={disabled} active={!!tab?.marks.code} onClick={() => run(fmt.toggleInlineCode)} />
+        <ToolBtn label={<span className="tb-link-ico">🔗</span>} title={t.tbLink} disabled={disabled} active={!!tab?.marks.link} onClick={() => run((v) => fmt.insertLink(v))} />
       </div>
       <Sep />
       <div className="tb-group">

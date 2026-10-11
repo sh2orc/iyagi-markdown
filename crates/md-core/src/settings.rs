@@ -52,6 +52,9 @@ pub struct Settings {
     /// 로그 수준.
     #[serde(default = "default_log_level")]
     pub log_level: String,
+    /// 초안 자동 저장 — 입력이 멈춘 뒤 원자적으로 저장한다(Word 자동 저장).
+    #[serde(default)]
+    pub autosave: bool,
 }
 
 fn default_font_size() -> f64 {

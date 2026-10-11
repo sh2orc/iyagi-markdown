@@ -17,6 +17,9 @@ export const editorTheme = EditorView.theme({
     fontFamily: "var(--md-prose-font)",
     lineHeight: "var(--md-line-height, 1.55)",
     letterSpacing: "-0.005em",
+    // 한글 어절 중간에서 끊지 않는다(Word 기본) — 못 끊을 땐 overflow-wrap이
+    // 긴 URL·코드 등을 안전하게 처리한다.
+    wordBreak: "keep-all",
     overflowWrap: "break-word",
     padding: "26px 10px 40vh",
   },
@@ -25,6 +28,8 @@ export const editorTheme = EditorView.theme({
     margin: "0 auto",
     caretColor: "var(--md-accent)",
     paddingBottom: "2px",
+    // 스크롤 앵커링은 CM의 스크롤 보정과 겹쳐 점프를 만든다(위젯 높이 변화 시).
+    overflowAnchor: "none",
   },
   ".cm-line": {
     padding: "0 16px",
@@ -195,7 +200,14 @@ export const editorTheme = EditorView.theme({
 
   // — 수식 —
   ".md-math-inline .katex": { fontSize: "1.02em" },
-  ".md-math-block": { textAlign: "center", margin: "0.25em 0", overflowX: "auto", padding: "2px 0" },
+  // contain: 비동기로 채워지는 위젯의 재배치·재페인트 범위를 위젯 안으로 묶는다.
+  ".md-math-block": {
+    textAlign: "center",
+    margin: "0.25em 0",
+    overflowX: "auto",
+    padding: "2px 0",
+    contain: "layout style",
+  },
   ".md-math-pending": { opacity: 0.35, minWidth: "3em", display: "inline-block" },
   ".md-math-error": {
     color: "var(--md-error)",
@@ -215,6 +227,7 @@ export const editorTheme = EditorView.theme({
     border: "1px solid var(--md-code-border)",
     borderRadius: "10px",
     padding: "12px",
+    contain: "layout style",
   },
   ".md-diagram[data-pending]": { opacity: 0.4, minHeight: "2em" },
   ".md-diagram-error": { color: "var(--md-error)" },
@@ -228,7 +241,7 @@ export const editorTheme = EditorView.theme({
   },
 
   // — 표(Word 라이트 그리드) —
-  ".md-table-wrap": { margin: "0.2em 0", overflowX: "auto" },
+  ".md-table-wrap": { margin: "0.2em 0", overflowX: "auto", contain: "layout style" },
   ".md-table": { borderCollapse: "collapse", fontSize: "0.95em", lineHeight: "1.45" },
   ".md-table th, .md-table td": {
     border: "1px solid var(--md-table-line)",

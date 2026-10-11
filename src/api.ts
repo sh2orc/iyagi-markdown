@@ -36,6 +36,7 @@ export interface Settings {
   language: "auto" | "en" | "ko";
   showImages: boolean;
   logLevel: string;
+  autosave: boolean;
 }
 
 export interface SessionTab {

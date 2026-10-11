@@ -1,5 +1,22 @@
-// 라이브 프리뷰 장식(§4-1). 구문 트리는 표시용 읽기 전용 정보로만 쓰고,
-// 장식은 뷰포트 범위에서만 계산한다(§7 — 큰 문서 대응).
+// 라이브 프리뷰 장식(§4-1). 구문 트리는 표시용 읽기 전용 정보로만 쓴다.
+//
+// 성능 구조(§7 — 큰 문서·부드러운 스크롤):
+//  - 문서를 블록 경계로 자른 "청크" 단위로 장식을 계산하고 결과를 캐시한다.
+//    스크롤(뷰포트 이동)만으로 이미 계산된 청크를 다시 계산하지 않는다 —
+//    스캔 창에 새로 들어온 청크만 증분으로 붙인다. 커서 이동은 선택이 걷친
+//    청크만, 문서 편집·설정 변경은 캐시를 비우고 스캔 창부터 다시 계산한다.
+//    (과거 구현은 트리 성장 게이트로 파싱이 끝난 문서의 갱신 자체가 막혀
+//    커서 노출이 멈추고, 파싱 진행 중엔 프레임마다 전체 재계산이 돌아
+//    스크롤이 뚝뚝 끊겼다.)
+//  - 청크 경계 규칙: 경계는 항상 (필요시 재귀 분할된) 블록 경계에만 놓는다.
+//    표·코드펜스·수식처럼 커서 노출(reveal) 단위가 되는 블록은 절대 쪼개지
+//    않아 장식이 두 청크에 겹쳐 발급되지 않는다. List·Blockquote·ListItem
+//    처럼 노출 규칙이 줄 단위인 컨테이너만 길면 자식 경계로 쪼갠다.
+//  - 각 청크는 트리가 그 끝까지 파싱된 뒤에만 계산한다(부분 파싱된 블록의
+//    장식이 어긋나지 않게). 파싱이 진행 중이면 타이머로 이어받는다.
+//  - 한 갱신 주기의 계산량은 예산(BUILD_BUDGET_MS)으로 제한해 메인 스레드
+//    프레임을 지킨다 — WKWebView의 스크롤 합성은 GPU에서 돌므로, 메인
+//    스레드가 프레임 안에 돌아오면 스크롤은 자연히 부드러워진다.
 //
 // 커서/선택/IME 조합 중인 블록은 장식을 풀어 원문을 보여 준다(Obsidian 방식).
 // 읽기 모드는 같은 장식을 항상 켠다.
@@ -79,110 +96,124 @@ const decorationField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
-const plugin = ViewPlugin.fromClass(
-  class {
-    constructor(view: EditorView) {
-      // 뷰 구축 중에는 dispatch할 수 없으므로 초기 장식은 직후 마이크로태스크로.
-      queueMicrotask(() => {
-        this.buildIfAlive(view);
-      });
-    }
-    update(u: ViewUpdate) {
-      if (
-        u.docChanged ||
-        u.viewportChanged ||
-        u.selectionSet ||
-        u.focusChanged ||
-        u.transactions.some((tr) => tr.effects.some((e) => e.is(setPreviewConfig)))
-      ) {
-        // 갱신 주기 안에서의 dispatch는 금지다("update is in progress" 크래시 —
-        // 장식이 중간에 끊기는 원인). 마이크로태스크로 미루면 연속 갱신도 자연
-        // 병합된다.
-        queueMicrotask(() => this.buildIfAlive(u.view));
-      }
-    }
-    buildIfAlive(view: EditorView) {
-      // destroy된 뷰는 dom이 떨어져 나간다(destroyed는 private이라 간접 확인).
-      if (view.dom.isConnected) this.build(view);
-    }
+// — 청크 계획 —
 
-    lastTreeLen = -1;
+/** 청크 목표 크기(문자). */
+const CHUNK_TARGET = 12_000;
+/** 이보다 긴 컨테이너(List·Blockquote·ListItem)는 자식 경계로 쪼갠다. */
+const CHUNK_MAX = 32_000;
+/** 한 갱신 주기에서 청크 계산에 쓸 수 있는 예산(ms) — 남으면 타이머로 이어받는다. */
+const BUILD_BUDGET_MS = 12;
+/** 캐시로 유지할 청크 상한(초과하면 스캔 창 밖 청크를 정리한다). */
+const KEEP_CHUNKS = 48;
 
-    build(view: EditorView) {
-      // 트리 커버리지로 진행을 판단한다. syntaxTreeAvailable(isDone)은 파서가
-      // 여러 조각으로 완료되면 트리가 전체를 덮어도 계속 false(2026-10-11 실측).
-      //
-      // 파싱이 덜 끝났어도 **지금 덮인 범위부터 즉시 장식**하고, 트리가 자라면
-      // 다시 붙인다 — 전체 파싱을 기다리면 큰 문서에서 첫 렌더가 늦어진다.
-      const { to: upto } = scanRange(view);
-      const treeLen = syntaxTree(view.state).length;
-      if (treeLen < upto) {
-        setTimeout(() => this.buildIfAlive(view), 50);
-      }
-      if (treeLen !== this.lastTreeLen) {
-        this.lastTreeLen = treeLen;
-        // 이 dispatch는 doc/선택/뷰포트를 바꾸지 않으므로 재귀 빌드가 없다.
-        view.dispatch({ effects: setDecorations.of(buildDecorations(view)) });
-      }
+/** 재귀 분할 대상 컨테이너 — 커서 노출 규칙(isRevealed/isTouched)이 블록
+ *  전체가 아니라 줄·인라인 단위인 것만 넣는다(그래야 노출 결정이 청크 안에서
+ *  닫히고, 캐시가 선택 이동에 대해 정확해진다). */
+const SPLITTABLE = new Set(["BulletList", "OrderedList", "Blockquote", "ListItem"]);
+
+/** 문서를 청크 경계(블록 끝 위치 목록, 오름차순)로 자른다. 청크 i의 범위는
+ *  [i===0 ? 0 : ends[i-1], ends[i] ?? 문서 끝). 트리 끝(파싱 프론티어)을
+ *  넘는 블록은 제외 — 트리가 자라도 계산은 같은 접두사에 이어 붙으므로
+ *  청크 인덱스가 안정한다(캐시 키로 쓴다). */
+function computeBoundaries(view: EditorView): { ends: number[] } {
+  const tree = syntaxTree(view.state);
+  const treeLen = tree.length;
+  const ends: number[] = [];
+  let cur = 0;
+  const walk = (node: SyntaxNode): void => {
+    if (node.to > treeLen) return; // 아직 파싱이 안 끝난 블록
+    if (node.to - node.from > CHUNK_MAX && SPLITTABLE.has(node.name)) {
+      for (let child = node.firstChild; child; child = child.nextSibling) walk(child);
+      return;
     }
-  },
-);
-
-export function livePreviewExtension(): Extension {
-  return [decorationField, plugin];
+    if (node.to - cur >= CHUNK_TARGET) {
+      ends.push(node.to);
+      cur = node.to;
+    }
+  };
+  for (let child = tree.topNode.firstChild; child; child = child.nextSibling) walk(child);
+  return { ends };
 }
 
-// — 장식 빌더 —
-
-const replace = Decoration.replace;
+/** ends에서 pos가 속한 청크 인덱스(이진 탐색). */
+function chunkIndexAt(ends: number[], pos: number): number {
+  let lo = 0;
+  let hi = ends.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (ends[mid] > pos) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
 
 /** 장식을 계산할 범위.
  *  - 읽기 모드(render): 문서 전체를 한 번에(리더로서의 페이지 렌더. 상한 300k).
- *  - 편집 모드(reveal): 뷰포트 + 여유(§7 — 스크롤 직전에 위젯이 준비되게). */
+ *  - 편집 모드(reveal): 뷰포트 + 여유(§7 — 스크롤 직전에 위젯이 준비되게).
+ *    청크 계산이 증분이라 아래 여유를 크게 잡아도 스크롤 프레임을 쓰지 않는다. */
 function scanRange(view: EditorView): { from: number; to: number } {
   const docLen = view.state.doc.length;
   const behavior = view.state.facet(previewBehavior);
   if (behavior === "render") {
     return { from: 0, to: Math.min(docLen, 300_000) };
   }
-  const from = Math.max(0, view.viewport.from - 2000);
+  const from = Math.max(0, view.viewport.from - 3_000);
   const to = view.viewport.to > view.viewport.from
-    ? Math.min(docLen, view.viewport.to + 3000)
+    ? Math.min(docLen, view.viewport.to + 12_000)
     : Math.min(docLen, 50_000);
   return { from, to };
 }
 
-function buildDecorations(view: EditorView): DecorationSet {
-  const behavior = view.state.facet(previewBehavior);
+// — 장식 빌더 —
+
+const replace = Decoration.replace;
+const NO_RANGES: readonly { from: number; to: number }[] = [];
+
+/** 한 청크 [chunkFrom, chunkTo)의 장식을 계산한다.
+ *  노드의 장식은 그 노드가 시작하는 청크가 발급한다(경계 규칙 덕에 정확히 한
+ *  번). 이전 청크에서 시작해 걸친 노드는 내려만 간다. */
+function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range<Decoration>[] {
   const ranges: Range<Decoration>[] = [];
   const doc = view.state.doc;
+  const behavior = view.state.facet(previewBehavior);
   const { baseDir, remoteImages, showImages, theme } = view.state.field(previewConfigField);
 
   // 노출할 줄 = 편집 모드에서 커서·선택(·조합)이 걸친 줄.
-  const revealed: number[] = [];
+  const revealed = new Set<number>();
+  let revMin = Infinity;
+  let revMax = -1;
   if (behavior === "reveal") {
     const sel = view.state.selection;
     for (const range of sel.ranges) {
       const from = doc.lineAt(range.from).number;
       const to = doc.lineAt(range.to).number;
-      for (let n = from; n <= to; n++) revealed.push(n);
+      for (let n = from; n <= to; n++) revealed.add(n);
     }
     if (view.composing && sel.main.head === sel.main.to) {
       // 조합 중 — 캐럿 줄 확실히 노출.
-      revealed.push(doc.lineAt(sel.main.head).number);
+      revealed.add(doc.lineAt(sel.main.head).number);
+    }
+    for (const n of revealed) {
+      if (n < revMin) revMin = n;
+      if (n > revMax) revMax = n;
     }
   }
   const isRevealed = (from: number, to: number): boolean => {
-    if (revealed.length === 0) return false;
+    if (revealed.size === 0) return false;
     const first = doc.lineAt(from).number;
     const last = doc.lineAt(to).number;
-    return revealed.some((n) => n >= first && n <= last);
+    if (last < revMin || first > revMax) return false;
+    for (let n = Math.max(first, revMin); n <= Math.min(last, revMax); n++) {
+      if (revealed.has(n)) return true;
+    }
+    return false;
   };
 
   // 인라인 요소(**…**·`…`·링크 등)는 커서·선택이 **그 스팬 자체**(±1자)에
   // 닿을 때만 원문을 노출한다(Typora 모델). 줄 단위 노출보다 정교해 편집 중에도
   // Word처럼 보인다 — 같은 줄을 편집해도 볼드 마커는 숨겨진 채로 유지된다.
-  const selRanges = behavior === "reveal" ? view.state.selection.ranges : [];
+  const selRanges = behavior === "reveal" ? view.state.selection.ranges : NO_RANGES;
   const isTouched = (from: number, to: number): boolean =>
     selRanges.some((r) => from <= r.to + 1 && to >= r.from - 1);
 
@@ -203,18 +234,26 @@ function buildDecorations(view: EditorView): DecorationSet {
     return lexicallyClean(`${baseDir}/${decoded}`);
   };
 
-  const src = view.state.doc.toString();
+  // 청크 창만 slice한다 — 문서 전체 toString은 큰 문서에서 프레임을 태운다.
+  const slice = (from: number, to: number): string => doc.sliceString(from, to);
   const codeRanges: [number, number][] = [];
 
   try {
-    // 범위는 모드에 따라(scanRange 참조): 읽기는 전체 문서, 편집은 뷰포트+여유.
-    const scan = scanRange(view);
     syntaxTree(view.state).iterate({
-      from: scan.from,
-      to: scan.to,
+      from: chunkFrom,
+      to: chunkTo,
       enter: (ref) => {
         try {
-          return enterNode(ref.node) ?? undefined;
+          const node = ref.node;
+          if (node.from < chunkFrom) {
+            // 이전 청크에서 시작해 걸친 노드 — 장식은 시작 청크가 이미 넣었다.
+            // 걸친 코드 블록의 범위만 물려받는다(아래 빈 줄 처리용).
+            if (node.name === "FencedCode" || node.name === "CodeBlock") {
+              codeRanges.push([node.from, node.to]);
+            }
+            return undefined;
+          }
+          return enterNode(node) ?? undefined;
         } catch (e) {
           // 한 요소의 실패가 문서 전체 렌더를 무너뜨리지 않게 한다.
           console.warn("livePreview: 노드 장식 실패", ref.node.name, e);
@@ -223,10 +262,12 @@ function buildDecorations(view: EditorView): DecorationSet {
       },
     });
     // 빈 줄은 낮게 — 블록 사이가 오밀조밀 붙게(불렛↔표 등). 코드 블록 안은 제외.
-    const firstLineNo = doc.lineAt(scan.from).number;
-    const lastLineNo = doc.lineAt(Math.min(scan.to, doc.length)).number;
-    for (let n = firstLineNo; n <= lastLineNo; n++) {
+    // 청크 창의 줄만: 경계가 줄 중간이면(원자 블록이 창보다 길 때) 다음 줄부터.
+    let n = doc.lineAt(chunkFrom).number;
+    if (doc.line(n).from < chunkFrom) n++;
+    for (; n <= doc.lines; n++) {
       const line = doc.line(n);
+      if (line.from >= chunkTo) break;
       if (line.length !== 0) continue;
       if (codeRanges.some(([cf, ct]) => line.from >= cf && line.from <= ct)) continue;
       ranges.push(Decoration.line({ class: "md-blank" }).range(line.from));
@@ -246,7 +287,7 @@ function buildDecorations(view: EditorView): DecorationSet {
             if (mark && mark.name === "HeaderMark") {
               // #들과 그 뒤 공백 하나까지 지운다.
               const hideTo = Math.min(
-                mark.to + 1 <= to && src.slice(mark.to, mark.to + 1) === " " ? mark.to + 1 : mark.to,
+                mark.to + 1 <= to && slice(mark.to, mark.to + 1) === " " ? mark.to + 1 : mark.to,
                 to,
               );
               if (!isRevealed(from, to)) {
@@ -276,8 +317,6 @@ function buildDecorations(view: EditorView): DecorationSet {
         if (name === "Emphasis" || name === "StrongEmphasis") {
           if (isTouched(from, to)) return;
           const cls = name === "StrongEmphasis" ? "md-strong" : "md-em";
-          let contentFrom = from;
-          let contentTo = to;
           for (let child = node.firstChild; child; child = child.nextSibling) {
             if (child.name === "EmphasisMark" || child.name === "StrongEmphasisMark") {
               ranges.push(replace({}).range(child.from, child.to));
@@ -285,8 +324,8 @@ function buildDecorations(view: EditorView): DecorationSet {
           }
           const first = node.firstChild;
           const last = node.lastChild;
-          if (first && first.name.endsWith("Mark")) contentFrom = first.to;
-          if (last && last.name.endsWith("Mark")) contentTo = last.from;
+          const contentFrom = first && first.name.endsWith("Mark") ? first.to : from;
+          const contentTo = last && last.name.endsWith("Mark") ? last.from : to;
           if (contentTo > contentFrom) {
             ranges.push(Decoration.mark({ class: cls }).range(contentFrom, contentTo));
           }
@@ -330,7 +369,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         // — 링크·이미지(원문 정규식 기반 — 자식 구조 규격에 의존하지 않는다) —
         if (name === "Link" || name === "Image") {
           if (isTouched(from, to)) return;
-          const text = src.slice(from, to);
+          const text = slice(from, to);
           if (name === "Image") {
             // 이미지 단독 줄이면 가운데 크게, 아니면 인라인 작게.
             if (doc.lineAt(from).text.trim().startsWith("!")) {
@@ -388,9 +427,9 @@ function buildDecorations(view: EditorView): DecorationSet {
           // FencedCode 자식: CodeMark(펜스) → CodeInfo(언어) → CodeText → CodeMark.
           const second = node.firstChild?.nextSibling;
           const info =
-            second && second.name === "CodeInfo" ? src.slice(second.from, second.to).trim() : "";
+            second && second.name === "CodeInfo" ? slice(second.from, second.to).trim() : "";
           if (info === "mermaid") {
-            const code = extractFenceBody(src, from, to);
+            const code = extractFenceBody(slice(from, to));
             ranges.push(
               replace({ widget: new DiagramWidget(code, theme), block: true }).range(from, to),
             );
@@ -429,7 +468,9 @@ function buildDecorations(view: EditorView): DecorationSet {
           const depth = Math.min(6, Math.floor(indent / 2));
           addLineClasses(from, from, depth > 0 ? `md-li md-depth-${depth}` : "md-li");
           // 선행 공백은 시각 들여쓰기가 대체(원문은 불변 — 커서 줄은 원문 유지).
-          if (indent > 0 && !isRevealed(from, to)) {
+          // 노출 판정은 항목 시작 줄만 본다 — 항목 전체 범위로 보면 커서가 다른
+          // 청크의 이어지는 줄에 있을 때 시작 청크 캐시가 못 따라간다.
+          if (indent > 0 && !isRevealed(from, line.to)) {
             ranges.push(replace({}).range(line.from, from));
           }
           return;
@@ -443,7 +484,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         if (name === "TaskMarker") {
           addLineClasses(from, from, "md-task-line");
           if (isTouched(from, to)) return;
-          const checked = src.slice(from, to).charCodeAt(1) === 120; // x
+          const checked = slice(from, to).charCodeAt(1) === 120; // x
           ranges.push(
             replace({ widget: new TaskItemWidget(checked) }).range(from, to),
           );
@@ -454,7 +495,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         if (name === "Table") {
           if (isRevealed(from, to)) return;
           ranges.push(
-            replace({ widget: new TableWidget(src.slice(from, to)), block: true }).range(from, to),
+            replace({ widget: new TableWidget(slice(from, to)), block: true }).range(from, to),
           );
           return;
         }
@@ -469,7 +510,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         // — 수식(커스텀 문법) —
         if (name === "MathBlock") {
           if (isRevealed(from, to)) return;
-          const latex = src.slice(from, to).replace(/^\$\$/, "").replace(/\$\$$/, "");
+          const latex = slice(from, to).replace(/^\$\$/, "").replace(/\$\$$/, "");
           ranges.push(
             replace({ widget: new MathWidget(latex, true), block: true }).range(from, to),
           );
@@ -477,7 +518,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         }
         if (name === "InlineMath") {
           if (isTouched(from, to)) return;
-          const latex = src.slice(from + 1, to - 1);
+          const latex = slice(from + 1, to - 1);
           ranges.push(replace({ widget: new MathWidget(latex, false) }).range(from, to));
           return;
         }
@@ -494,12 +535,198 @@ function buildDecorations(view: EditorView): DecorationSet {
     console.error("livePreview 장식 실패", e);
   }
 
-  return Decoration.set(ranges, true);
+  __testing.stats.chunkBuilds++;
+  __testing.stats.chars += chunkTo - chunkFrom;
+  return ranges;
+}
+
+// — 갱신 플러그인 —
+// 무엇이 바뀌었는지에 따라 최소한의 청크만 다시 계산한다:
+//  - 스크롤(뷰포트 이동): 스캔 창에 새로 들어온 청크만 증분 계산. 창이 이미
+//    덮인 범위 안이면 아무 것도 하지 않는다(스크롤 프레임 보호의 핵심).
+//  - 커서/선택: 선택이 걷친(왔던·간) 줄의 청크만.
+//  - 문서 편집·설정: 캐시 전체 폐기 후 스캔 창부터 재계산(예산제).
+//  - 파싱 진행: 타이머로 이어받으며 프론티어 청크를 순차 붙인다.
+const plugin = ViewPlugin.fromClass(
+  class {
+    private view: EditorView | null = null;
+    private ends: number[] = [];
+    private plannedTreeLen = -1;
+    private chunks = new Map<number, Range<Decoration>[]>();
+    private selFirst = 1;
+    private selLast = 1;
+    private queued = false;
+    private timer: ReturnType<typeof setTimeout> | null = null;
+
+    constructor(view: EditorView) {
+      this.view = view;
+      this.rememberSelection(view.state);
+      // 뷰 구축 중에는 dispatch할 수 없으므로 직후 마이크로태스크로.
+      this.schedule();
+    }
+
+    update(u: ViewUpdate) {
+      const configChanged = u.transactions.some((tr) =>
+        tr.effects.some((e) => e.is(setPreviewConfig)),
+      );
+      if (u.docChanged || configChanged) {
+        // 문서 좌표·설정이 달라졌다 — 청크 계획과 캐시를 전부 폐기한다.
+        this.ends = [];
+        this.plannedTreeLen = -1;
+        this.chunks.clear();
+      }
+      if (u.selectionSet) {
+        const prevFirst = this.selFirst;
+        const prevLast = this.selLast;
+        this.rememberSelection(u.state);
+        if (u.state.facet(previewBehavior) === "reveal") {
+          // 읽기 모드의 장식은 선택과 무관하므로 편집 모드만.
+          this.invalidate(u.view, Math.min(prevFirst, this.selFirst), Math.max(prevLast, this.selLast));
+        }
+      }
+      if (u.docChanged || u.viewportChanged || u.selectionSet || u.focusChanged || configChanged) {
+        // 갱신 주기 안에서의 dispatch는 금지다("update is in progress" 크래시 —
+        // 장식이 중간에 끊기는 원인). 마이크로태스크로 미루면 연속 갱신도 자연
+        // 병합된다.
+        this.schedule();
+      }
+    }
+
+    destroy() {
+      this.view = null;
+      if (this.timer !== null) clearTimeout(this.timer);
+      this.timer = null;
+    }
+
+    private rememberSelection(state: EditorState) {
+      let first = Infinity;
+      let last = -1;
+      for (const r of state.selection.ranges) {
+        first = Math.min(first, state.doc.lineAt(r.from).number);
+        last = Math.max(last, state.doc.lineAt(r.to).number);
+      }
+      this.selFirst = first === Infinity ? 1 : first;
+      this.selLast = last === -1 ? state.doc.lines : last;
+    }
+
+    /** [firstLine, lastLine] 줄 범위가 걸친 청크를 다시 계산 대상으로 표시. */
+    private invalidate(view: EditorView, firstLine: number, lastLine: number) {
+      if (this.chunks.size === 0) return;
+      const doc = view.state.doc;
+      const from = doc.line(Math.max(1, Math.min(firstLine, doc.lines))).from;
+      const to = doc.line(Math.max(1, Math.min(lastLine, doc.lines))).to;
+      for (const idx of [...this.chunks.keys()]) {
+        const s = idx === 0 ? 0 : this.ends[idx - 1];
+        const e = this.ends[idx] ?? doc.length;
+        if (e > from && s < to) this.chunks.delete(idx);
+      }
+    }
+
+    private schedule() {
+      if (this.queued) return;
+      this.queued = true;
+      queueMicrotask(() => {
+        this.queued = false;
+        this.run();
+      });
+    }
+
+    /** 예산이 남은 계산·파싱 대기를 타이머로 이어받는다(가장 이른 예약 하나). */
+    private later(ms: number) {
+      if (this.timer !== null) return;
+      this.timer = setTimeout(() => {
+        this.timer = null;
+        this.run();
+      }, ms);
+    }
+
+    private run() {
+      const view = this.view;
+      // destroy된 뷰는 dom이 떨어져 나간다(destroyed는 private이라 간접 확인).
+      if (!view || !view.dom.isConnected) return;
+      const docLen = view.state.doc.length;
+      const treeLen = syntaxTree(view.state).length;
+      if (treeLen !== this.plannedTreeLen) {
+        // 접두사가 안정하므로 통째로 다시 계산해도 캐시 키(인덱스)는 그대로.
+        this.ends = computeBoundaries(view).ends;
+        this.plannedTreeLen = treeLen;
+      }
+      const scan = scanRange(view);
+      const t0 = performance.now();
+      let builtAny = false;
+      let budgetLeft = true;
+      let waitingParse = false;
+      for (let i = chunkIndexAt(this.ends, scan.from); i <= this.ends.length; i++) {
+        const s = i === 0 ? 0 : this.ends[i - 1];
+        if (s >= scan.to) break;
+        const e = this.ends[i] ?? docLen;
+        if (e > treeLen && treeLen < docLen) {
+          // 아직 파싱이 안 온 청크 — 타이머로 재조회한다.
+          waitingParse = true;
+          continue;
+        }
+        if (this.chunks.has(i)) continue;
+        this.chunks.set(i, buildChunk(view, s, e));
+        builtAny = true;
+        if (performance.now() - t0 > BUILD_BUDGET_MS) {
+          budgetLeft = false;
+          break;
+        }
+      }
+      if (builtAny) {
+        this.prune(view, scan);
+        const keys = [...this.chunks.keys()].sort((a, b) => a - b);
+        const all: Range<Decoration>[] = [];
+        for (const k of keys) all.push(...this.chunks.get(k)!);
+        // 이 dispatch는 doc/선택을 바꾸지 않는다. 블록 위젯으로 뷰포트가 다시
+        // 잡히면 update가 오지만 창 청크는 이미 차 있어 재디스패치로 이어지지
+        // 않는다.
+        view.dispatch({ effects: setDecorations.of(Decoration.set(all, true)) });
+        __testing.stats.dispatches++;
+      }
+      if (!budgetLeft) this.later(30);
+      else if (waitingParse) this.later(70);
+    }
+
+    /** 캐시 상한을 넘으면 스캔 창에서 먼 청크를 버린다(다시 오면 재계산). */
+    private prune(view: EditorView, scan: { from: number; to: number }) {
+      if (this.chunks.size <= KEEP_CHUNKS) return;
+      const docLen = view.state.doc.length;
+      const lo = scan.from - 64_000;
+      const hi = scan.to + 64_000;
+      for (const idx of [...this.chunks.keys()]) {
+        const s = idx === 0 ? 0 : this.ends[idx - 1];
+        const e = this.ends[idx] ?? docLen;
+        if (e < lo || s > hi) this.chunks.delete(idx);
+      }
+    }
+  },
+);
+
+export function livePreviewExtension(): Extension {
+  return [decorationField, plugin];
+}
+
+/** (테스트·디버그) 현재 스캔 창의 장식을 동기로 한 번에 계산한다. */
+function buildDecorations(view: EditorView): DecorationSet {
+  const scan = scanRange(view);
+  const doc = view.state.doc;
+  const treeLen = syntaxTree(view.state).length;
+  const { ends } = computeBoundaries(view);
+  const all: Range<Decoration>[] = [];
+  for (let i = chunkIndexAt(ends, scan.from); i <= ends.length; i++) {
+    const s = i === 0 ? 0 : ends[i - 1];
+    if (s >= scan.to) break;
+    const e = ends[i] ?? doc.length;
+    if (e > treeLen && treeLen < doc.length) continue; // 아직 파싱 안 됨
+    all.push(...buildChunk(view, s, e));
+  }
+  return Decoration.set(all, true);
 }
 
 /** 펜스 코드 블록의 본문(펜스 줄 제외)을 뽑는다. */
-function extractFenceBody(src: string, from: number, to: number): string {
-  let s = src.slice(from, to);
+function extractFenceBody(text: string): string {
+  let s = text;
   s = s.replace(/^[`~]+[^\n]*\n?/, "");
   s = s.replace(/\n?[`~]+$/, "");
   return s;
@@ -510,15 +737,14 @@ export function findLinkAt(
   state: EditorState,
   pos: number,
 ): { url: string; from: number; to: number } | null {
-  const src = state.doc.toString();
   let found: { url: string; from: number; to: number } | null = null;
   syntaxTree(state).iterate({
     from: Math.max(0, pos - 2000),
-    to: Math.min(src.length, pos + 2000),
+    to: Math.min(state.doc.length, pos + 2000),
     enter: (node) => {
       if (found) return false;
       if (node.name === "Link" && pos >= node.from && pos <= node.to) {
-        const text = src.slice(node.from, node.to);
+        const text = state.doc.sliceString(node.from, node.to);
         const m = /^\[([\s\S]*)\]\(\s*<?([^)>]*?)>?\s*\)$/.exec(text);
         if (m) {
           found = { url: m[2], from: node.from, to: node.to };
@@ -532,4 +758,14 @@ export function findLinkAt(
 }
 
 /** 테스트 전용 내부 노출. */
-export const __testing = { decorationField: decorationField, buildDecorations };
+export const __testing = {
+  decorationField: decorationField,
+  buildDecorations,
+  computeBoundaries,
+  stats: { chunkBuilds: 0, chars: 0, dispatches: 0 },
+  resetStats(): void {
+    __testing.stats.chunkBuilds = 0;
+    __testing.stats.chars = 0;
+    __testing.stats.dispatches = 0;
+  },
+};
