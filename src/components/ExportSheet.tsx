@@ -76,7 +76,7 @@ export function ExportSheet({ kind, t, onRun, onCancel }: Props): JSX.Element {
             </label>
           </div>
         )}
-        <p className="modal-hint">HTML·PDF·DOCX — 모두 벡터(편집 가능 객체)로 내보낸다.</p>
+        <p className="modal-hint">{t.exportVectorHint}</p>
         <div className="modal-actions">
           <button
             className="btn btn-primary"
