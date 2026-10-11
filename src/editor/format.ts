@@ -140,3 +140,179 @@ export function insertTable(view: EditorView, rows = 3, cols = 3): boolean {
   ];
   return insertBlock(view, lines.join("\n"));
 }
+
+// — 표 편집(Word 표 도구) — 파이프 구조는 그대로 두고 셀 단위로만 삽입·삭제한다.
+// 고치지 않은 셀의 원문은 바이트 단위로 보존된다.
+
+export interface TableBlock {
+  /** 첫 행(헤더) 줄 번호. */
+  firstLine: number;
+  /** 마지막 줄 번호. */
+  lastLine: number;
+  /** 커서가 있는 줄 번호. */
+  cursorLine: number;
+}
+
+/** 커서 주변의 GFM 표 블록을 찾는다(연속한 파이프 줄 + 구분 줄). */
+export function tableAround(view: EditorView): TableBlock | null {
+  const doc = view.state.doc;
+  const start = doc.lineAt(view.state.selection.main.head).number;
+  const isRow = (n: number) => /^\s*\|.*\|\s*$/.test(doc.line(n).text) || /^\s*\|/.test(doc.line(n).text);
+  const isSep = (n: number) => /^\s*\|[\s:|-]+\|\s*$/.test(doc.line(n).text);
+  if (start < 1 || start > doc.lines) return null;
+  // 커서 줄이 파이프 행이 아니면 인접 줄로 확장(표 위젯 클릭 직후 등).
+  let anchor = start;
+  if (!isRow(start)) {
+    if (isRow(start - 1) && start - 1 >= 1) anchor = start - 1;
+    else if (isRow(start + 1) && start + 1 <= doc.lines) anchor = start + 1;
+    else return null;
+  }
+  let first = anchor;
+  while (first > 1 && isRow(first - 1)) first -= 1;
+  // 구분 줄 확인(첫 표 형식: first+1이 구분 줄이어야 표).
+  if (first + 1 > doc.lines || !isSep(first + 1)) return null;
+  // 구분 줄까지가 표의 시작부 — 데이터 행은 그 아래로 확장.
+  let last = first + 1;
+  while (last < doc.lines && isRow(last + 1) && !isSep(last + 1)) last += 1;
+  return { firstLine: first, lastLine: last, cursorLine: Math.max(anchor, Math.min(anchor, last)) };
+}
+
+/** 줄 텍스트를 셀로 나눈다(이스케이프 \| 보존). */
+function cellsOf(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
+  const out: string[] = [];
+  let cur = "";
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === "\\" && s[i + 1] === "|") {
+      cur += "\\|";
+      i++;
+    } else if (s[i] === "|") {
+      out.push(cur);
+      cur = "";
+    } else cur += s[i];
+  }
+  out.push(cur);
+  return out;
+}
+
+/** 커서의 열 인덱스(행 안에서 몇 번째 셀인가). */
+function columnAt(view: EditorView, lineNo: number): number {
+  const line = view.state.doc.line(lineNo);
+  const head = view.state.selection.main.head;
+  const rel = Math.min(Math.max(head - line.from, 0), line.length);
+  let col = 0;
+  for (let i = 0; i < rel; i++) {
+    if (line.text[i] === "|" && line.text[i - 1] !== "\\") col += 1;
+  }
+  // 첫 파이프는 셀 구분이 아니므로 1 감소(0-based 첫 셀).
+  return Math.max(0, col - 1);
+}
+
+/** 행 추가 — 커서 행 아래에 같은 열 수의 빈 셀 행. */
+export function tableAddRow(view: EditorView): boolean {
+  const t = tableAround(view);
+  if (!t) return false;
+  const doc = view.state.doc;
+  const nCols = cellsOf(doc.line(t.firstLine).text).length;
+  const after = doc.line(t.cursorLine);
+  view.dispatch({
+    changes: {
+      from: after.to,
+      insert: `\n| ${Array.from({ length: nCols }, () => " ").join(" | ")} |`,
+    },
+    selection: { anchor: after.to },
+    userEvent: "input.tableRow",
+  });
+  return true;
+}
+
+/** 열 추가 — 모든 행(구분 줄 포함)의 커서 열 뒤에 셀 삽입. */
+export function tableAddColumn(view: EditorView): boolean {
+  const t = tableAround(view);
+  if (!t) return false;
+  const doc = view.state.doc;
+  const col = columnAt(view, t.cursorLine);
+  const changes: { from: number; to: number; insert: string }[] = [];
+  for (let n = t.firstLine; n <= t.lastLine; n++) {
+    const line = doc.line(n);
+    const sep = /^\s*\|[\s:|-]+\|\s*$/.test(line.text);
+    const cells = cellsOf(line.text);
+    const idx = Math.min(col + 1, cells.length);
+    // 삽입 위치: idx번째 셀의 시작 "|" 바로 뒤.
+    let pipes = 0;
+    let pos = -1;
+    for (let i = 0; i < line.text.length; i++) {
+      if (line.text[i] === "|" && line.text[i - 1] !== "\\") {
+        if (pipes === idx) {
+          pos = i + 1;
+          break;
+        }
+        pipes += 1;
+      }
+    }
+    if (pos === -1) pos = line.text.length; // 끝에 붙이기(닫는 | 앞).
+    const cell = sep ? " --- " : "  ";
+    changes.push({ from: line.from + pos, to: line.from + pos, insert: `${cell}|` });
+  }
+  view.dispatch({ changes, userEvent: "input.tableColumn" });
+  return true;
+}
+
+/** 행 삭제 — 커서 행 제거(마지막 행이면 표 제거는 하지 않고 빈 셀 유지). */
+export function tableDeleteRow(view: EditorView): boolean {
+  const t = tableAround(view);
+  if (!t) return false;
+  const doc = view.state.doc;
+  if (t.cursorLine === t.firstLine || t.cursorLine === t.firstLine + 1) {
+    // 헤더·구분 줄은 지우지 않는다(표 파괴 방지).
+    return false;
+  }
+  const line = doc.line(t.cursorLine);
+  // 줄과 개행 하나를 지운다(마지막 행이면 앞 개행).
+  const delFrom = t.cursorLine < t.lastLine ? line.from : line.from - 1;
+  const delTo = t.cursorLine < t.lastLine ? line.to + 1 : line.to;
+  view.dispatch({
+    changes: { from: delFrom, to: delTo },
+    userEvent: "delete.tableRow",
+  });
+  return true;
+}
+
+/** 열 삭제 — 모든 행에서 커서 열 셀 제거. */
+export function tableDeleteColumn(view: EditorView): boolean {
+  const t = tableAround(view);
+  if (!t) return false;
+  const doc = view.state.doc;
+  const col = columnAt(view, t.cursorLine);
+  const total = cellsOf(doc.line(t.firstLine).text).length;
+  if (total <= 1) return false; // 마지막 열은 지우지 않는다.
+  const changes: { from: number; to: number }[] = [];
+  for (let n = t.firstLine; n <= t.lastLine; n++) {
+    const line = doc.line(n);
+    // col번째 셀 = 여는 파이프(col번째)부터 닫는 파이프(col+1번째) 앞까지.
+    // 닫는 파이프를 남겨 나머지 셀의 원문(공백 포함)이 그대로 보존되게 한다.
+    let pipes = 0;
+    let open = -1;
+    let done = false;
+    for (let i = 0; i < line.text.length; i++) {
+      if (line.text[i] === "|" && line.text[i - 1] !== "\\") {
+        if (pipes === col) open = i;
+        else if (pipes === col + 1 && open !== -1) {
+          changes.push({ from: line.from + open, to: line.from + i });
+          done = true;
+          break;
+        }
+        pipes += 1;
+      }
+    }
+    if (!done && open !== -1) {
+      // 닫는 파이프가 없는 관대한 행 — 셀 내용만.
+      changes.push({ from: line.from + open, to: line.to });
+    }
+  }
+  if (!changes.length) return false;
+  view.dispatch({ changes, userEvent: "delete.tableColumn" });
+  return true;
+}

@@ -520,6 +520,60 @@ body.resizing * {
   margin: 0 3px;
 }
 
+/* 우클릭 컨텍스트 메뉴 */
+
+.ctx-menu {
+  position: fixed;
+  z-index: 70;
+  min-width: 200px;
+  max-width: 260px;
+  background: var(--md-bg);
+  border: 1px solid var(--md-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+  animation: ctx-in 0.08s ease;
+}
+
+@keyframes ctx-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+.ctx-item {
+  border: none;
+  background: none;
+  text-align: left;
+  color: var(--md-fg);
+  font-family: var(--md-prose-font);
+  font-size: 13px;
+  line-height: 1.2;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ctx-item:hover:not(:disabled) {
+  background: var(--md-accent);
+  color: #fff;
+}
+.ctx-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ctx-item.is-danger {
+  color: var(--md-error);
+}
+.ctx-sep {
+  height: 1px;
+  background: var(--md-border);
+  margin: 4px 8px;
+}
+
 /* 검색 바 */
 
 .searchbar {

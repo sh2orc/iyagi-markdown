@@ -31,6 +31,7 @@ import { CloseConfirm, ConflictDialog } from "./components/Modals";
 import { ExportSheet } from "./components/ExportSheet";
 import { Toolbar } from "./components/Toolbar";
 import { MiniToolbar } from "./components/MiniToolbar";
+import { ContextMenu } from "./components/ContextMenu";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { StylePanel } from "./components/StylePanel";
 
@@ -251,6 +252,9 @@ export function App(): JSX.Element {
           break;
         case "save-as":
           void saveAs();
+          break;
+        case "print":
+          store.setExportKind("pdf");
           break;
         case "export-html":
         case "export-pdf":
@@ -503,6 +507,7 @@ export function App(): JSX.Element {
         t={t}
       />
       {styleOpen && <StylePanel store={store} onClose={() => setStyleOpen(false)} t={t} />}
+      <ContextMenu store={store} t={t} />
       <div className="toasts">
         {state.toasts.map((toast) => (
           <div key={toast.id} className={`toast ${toast.kind}`}>

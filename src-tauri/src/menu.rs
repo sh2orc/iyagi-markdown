@@ -8,6 +8,7 @@ use md_core::i18n::Msg;
 
 /// 우리가 프런트로 전달하는 커스텀 항목 id(미리 정의된 undo/cut 등과 구분).
 const CUSTOM_IDS: &[&str] = &[
+    "print",
     "new-tab",
     "open",
     "open-folder",
@@ -113,6 +114,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
     ] {
         file_menu.append(&mi(app, id, label, accel)?)?;
     }
+    file_menu.append(&mi(app, "print", t(Msg::Print), Some("CmdOrCtrl+P"))?)?;
     file_menu.append(&PredefinedMenuItem::separator(app)?)?;
     for (id, label) in [
         ("export-html", t(Msg::ExportHtml)),

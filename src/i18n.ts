@@ -124,6 +124,19 @@ const en = {
   styleAccent: "Accent color",
   styleReset: "Reset to default",
   done: "Done",
+  ctxUndo: "Undo",
+  ctxRedo: "Redo",
+  ctxCut: "Cut",
+  ctxCopy: "Copy",
+  ctxPaste: "Paste",
+  ctxSelectAll: "Select All",
+  ctxOpenLink: "Open Link",
+  ctxCopyLink: "Copy Link Address",
+  ctxAddRow: "Insert Row Below",
+  ctxAddCol: "Insert Column Right",
+  ctxDelRow: "Delete Row",
+  ctxDelCol: "Delete Column",
+  ctxPasteBlocked: "Clipboard is not accessible — use ⌘V",
 } as const;
 
 export type Key = keyof typeof en;
@@ -237,6 +250,19 @@ const ko: Dict = {
   styleAccent: "강조색",
   styleReset: "기본으로 되돌리기",
   done: "완료",
+  ctxUndo: "실행 취소",
+  ctxRedo: "다시 실행",
+  ctxCut: "잘라내기",
+  ctxCopy: "복사",
+  ctxPaste: "붙여넣기",
+  ctxSelectAll: "모두 선택",
+  ctxOpenLink: "링크 열기",
+  ctxCopyLink: "링크 주소 복사",
+  ctxAddRow: "아래에 행 삽입",
+  ctxAddCol: "오른쪽에 열 삽입",
+  ctxDelRow: "행 삭제",
+  ctxDelCol: "열 삭제",
+  ctxPasteBlocked: "클립보드 접근이 막혀 있습니다 — ⌘V를 사용하세요",
 };
 
 // 인자를 받는 문구.
