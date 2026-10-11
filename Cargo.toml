@@ -46,7 +46,8 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 debug = 1
 
 [profile.release]
-codegen-units = 16
-lto = "thin"
-opt-level = 3
+# 크기 우선(§1-2 ≤20MB 목표): 최적화 s + 단일 코드젠 유닛 + fat LTO.
+codegen-units = 1
+lto = "fat"
+opt-level = "s"
 strip = "symbols"

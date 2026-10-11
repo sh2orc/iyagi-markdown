@@ -1,6 +1,7 @@
 # IYAGI Markdown 구현 방안
 
-작성일: 2026-10-10 · 상태: **v1.0 — 2026-10-10 토의로 D1~D8 모두 확정, 나머지 토의 중**. 아직 코드는 없다.
+작성일: 2026-10-10 · 상태: **v1.0 — 2026-10-10 토의로 D1~D8 모두 확정, 나머지 토의 중**.
+구현: **2026-10-11 1차 완료 — M01~M11 구현됨(51개 Rust + 30개 프런트 테스트 통과, 원문 보존 3종 포함). 상세는 [docs/architecture.md](docs/architecture.md).**
 
 형제 프로젝트: [iyagi-layout](../iyagi-layout), [iyagi-term](../iyagi-term). 이 문서는 iyagi-layout의 구조·스크립트·문서 관례(Tauri 2 + Rust 워크스페이스 + React, 안정 서명, CI, 티켓 방식)를 기준으로 IYAGI Markdown의 구현 방안을 정한다.
 
