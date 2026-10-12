@@ -47,8 +47,6 @@ export interface Settings {
   ttsRate: number;
   /** 읽기 목소리(빈 값 = 시스템 기본). */
   ttsVoice: string;
-  /** TTS 음성(빈 문자열 = 시스템 기본). */
-  ttsVoice: string;
 }
 
 export interface SessionTab {
@@ -200,12 +198,14 @@ export const api = {
   exportEpub: (
     chapters: Array<{ title: string; body: string; file: string }>,
     title: string,
+    author: string,
     language: string,
     css: string,
     coverPath: string | null,
     baseDir: string,
     outPath: string,
-  ) => invoke<void>("export_epub", { chapters, title, language, css, coverPath, baseDir, outPath }),
+  ) =>
+    invoke<void>("export_epub", { chapters, title, author, language, css, coverPath, baseDir, outPath }),
   writeExportFile: (path: string, contents: string) =>
     invoke<void>("write_export_file", { path, contents }),
   revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),

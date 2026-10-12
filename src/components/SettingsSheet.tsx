@@ -2,7 +2,7 @@
 // 디스크 저장(및 settings-changed 이벤트 왕복)은 짧게 디바운스 — 슬라이더를
 // 끌 때 매 틱마다 파일을 쓰지 않는다. 화면 반영은 즉시.
 
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { AppStore } from "../app/store";
 import { api, isInApp, type Settings } from "../api";
@@ -17,6 +17,20 @@ interface Props {
 
 export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element | null {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [voices, setVoices] = useState<Array<{ name: string; lang: string }>>([]);
+  useEffect(() => {
+    if (!isInApp()) return;
+    let disposed = false;
+    void api
+      .listVoices()
+      .then((vs) => {
+        if (!disposed) setVoices(vs);
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, []);
   const set = (patch: Partial<Settings>) => {
     const next = { ...store.state.settings, ...patch };
     store.setSettings(next); // 화면은 즉시
@@ -124,6 +138,20 @@ export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element |
             />
             {t.setTtsRate}
             <span className="settings-hint">{s.ttsRate} wpm</span>
+          </label>
+          <label className="settings-check">
+            <select
+              value={s.ttsVoice}
+              onChange={(e) => set({ ttsVoice: e.target.value })}
+            >
+              <option value="">{t.setTtsVoiceDefault}</option>
+              {voices.map((v) => (
+                <option key={`${v.name}-${v.lang}`} value={v.name}>
+                  {v.name} ({v.lang})
+                </option>
+              ))}
+            </select>
+            {t.setTtsVoice}
           </label>
           <label className="settings-check">
             <input
