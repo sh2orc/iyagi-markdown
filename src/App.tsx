@@ -548,6 +548,22 @@ export function App(): JSX.Element {
     [store],
   );
 
+  /** 여러 탭 한 번에 닫기 — 더티가 하나라도 있으면 확인은 한 번만. */
+  const closeTabsBatch = useCallback(
+    (tabs: Tab[]) => {
+      if (tabs.length === 0) return;
+      if (tabs.some((x) => x.dirty)) {
+        setCloseAsk(() => (ok: boolean) => {
+          setCloseAsk(null);
+          if (ok) for (const x of tabs) store.closeTab(x.id);
+        });
+        return;
+      }
+      for (const x of tabs) store.closeTab(x.id);
+    },
+    [store],
+  );
+
   // — 메뉴/단축키 동작 —
   const handleMenu = useCallback(
     (id: string) => {
@@ -919,7 +935,16 @@ export function App(): JSX.Element {
           open={state.sidebarOpen}
         />
         <main className="app-main">
-          <TabBar store={store} t={t} onClose={(tab) => void closeTabWithConfirm(tab)} />
+          <TabBar
+          store={store}
+          t={t}
+          onClose={(tab) => void closeTabWithConfirm(tab)}
+          onCloseOthers={(tab) => closeTabsBatch(state.tabs.filter((x) => x.id !== tab.id))}
+          onCloseRight={(tab) => {
+            const idx = state.tabs.findIndex((x) => x.id === tab.id);
+            closeTabsBatch(state.tabs.filter((_, i) => i > idx));
+          }}
+        />
           <Toolbar store={store} t={t} onInsertTable={() => setTableDialogOpen(true)} />
           <SearchPanel store={store} view={editorView.current} t={t} open={state.searchOpen} />
           <div className={`editor-area ${activeTab?.mode === "read" ? "read-mode" : ""}`}>

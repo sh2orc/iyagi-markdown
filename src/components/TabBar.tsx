@@ -10,15 +10,28 @@ interface Props {
   store: AppStore;
   t: Translate;
   onClose: (tab: Tab) => void;
+  /** 다른 탭 전부 닫기·오른쪽 탭 닫기(App이 더티 확인을 한 번에). */
+  onCloseOthers?: (tab: Tab) => void;
+  onCloseRight?: (tab: Tab) => void;
 }
 
-export function TabBar({ store, t, onClose }: Props): JSX.Element {
+export function TabBar({ store, t, onClose, onCloseOthers, onCloseRight }: Props): JSX.Element {
   const state = store.getSnapshot();
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [ctx, setCtx] = useState<{ x: number; y: number; tab: Tab } | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
 
+  // 바깥 클릭·Esc로 탭 메뉴 닫기.
+  const closeCtx = () => setCtx(null);
+
   return (
-    <div className="tabbar" ref={barRef}>
+    <div
+      className="tabbar"
+      ref={barRef}
+      onPointerDown={(e) => {
+        if (ctx && !(e.target as HTMLElement).closest(".tab-ctx")) closeCtx();
+      }}
+    >
       <div
         className="tabbar-tabs"
         onDragOver={(e) => {
@@ -47,6 +60,10 @@ export function TabBar({ store, t, onClose }: Props): JSX.Element {
               onClick={() => store.activate(tab.id)}
               onAuxClick={(e) => {
                 if (e.button === 1) onClose(tab); // 중간 클릭 닫기
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setCtx({ x: e.clientX, y: e.clientY, tab });
               }}
               title={tab.path ?? t.untitled}
             >
@@ -86,6 +103,39 @@ export function TabBar({ store, t, onClose }: Props): JSX.Element {
           +
         </button>
       </div>
+      {ctx && (
+        <div
+          className="ctx-menu tab-ctx"
+          style={{ left: ctx.x, top: ctx.y }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <button className="ctx-item" onClick={() => { onClose(ctx.tab); closeCtx(); }}>
+            {t.closeTab}
+          </button>
+          {onCloseOthers && state.tabs.length > 1 && (
+            <button
+              className="ctx-item"
+              onClick={() => {
+                onCloseOthers(ctx.tab);
+                closeCtx();
+              }}
+            >
+              {t.tabCloseOthers}
+            </button>
+          )}
+          {onCloseRight && ctx.tab.id !== state.tabs[state.tabs.length - 1]?.id && (
+            <button
+              className="ctx-item"
+              onClick={() => {
+                onCloseRight(ctx.tab);
+                closeCtx();
+              }}
+            >
+              {t.tabCloseRight}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
