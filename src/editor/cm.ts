@@ -95,6 +95,15 @@ function baseExtensions(): Extension[] {
       { key: "Mod-Shift-k", run: (v) => fmt.toggleInlineCode(v), preventDefault: true },
       // 목록 자동 계속 — 항목 끝에서 Enter면 다음 마커를 잇는다(빈 항목은 종료).
       { key: "Enter", run: (v) => fmt.continueListOnEnter(v) },
+      // 입력 보조 — 괄호 쌍·마커 감싸기(선택 있을 때). 개별 문자 키.
+      { key: "(", run: (v) => fmt.typePair(v, "(") },
+      { key: "[", run: (v) => fmt.typePair(v, "[") },
+      { key: '"', run: (v) => fmt.typePair(v, '"') },
+      { key: "'", run: (v) => fmt.typePair(v, "'") },
+      { key: "*", run: (v) => fmt.typePair(v, "*") },
+      { key: "~", run: (v) => fmt.typePair(v, "~") },
+      { key: "$", run: (v) => fmt.typePair(v, "$") },
+      { key: "`", run: (v) => fmt.typePair(v, "`") },
       // 목록 들여쓰기 — Tab/Shift-Tab으로 단계 조정(Word 표준). 목록 밖에서는
       // 기본 Tab(포커스 이동)을 그대로 둔다.
       { key: "Tab", run: (v) => fmt.indentListItem(v, false) },

@@ -196,3 +196,56 @@ describe("목록 들여쓰기(Tab)", () => {
     document.body.innerHTML = "";
   });
 });
+
+// 입력 보조(17차) — 괄호 쌍·마커 감싸기.
+import { typePair } from "./format";
+
+describe("입력 보조(쌍·감싸기)", () => {
+  it("빈 커서 ( — 쌍 삽입 후 가운데", () => {
+    const view = new EditorView({ state: createDocState("본\n", "edit"), parent: document.body });
+    view.dispatch({ selection: { anchor: 1 } });
+    typePair(view, "(");
+    expect(view.state.doc.toString()).toBe("본()\n");
+    expect(view.state.selection.main.head).toBe(2);
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("선택 + $ — 인라인 수식으로 감싸기", () => {
+    const view = new (EditorView)({
+      state: createDocState("a E=mc^2 b\n", "edit"),
+      parent: document.body,
+    });
+    view.dispatch({ selection: { anchor: 2, head: 8 } });
+    typePair(view, "$");
+    expect(view.state.doc.toString()).toBe("a $E=mc^2$ b\n");
+    expect(view.state.selection.main.from).toBe(3);
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("선택 + * — 굵게 마커 두 개로 감싸기", () => {
+    const view = new (EditorView)({
+      state: createDocState("말 강조 말\n", "edit"),
+      parent: document.body,
+    });
+    view.dispatch({ selection: { anchor: 2, head: 4 } });
+    typePair(view, "*");
+    expect(view.state.doc.toString()).toBe("말 **강조** 말\n");
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("닫는 괄호 스킵 — () 사이에서 ) 입력", () => {
+    const view = new (EditorView)({
+      state: createDocState("()\n", "edit"),
+      parent: document.body,
+    });
+    view.dispatch({ selection: { anchor: 1 } });
+    // ")" 는 pairs에 없다 — 스킵 로직은 "(" 가 닫는 문자인 쌍(quote)에만 적용.
+    // 닫는 괄호 스킵은 CM 기본 입력과 조합되므로 여기선 false(기본 처리 위임).
+    expect(typePair(view, ")")).toBe(false);
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+});

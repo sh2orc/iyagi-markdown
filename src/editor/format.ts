@@ -427,3 +427,52 @@ export function indentListItem(view: EditorView, outdent: boolean): boolean {
   });
   return true;
 }
+
+/** 입력 보조 — 괄호 쌍·마커 감싸기(Word 자동 고침 중 무손실 항목만).
+ *  모두 커서/선택에 대한 텍스트 삽입이며 원문 보존 원칙(§4-2)과 무관하게
+ *  사용자가 되돌릴 수 있는 일반 편집이다. */
+export function typePair(view: EditorView, ch: string): boolean {
+  const sel = view.state.selection.main;
+  // ① 쌍 문자: 빈 커서면 닫는 쪽을 함께, 선택이 있으면 감싼다.
+  const pairs: Record<string, string> = { "(": ")", "[": "]", "{": "}", "\"": "\"", "'": "'" };
+  const close = pairs[ch];
+  if (close) {
+    if (!sel.empty) {
+      const inner = view.state.sliceDoc(sel.from, sel.to);
+      view.dispatch({
+        changes: { from: sel.from, to: sel.to, insert: ch + inner + close },
+        selection: { anchor: sel.from + 1, head: sel.to + 1 },
+        userEvent: "input.pair",
+      });
+      return true;
+    }
+    // 이미 열린 쌍 바로 뒤에서 닫는 문자 입력 → 닫는 쪽만 통과(스킵).
+    // (간단히: 커서 앞이 같은 열림이고 뒤가 이미 닫힘이면 닫는 문자만 삽입)
+    const before = view.state.sliceDoc(Math.max(0, sel.head - 1), sel.head);
+    const after = view.state.sliceDoc(sel.head, Math.min(view.state.doc.length, sel.head + 1));
+    if (ch === close && before === ch && after === close) {
+      view.dispatch({ selection: { anchor: sel.head + 1 } });
+      return true;
+    }
+    view.dispatch({
+      changes: { from: sel.head, insert: ch + close },
+      selection: { anchor: sel.head + 1 },
+      userEvent: "input.pair",
+    });
+    return true;
+  }
+  // ② 마크다운 마커 감싸기: 선택이 있을 때만. 같은 문자 두 개로 감싼다.
+  const markers: Record<string, number> = { "*": 2, "~": 2, $: 1, "`": 1, "=": 1 };
+  const n = markers[ch];
+  if (n && !sel.empty) {
+    const pair = ch.repeat(n);
+    const inner = view.state.sliceDoc(sel.from, sel.to);
+    view.dispatch({
+      changes: { from: sel.from, to: sel.to, insert: pair + inner + pair },
+      selection: { anchor: sel.from + pair.length, head: sel.to + pair.length },
+      userEvent: "input.wrap",
+    });
+    return true;
+  }
+  return false;
+}
