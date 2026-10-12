@@ -105,6 +105,24 @@ export function App(): JSX.Element {
   }, [state.settings.language]);
   const t = useMemo(() => makeT(lang), [lang]);
 
+  // — 모달이 열려 있으면 에디터로 키보드 포커스가 새지 않게(의도치 않은
+  //    입력·Tab 탐색 차단). 검색 바는 에디터 조작이 함께 일어나야 하므로 제외. —
+  const modalOpen = !!(
+    closeAsk ||
+    settingsOpen ||
+    styleOpen ||
+    printOpen ||
+    shortcutsOpen ||
+    statsOpen ||
+    paletteOpen ||
+    state.exportKind ||
+    state.busy ||
+    state.tabs.some((x) => x.conflict === "conflict" || x.conflict === "removed")
+  );
+  useEffect(() => {
+    if (editorHost.current) editorHost.current.inert = modalOpen;
+  }, [modalOpen]);
+
   // — 초기화 —
   useEffect(() => {
     store.phrases = { bigDocSource: t.bigDocSource };
