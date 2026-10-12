@@ -1687,10 +1687,32 @@ body.resizing .toc {
   color: rgba(255, 255, 255, 0.75);
 }
 
-/* 포커스 모드 — 커서 문단 외 흐림(editor/writing.ts 마크) */
+.wssearch-mark {
+  background: var(--md-accent);
+  color: #fff;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.palette-item.is-sel .wssearch-mark {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+/* 포커스 모드 — 커서 문단 외 흐림(editor/writing.ts 마크).
+   마크 장식은 요소가 새로 만들어지므로 페이드아웃 대신 등장 페이드인. */
+
+@keyframes focus-dim-in {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.42;
+  }
+}
 
 .cm-focus-dim {
   opacity: 0.42;
+  animation: focus-dim-in 0.25s ease;
 }
 
 /* 버전 기록 패널 */

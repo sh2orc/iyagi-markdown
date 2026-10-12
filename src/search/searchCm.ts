@@ -255,3 +255,25 @@ export function replaceAll(view: EditorView, query: SearchQuery): number {
 export function searchStateOf(state: EditorState): SearchState {
   return state.field(searchField, false) ?? { query: null, matches: [], current: -1 };
 }
+
+/** 결과 줄을 매치 강조 조각으로 나눈다(전체 검색 패널 표시용).
+ *  대소문자무시 부분문자열 — Rust search_tree와 같은 규칙. 순수 함수. */
+export function splitHighlights(
+  line: string,
+  needle: string,
+): Array<{ text: string; hit: boolean }> {
+  const q = needle.trim().toLowerCase();
+  if (!q) return [{ text: line, hit: false }];
+  const hay = line.toLowerCase();
+  const out: Array<{ text: string; hit: boolean }> = [];
+  let i = 0;
+  for (;;) {
+    const at = hay.indexOf(q, i);
+    if (at === -1) break;
+    if (at > i) out.push({ text: line.slice(i, at), hit: false });
+    out.push({ text: line.slice(at, at + q.length), hit: true });
+    i = at + q.length;
+  }
+  if (i < line.length) out.push({ text: line.slice(i), hit: false });
+  return out;
+}

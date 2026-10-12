@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api, isInApp, type SearchHit } from "../api";
 import type { AppStore } from "../app/store";
+import { splitHighlights } from "../search/searchCm";
 import type { Translate } from "../i18n";
 
 interface Group {
@@ -44,9 +45,10 @@ function groupHits(hits: SearchHit[], root: string): Group[] {
 
 export function WorkspaceSearch({ store, t, onClose, onOpenHit }: Props): JSX.Element {
   const [query, setQuery] = useState("");
-  const [groups, setGroups] = useState<Group[] | null>(null);
   const [sel, setSel] = useState(0);
   const [truncated, setTruncated] = useState(false);
+  /** 결과를 만든 쿼리 — 하이라이트가 타이핑 도중 어긋나지 않게 함께 저장. */
+  const [results, setResults] = useState<{ q: string; groups: Group[] } | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const reqId = useRef(0);
@@ -55,11 +57,11 @@ export function WorkspaceSearch({ store, t, onClose, onOpenHit }: Props): JSX.El
     inputRef.current?.focus();
   }, []);
 
-  // 입력 디바운스(200ms) — 키 입력마다 전체 폴더를 긁지 않게.
+  // 입력 디바운스(200ms) — 키 입력마다 전체 폴더을 긁지 않게.
   useEffect(() => {
     const q = query.trim();
     if (!q || !isInApp() || !store.state.workspace) {
-      setGroups(q ? [] : null);
+      setResults(q ? { q, groups: [] } : null);
       setTruncated(false);
       return;
     }
@@ -71,24 +73,24 @@ export function WorkspaceSearch({ store, t, onClose, onOpenHit }: Props): JSX.El
         .then((hits) => {
           if (reqId.current !== id) return; // 이미 다음 쿼리가 출발했다
           setTruncated(hits.length >= 2000);
-          setGroups(groupHits(hits, root));
+          setResults({ q, groups: groupHits(hits, root) });
         })
         .catch(() => {
-          if (reqId.current === id) setGroups([]);
+          if (reqId.current === id) setResults({ q, groups: [] });
         });
     }, 200);
     return () => window.clearTimeout(timer);
   }, [query, store]);
 
   const rows = useMemo<Row[]>(() => {
-    if (!groups) return [];
+    if (!results) return [];
     const out: Row[] = [];
-    for (const g of groups) {
+    for (const g of results.groups) {
       out.push({ kind: "header", g });
       for (const h of g.hits) out.push({ kind: "hit", g, h });
     }
     return out;
-  }, [groups]);
+  }, [results]);
 
   useEffect(() => {
     setSel(0);
@@ -146,8 +148,8 @@ export function WorkspaceSearch({ store, t, onClose, onOpenHit }: Props): JSX.El
           }}
         />
         <div className="palette-list" ref={listRef}>
-          {groups === null && <div className="palette-empty">{t.wsSearchHint}</div>}
-          {groups !== null && groups.length === 0 && query.trim() && (
+          {results === null && <div className="palette-empty">{t.wsSearchHint}</div>}
+          {results !== null && results.groups.length === 0 && query.trim() && (
             <div className="palette-empty">{t.wsSearchNoMatch}</div>
           )}
           {rows.map((r, i) => {
@@ -169,7 +171,19 @@ export function WorkspaceSearch({ store, t, onClose, onOpenHit }: Props): JSX.El
                 onClick={() => runIdx(i)}
               >
                 <span className="wssearch-lineno">{r.h.lineNo}</span>
-                <span className="wssearch-text">{r.h.line || " "}</span>
+                <span className="wssearch-text">
+                  {r.h.line
+                    ? splitHighlights(r.h.line, results?.q ?? "").map((p, j) =>
+                        p.hit ? (
+                          <mark key={j} className="wssearch-mark">
+                            {p.text}
+                          </mark>
+                        ) : (
+                          <span key={j}>{p.text}</span>
+                        ),
+                      )
+                    : " "}
+                </span>
               </button>
             );
           })}
