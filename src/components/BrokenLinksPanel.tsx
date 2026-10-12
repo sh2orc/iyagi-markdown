@@ -32,8 +32,12 @@ export function BrokenLinksPanel({ store, t, onClose, onGoto, onCreate }: Props)
     setSel(0);
   }, [tab?.path]);
 
+  const noWorkspace = !store.state.workspace;
+
   const broken = useMemo(() => {
-    if (!tab) return [];
+    // 워크스페이스가 없으면 인덱스가 비어 모든 링크가 '끊김'으로 나온다 —
+    // 검사하지 않고 안내로 대체(오진 방지).
+    if (!tab || noWorkspace) return [];
     const text = tab.state.doc.toString();
     const dir = tab.path ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/" : "";
     // 프론트매터의 태그 등은 제외 — 본문만 검사.
@@ -95,7 +99,9 @@ export function BrokenLinksPanel({ store, t, onClose, onGoto, onCreate }: Props)
           {broken.length > 0 && <span className="wssearch-count">{broken.length}</span>}
         </div>
         <div className="palette-list" ref={listRef}>
-          {broken.length === 0 && <div className="palette-empty">{t.brokenLinksNone}</div>}
+          {broken.length === 0 && (
+            <div className="palette-empty">{noWorkspace ? t.wsSearchNoFolder : t.brokenLinksNone}</div>
+          )}
           {broken.map((b, i) => (
             <button
               key={`${b.from}-${b.name}`}
