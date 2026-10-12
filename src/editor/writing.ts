@@ -18,6 +18,8 @@ import type { SyntaxNode, Tree } from "@lezer/common";
 export interface WritingConf {
   typewriter: boolean;
   focus: boolean;
+  /** 문장 단위 포커스(iA Writer) — focus가 켜일 때만 의미 있다. */
+  sentence: boolean;
   /** 읽기 모드면 false — 커서·입력이 없어 두 기능 모두 무의미. */
   active: boolean;
 }
@@ -25,7 +27,8 @@ export interface WritingConf {
 export const writingComp = new Compartment();
 
 export const writingConf = Facet.define<WritingConf, WritingConf>({
-  combine: (vals) => vals[vals.length - 1] ?? { typewriter: false, focus: false, active: true },
+  combine: (vals) =>
+    vals[vals.length - 1] ?? { typewriter: false, focus: false, sentence: false, active: true },
 });
 
 const dimMark = Decoration.mark({ class: "cm-focus-dim" });
@@ -33,7 +36,12 @@ const dimMark = Decoration.mark({ class: "cm-focus-dim" });
 /** 커서가 속한 최상위 블록을 제외한 나머지 블록 범위(흐림 대상).
  *  순수 함수 — lezer 트리만 받아 단위 테스트한다.
  *  커서가 블록 사이 간격(빈 줄)에 있으면 빈 배열(전체 또렷하게). */
-export function computeDimRanges(tree: Tree, pos: number): Array<{ from: number; to: number }> {
+export function computeDimRanges(
+  tree: Tree,
+  pos: number,
+  sentence = false,
+  sliceText: (from: number, to: number) => string = () => "",
+): Array<{ from: number; to: number }> {
   const children: SyntaxNode[] = [];
   let active: SyntaxNode | null = null;
   let c = tree.topNode.firstChild;
@@ -42,8 +50,38 @@ export function computeDimRanges(tree: Tree, pos: number): Array<{ from: number;
     if (pos >= c.from && pos <= c.to) active = c;
     c = c.nextSibling;
   }
-  if (!active || children.length < 2) return [];
-  return children.filter((n) => n !== active).map((n) => ({ from: n.from, to: n.to }));
+  if (!active) return [];
+  if (children.length < 2 && !sentence) return [];
+  const out = children.filter((n) => n !== active).map((n) => ({ from: n.from, to: n.to }));
+  if (sentence) {
+    // 활성 블록 안에서도 현재 문장 외에는 흐린다(iA Writer 문장 포커스).
+    const blockText = sliceText(active.from, active.to);
+    const rel = pos - active.from;
+    for (const [a, b] of sentenceSpans(blockText)) {
+      if (rel < a || rel > b) out.push({ from: active.from + a, to: active.from + b });
+    }
+  }
+  return out;
+}
+
+/** 문장 경계 오프셋 목록(상대 좌표) — . ! ? 。！？+공백에서 끊는다.
+ *  순수 함수(테스트 대상). 종결이 없으면 한 덩어리. */
+export function sentenceSpans(text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  const TERM = new Set(".!?。！？");
+  let start = 0;
+  let i = 0;
+  for (; i < text.length; i++) {
+    if (TERM.has(text[i])) {
+      // 종결부 연속(?! 등)과 뒤따르는 공백까지 문장에 포함.
+      while (i + 1 < text.length && TERM.has(text[i + 1])) i++;
+      while (i + 1 < text.length && text[i + 1] === " ") i++;
+      spans.push([start, i + 1]);
+      start = i + 1;
+    }
+  }
+  if (start < text.length) spans.push([start, text.length]);
+  return spans.filter(([a, b]) => b > a);
 }
 
 export function writingExtension(conf: WritingConf): Extension {
@@ -59,7 +97,12 @@ export function writingExtension(conf: WritingConf): Extension {
  *  불필요한 트랜잭션도 낭비). */
 export function applyWriting(view: EditorView, conf: WritingConf): void {
   const cur = view.state.facet(writingConf);
-  if (cur.typewriter === conf.typewriter && cur.focus === conf.focus && cur.active === conf.active) {
+  if (
+    cur.typewriter === conf.typewriter &&
+    cur.focus === conf.focus &&
+    cur.sentence === conf.sentence &&
+    cur.active === conf.active
+  ) {
     return;
   }
   view.dispatch({ effects: writingComp.reconfigure(writingExtension(conf)) });
@@ -106,7 +149,13 @@ const focusExt = ViewPlugin.fromClass(
     build(view: EditorView): DecorationSet {
       // 조각 파싱 중이면 파싱된 접두만 — 완료되면 측정 갱신(geometryChanged)으로
       // 다시 온다(livePreview와 달리 여기는 가벼운 마크라 전체 재계산이 싸다).
-      const ranges = computeDimRanges(syntaxTree(view.state), view.state.selection.main.head);
+      const conf = view.state.facet(writingConf);
+      const ranges = computeDimRanges(
+        syntaxTree(view.state),
+        view.state.selection.main.head,
+        conf.focus && conf.sentence,
+        (a, b) => view.state.doc.sliceString(a, b),
+      );
       return Decoration.set(ranges.map((r) => dimMark.range(r.from, r.to)));
     }
   },

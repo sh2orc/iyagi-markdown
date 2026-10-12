@@ -651,6 +651,10 @@ export class AppStore {
     this.patchSettings({ focusMode: !this.state.settings.focusMode });
   }
 
+  toggleSentenceFocus(): void {
+    this.patchSettings({ focusSentence: !this.state.settings.focusSentence });
+  }
+
   setTheme(theme: "light" | "dark"): void {
     this.state.theme = theme;
     this.applyConfig();
@@ -674,6 +678,8 @@ export class AppStore {
     applyWriting(this.view, {
       typewriter: this.state.settings.typewriter,
       focus: this.state.settings.focusMode,
+      // 문장 포커스 — 설정 키가 아직 없어 기본값(함께 임계). 추가되면 연결.
+      sentence: false,
       active: (tab?.mode ?? this.state.settings.defaultMode) !== "read",
     });
     this.applyDocStyleVars();
@@ -1031,6 +1037,7 @@ export function defaultSettings(): Settings {
     autosave: false,
     typewriter: false,
     focusMode: false,
+    focusSentence: false,
   };
 }
 

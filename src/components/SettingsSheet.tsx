@@ -129,6 +129,15 @@ export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element |
             />
             {t.setFocusMode}
           </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={s.focusSentence}
+              onChange={(e) => set({ focusSentence: e.target.checked })}
+            />
+            {t.setFocusSentence}
+          </label>
+
         </div>
         <div className="modal-actions">
           <button className="btn btn-primary" onClick={onClose}>

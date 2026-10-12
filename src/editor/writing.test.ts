@@ -10,7 +10,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import { languages } from "@codemirror/language-data";
 
-import { computeDimRanges } from "./writing";
+import { computeDimRanges, sentenceSpans } from "./writing";
 import { mathSyntax } from "./mathSyntax";
 
 const parse = (doc: string) => {
@@ -72,3 +72,26 @@ describe("computeDimRanges", () => {
     expect(computeDimRanges(tree, 0)).toEqual([]);
   });
 });
+
+describe("sentenceSpans · 문장 포커스", () => {
+  it("종결부+공백에서 끊는다(연속 ?!, 전각 포함)", () => {
+    // 종결부 뒤 공백까지 문장에 포함(실측 고정).
+    expect(sentenceSpans("첫 문장입니다. 두 번째! 세 번째?")).toEqual([
+      [0, 9],
+      [9, 15],
+      [15, 20],
+    ]);
+    expect(sentenceSpans("한 문장뿐")).toEqual([[0, 5]]);
+    expect(sentenceSpans("")).toEqual([]);
+  });
+
+  it("computeDimRanges(sentence) — 활성 블록의 다른 문장도 흐려진다", () => {
+    const tree = parse("첫 문장. 둘째 문장.\n\n다른 블록.\n");
+    const para = tree.topNode.firstChild!;
+    const mid = para.to - 3; // 둘째 문장 안
+    const dims = computeDimRanges(tree, mid, true, (a, b) => DOC2.slice(a, b));
+    expect(dims.some((r) => r.from === para.from && r.to < mid)).toBe(true); // 첫 문장
+    expect(dims.some((r) => r.from >= para.from && r.from < mid && r.to > mid)).toBe(false); // 현재 문장은 아니라
+  });
+});
+const DOC2 = "첫 문장. 둘째 문장.\n\n다른 블록.\n";

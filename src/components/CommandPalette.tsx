@@ -121,6 +121,7 @@ export function CommandPalette({
       { id: "bookmark", label: `${t.ctxAddBookmark} / ${t.ctxRemoveBookmark}`, run: () => store.toggleBookmark() },
       { id: "tw-toggle", label: `${t.scView}: ${t.setTypewriter}`, run: () => store.toggleTypewriter() },
       { id: "focus-toggle", label: `${t.scView}: ${t.setFocusMode}`, run: () => store.toggleFocusMode() },
+      { id: "sentence-toggle", label: `${t.scView}: ${t.setFocusSentence}`, run: () => store.toggleSentenceFocus() },
       { id: "newtab", label: `${t.newTab} ⌘N`, run: () => store.newTab() },
       { id: "closetab", label: `${t.closeTab} ⌘W`, run: () => {
         const tab = store.active;

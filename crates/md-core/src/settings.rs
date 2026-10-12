@@ -61,6 +61,9 @@ pub struct Settings {
     /// 포커스 모드(커서 블록 외 흐림).
     #[serde(default)]
     pub focus_mode: bool,
+    /// 문장 단위 포커스(iA Writer) — 포커스 모드가 켜일 때만 의미.
+    #[serde(default)]
+    pub focus_sentence: bool,
 }
 
 fn default_font_size() -> f64 {

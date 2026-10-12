@@ -41,6 +41,8 @@ export interface Settings {
   typewriter: boolean;
   /** 포커스 모드 — 커서 문단 외 흐림. */
   focusMode: boolean;
+  /** 문장 단위 포커스(iA Writer) — focusMode가 켜일 때만. */
+  focusSentence: boolean;
 }
 
 export interface SessionTab {

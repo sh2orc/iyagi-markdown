@@ -323,7 +323,7 @@ function modeValues(mode: ViewMode): Extension[] {
     behaviorComp.of(behavior),
     previewEnabledComp.of(preview),
     // 자리만 잡는다 — 상태 생성 직후 applyConfig가 실제 설정으로 바꾼다.
-    writingComp.of(writingExtension({ typewriter: false, focus: false, active: mode !== "read" })),
+    writingComp.of(writingExtension({ typewriter: false, focus: false, sentence: false, active: mode !== "read" })),
   ];
 }
 
