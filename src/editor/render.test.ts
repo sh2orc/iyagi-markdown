@@ -42,6 +42,7 @@ async function makeView(mode: "read" | "edit"): Promise<EditorView> {
       imageWidths: {},
       bookmarks: [],
       tableWidths: {},
+      wikiIndex: new Map(),
     }),
   });
   await new Promise((r) => setTimeout(r, 120));
@@ -97,6 +98,7 @@ describe("샘플 문서 라이브 프리뷰", () => {
           imageWidths: {},
           bookmarks: [],
           tableWidths: {},
+          wikiIndex: new Map(),
         }),
       });
     }

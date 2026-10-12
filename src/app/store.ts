@@ -21,6 +21,7 @@ import { applyDocStyle, DEFAULT_DOC_STYLE as DEFAULT_DOC_STYLE_T } from "./docSt
 import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, type ViewMode } from "../editor/cm";
 import { applyWriting } from "../editor/writing";
 import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
+import { buildWikiIndex } from "../editor/wiki";
 import { dirname } from "../paths";
 
 export interface Tab {
@@ -564,15 +565,22 @@ export class AppStore {
   closeWorkspace(): void {
     this.state.workspace = null;
     this.state.tree = [];
+    this.wikiIndex = new Map();
+    this.applyConfig(); // 위키링크 전부 미해결 표시로
     this.emit();
     void this.syncWatch();
     this.scheduleSessionSave();
   }
 
+  /** 위키링크 해석 인덱스(트리에서) — 참조 교체로 프리뷰 재계산을 유발한다. */
+  wikiIndex: Map<string, string[]> = new Map();
+
   async refreshTree(): Promise<void> {
     if (!this.state.workspace) return;
     try {
       this.state.tree = await this.io.scanWorkspace(this.state.workspace);
+      this.wikiIndex = buildWikiIndex(this.state.tree);
+      this.applyConfig();
       this.emit();
     } catch {
       // 폴더가 사라졌을 수 있다 — 조용히 둔다.
@@ -635,6 +643,7 @@ export class AppStore {
       imageWidths: tab?.docStyle?.imageWidths ?? {},
       bookmarks: tab?.bookmarks ?? [],
       tableWidths: tab?.docStyle?.tableWidths ?? {},
+      wikiIndex: this.wikiIndex,
     });
     applyWriting(this.view, {
       typewriter: this.state.settings.typewriter,

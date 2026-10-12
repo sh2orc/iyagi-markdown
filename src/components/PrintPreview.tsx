@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 
 import { api } from "../api";
+import { resolveWikiLink } from "../editor/wiki";
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
 import type { PdfOptions } from "./ExportSheet";
@@ -34,6 +35,12 @@ export function PrintPreview({ store, t, onExport, onCancel }: Props): JSX.Eleme
         theme: store.state.theme,
         forPdf: true,
         marginMm: 14,
+        wikiResolve: (name) =>
+          resolveWikiLink(
+            name,
+            tab.path ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/" : store.state.workspace ?? "",
+            store.wikiIndex,
+          ),
         readBytes: async (p) => {
           try {
             return new Uint8Array(await api.readFileBytes(p));

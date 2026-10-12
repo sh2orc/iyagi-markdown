@@ -149,6 +149,7 @@ function setPreviewConfigOf(view: EditorView): void {
       imageWidths: {},
       bookmarks: [],
       tableWidths: {},
+      wikiIndex: new Map(),
     }),
   });
 }

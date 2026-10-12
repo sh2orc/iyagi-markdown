@@ -20,6 +20,7 @@ import {
 import { AppStore, resolveTheme, type ExportKind, type Tab } from "./app/store";
 import { replaceDoc, setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
 import { stripFrontMatter } from "./editor/frontmatter";
+import { resolveWikiLink, wikiLinksToMarkdown } from "./editor/wiki";
 import { collectHeadings, resolveLink } from "./links";
 import { makeT, type Lang } from "./i18n";
 import { TabBar } from "./components/TabBar";
@@ -329,7 +330,16 @@ export function App(): JSX.Element {
       const tab = store.active;
       if (!tab) return;
       // 내보내기 본문은 메타가 아니다 — 프론트매터는 제외하고 내보낸다.
-      const text = stripFrontMatter(tab.state.doc.toString());
+      // 위키링크는 표준 마크다운 링크로(DOCX는 텍스트가 그대로 Rust로 간다).
+      const baseDir0 = tab.path
+        ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/"
+        : store.state.workspace ?? "";
+      const wikiResolve = (name: string) => resolveWikiLink(name, baseDir0, store.wikiIndex);
+      const text = wikiLinksToMarkdown(
+        stripFrontMatter(tab.state.doc.toString()),
+        wikiResolve,
+        baseDir0,
+      );
       const name = (tab.path ? tab.title : "untitled").replace(/\.(md|markdown)$/i, "");
       const ext = kind === "html" ? "html" : kind === "pdf" ? "pdf" : "docx";
       const out = await pickSave(`${name}.${ext}`, ext);
@@ -349,6 +359,7 @@ export function App(): JSX.Element {
             theme: store.state.theme,
             style: exportStyleOf(tab),
             readBytes: readBytesForExport,
+            wikiResolve,
           });
           await api.writeExportFile(out, html);
         } else if (kind === "pdf") {
@@ -361,6 +372,7 @@ export function App(): JSX.Element {
             scale: opts.scale,
             style: exportStyleOf(tab),
             readBytes: readBytesForExport,
+            wikiResolve,
           });
           await api.exportPdf(html, opts, out);
         } else {

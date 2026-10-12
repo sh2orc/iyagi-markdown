@@ -51,7 +51,7 @@ export function parseWikiLink(raw: string): {
 
 /** 트리 → 위키링크 인덱스: key(소문자) → 경로들(도달 순).
  *  key는 stem 과 상대경로/stem 두 종류(`[[note]]`, `[[folder/note]]`). */
-export function buildWikiIndex(tree: TreeNode[], root: string | null): Map<string, string[]> {
+export function buildWikiIndex(tree: TreeNode[]): Map<string, string[]> {
   const idx = new Map<string, string[]>();
   const add = (key: string, path: string) => {
     const k = key.toLowerCase();

@@ -13,6 +13,7 @@ import { ensureHighlight, escapeHtml, highlightHtml } from "../plugins/highlight
 import { ensureKatex, renderMathMl } from "../plugins/katex";
 import { renderMermaidForExport } from "../plugins/mermaid";
 import { stripFrontMatter } from "../editor/frontmatter";
+import { wikiLinksToMarkdown } from "../editor/wiki";
 
 export interface ExportHtmlOptions {
   title: string;
@@ -35,6 +36,8 @@ export interface ExportHtmlOptions {
   inlineImages?: boolean;
   /** 이미지 바이너리 읽기(앱: Tauri 명령). 없으면 인라인 생략. */
   readBytes?: (path: string) => Promise<Uint8Array | null>;
+  /** 위키링크 이름 → 절대 경로(워크스페이스 인덱스). 없으면 이름.md 참조. */
+  wikiResolve?: (name: string) => string | null;
 }
 
 // — 마크다운 파서 구성 —
@@ -270,7 +273,12 @@ async function inlineKatexCss(): Promise<string> {
 
 export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions): Promise<string> {
   // 프론트매터는 메타 — 인쇄·HTML 본문에서 제외한다(모든 호출 경로의 공통 끝점).
-  const body0 = stripFrontMatter(markdown);
+  // 위키링크는 표준 마크다운 링크로(resolve 미제공이면 이름.md 참조).
+  const body0 = wikiLinksToMarkdown(
+    stripFrontMatter(markdown),
+    opts.wikiResolve ?? (() => null),
+    opts.baseDir,
+  );
   const [{ body }, katexCss] = await Promise.all([renderMarkdownBody(body0, opts), inlineKatexCss()]);
   const withImages = opts.inlineImages === false
     ? body

@@ -35,10 +35,12 @@ import {
 } from "@codemirror/view";
 
 import { lexicallyClean, percentDecode } from "../links";
+import { parseWikiLink, resolveWikiLink } from "./wiki";
 import {
   BulletWidget,
   DiagramWidget,
   FrontMatterWidget,
+  WikiLinkWidget,
   HRuleWidget,
   ImageWidget,
   MathWidget,
@@ -60,6 +62,8 @@ export interface PreviewConfig {
   bookmarks: number[];
   /** 표 표시 폭(시작 줄 번호 문자열 → 열 px) — 문서 스타일 사이드카. */
   tableWidths: Record<string, number[]>;
+  /** 위키링크 인덱스(소문자 이름 → 경로들) — 워크스페이스 트리에서(store). */
+  wikiIndex: Map<string, string[]>;
 }
 
 export const setPreviewConfig = StateEffect.define<PreviewConfig>();
@@ -73,6 +77,7 @@ export const previewConfigField = StateField.define<PreviewConfig>({
     imageWidths: {},
     bookmarks: [],
     tableWidths: {},
+    wikiIndex: new Map(),
   }),
   update(value, tr) {
     for (const e of tr.effects) {
@@ -104,6 +109,8 @@ function previewConfigEquals(a: PreviewConfig | undefined, b: PreviewConfig): bo
   for (let i = 0; i < a.bookmarks.length; i++) {
     if (a.bookmarks[i] !== b.bookmarks[i]) return false;
   }
+  // 위키링크 인덱스 — 참조 비교(트리가 바뀔 때만 store가 새 인스턴스를 만든다).
+  if (a.wikiIndex !== b.wikiIndex) return false;
   return true;
 }
 
@@ -224,8 +231,8 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
   const ranges: Range<Decoration>[] = [];
   const doc = view.state.doc;
   const behavior = view.state.facet(previewBehavior);
-  const { baseDir, remoteImages, showImages, theme, imageWidths, bookmarks, tableWidths } =
-    view.state.field(previewConfigField);
+  const config = view.state.field(previewConfigField);
+  const { baseDir, remoteImages, showImages, theme, imageWidths, bookmarks, tableWidths } = config;
 
   // 노출할 줄 = 편집 모드에서 커서·선택(·조합)이 걸친 줄.
   const revealed = new Set<number>();
@@ -463,6 +470,20 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
             ranges.push(replace({}).range(labelEnd, to));
             ranges.push(Decoration.mark({ class: "md-link-ref" }).range(from + 1, labelEnd));
           }
+          return;
+        }
+
+        // — 위키링크 [[이름]](커스텀 문법) —
+        if (name === "WikiLink") {
+          const raw = slice(from, to);
+          const { name: target, anchor, display } = parseWikiLink(raw);
+          const resolved = resolveWikiLink(target, baseDir, config.wikiIndex);
+          if (isRevealed(from, to)) return; // 원문 그대로
+          ranges.push(
+            replace({
+              widget: new WikiLinkWidget(display ?? target, resolved, anchor),
+            }).range(from, to),
+          );
           return;
         }
 

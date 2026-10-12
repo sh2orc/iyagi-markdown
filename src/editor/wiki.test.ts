@@ -29,12 +29,8 @@ describe("wikiLinkSyntax", () => {
   it("[[이름]]을 WikiLink로, 한 겝 [x]는 그냥 둔다", () => {
     const tree = parse("메모 [[노트]] 링크 [일반](x.md)\n");
     const names: string[] = [];
-    tree.iterate({ enter: (n) => names.push(n.name) });
+    tree.iterate({ enter: (n) => { names.push(n.name); } });
     expect(names).toContain("WikiLink");
-    const wl = tree.iterate({ enter: () => {} }) as unknown; // 범위 확인은 아래에서
-    void wl;
-    const node = syntaxTree(state_of("메모 [[노트]] 입니다")).topNode;
-    void node;
     // 정확한 범위
     const t2 = parse("[[노트]] 끝");
     let found: { from: number; to: number } | null = null;
@@ -45,14 +41,10 @@ describe("wikiLinkSyntax", () => {
   it("닫는 ]가 한 개면 위키링크가 아니다", () => {
     const tree = parse("[노트] 흉내\n");
     const names: string[] = [];
-    tree.iterate({ enter: (n) => names.push(n.name) });
+    tree.iterate({ enter: (n) => { names.push(n.name); } });
     expect(names).not.toContain("WikiLink");
   });
 });
-
-function state_of(doc: string) {
-  return EditorState.create({ doc });
-}
 
 describe("parseWikiLink", () => {
   it("이름·앵커·표시 분해", () => {
@@ -78,7 +70,7 @@ const tree: TreeNode[] = [
 ];
 
 describe("buildWikiIndex / resolveWikiLink", () => {
-  const idx = buildWikiIndex(tree, "/w");
+  const idx = buildWikiIndex(tree);
 
   it("stem 일치(대소문자무시)·같은 디렉터리 우선", () => {
     expect(resolveWikiLink("memo", "/w/notes", idx)).toBe("/w/notes/memo.md");
@@ -92,7 +84,7 @@ describe("wikiLinksToMarkdown", () => {
   const resolve = (name: string) => (name === "다른" ? "/w/sub/다른.md" : null);
 
   it("해석되면 상대 링크, 아니면 이름.md — 표시·앵커 반영", () => {
-    expect(wikiLinksToMarkdown("see [[다른]] now", resolve, "/w")).toBe("see [다른](../sub/다른.md) now");
+    expect(wikiLinksToMarkdown("see [[다른]] now", resolve, "/w")).toBe("see [다른](sub/다른.md) now");
     expect(wikiLinksToMarkdown("[[memo|메모]]", resolve, "/w")).toBe("[메모](memo.md)");
     expect(wikiLinksToMarkdown("[[memo#결론]]", resolve, "/w")).toBe("[memo](memo.md#결론)");
   });

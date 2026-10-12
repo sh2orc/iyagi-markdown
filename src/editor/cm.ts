@@ -23,6 +23,7 @@ import {
 import { editorSyntaxHighlighting, editorTheme } from "./theme";
 import { mathSyntax } from "./mathSyntax";
 import { frontMatterSyntax } from "./frontmatter";
+import { wikiLinkSyntax } from "./wiki";
 import { htmlToMarkdown } from "./htmlPaste";
 import { isInApp } from "../api";
 import { relPath } from "../paths";
@@ -58,6 +59,7 @@ export interface PreviewConfigParam {
   imageWidths: Record<string, number>;
   bookmarks: number[];
   tableWidths: Record<string, number[]>;
+  wikiIndex: Map<string, string[]>;
 }
 
 /** 서식 복사용 markdown-it(지연 로드, 선택 시 예열). */
@@ -134,7 +136,7 @@ function baseExtensions(): Extension[] {
     ]),
     markdown({
       base: markdownLanguage,
-      extensions: [GFM, mathSyntax, frontMatterSyntax],
+      extensions: [GFM, mathSyntax, frontMatterSyntax, wikiLinkSyntax],
       codeLanguages: languages,
       addKeymap: false,
     }),
@@ -259,6 +261,17 @@ function baseExtensions(): Extension[] {
             return true;
           }
         }
+        // 위키링크 위젯 — 해석된 절대 경로를 링크 처리기로(그대로 markdown 분류).
+        const wikiEl = target?.closest?.(".md-wikilink");
+        if (wikiEl) {
+          event.preventDefault();
+          const path = wikiEl.getAttribute("data-wiki-path");
+          if (path) {
+            const anchorFrag = wikiEl.getAttribute("data-wiki-anchor");
+            linkClickHandler?.(anchorFrag ? `${path}#${anchorFrag}` : path, "");
+          }
+          return true;
+        }
         const linkEl = target?.closest?.(".md-link, .md-url");
         if (!linkEl) return false;
         const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
@@ -347,6 +360,7 @@ function currentPreviewConfig(view: EditorView): PreviewConfigParam {
       imageWidths: {},
       bookmarks: [],
       tableWidths: {},
+      wikiIndex: new Map(),
     }
   );
 }

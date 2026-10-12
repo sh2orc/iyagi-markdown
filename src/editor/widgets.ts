@@ -622,3 +622,38 @@ export class SpacerWidget extends WidgetType {
     return true;
   }
 }
+
+// — 위키링크 [[이름]] —
+
+export class WikiLinkWidget extends WidgetType {
+  constructor(
+    readonly label: string,
+    readonly resolved: string | null,
+    readonly anchor: string | null,
+  ) {
+    super();
+  }
+
+  eq(other: WikiLinkWidget) {
+    return (
+      other.label === this.label &&
+      other.resolved === this.resolved &&
+      other.anchor === this.anchor
+    );
+  }
+
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = this.resolved ? "md-wikilink" : "md-wikilink is-missing";
+    if (this.resolved) {
+      el.setAttribute("data-wiki-path", this.resolved);
+      if (this.anchor) el.setAttribute("data-wiki-anchor", this.anchor);
+    }
+    el.textContent = this.label;
+    return el;
+  }
+
+  ignoreEvent() {
+    return false; // 클릭은 cm의 링크 처리가 위임받는다
+  }
+}

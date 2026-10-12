@@ -215,6 +215,17 @@ export const editorTheme = EditorView.theme({
   ".md-codeblock.md-code-first.md-code-last": { borderRadius: "9px" },
   ".md-codeblock-indented": { paddingLeft: "18px" },
 
+  // — 위키링크(커스텀 문법 [[..]]) — 해석되면 강조 링크, 아니면 흐린 점선 —
+  ".md-wikilink": {
+    color: "var(--md-accent)",
+    cursor: "pointer",
+    borderBottom: "1px solid color-mix(in srgb, var(--md-accent) 45%, transparent)",
+  },
+  ".md-wikilink.is-missing": {
+    color: "var(--md-fg-dim)",
+    borderBottom: "1px dashed var(--md-border)",
+  },
+
   // — 프론트매터: 원문(커서로 드러날 때)은 흐린 메타 톤, 렌더는 키·값 패널 —
   ".md-frontmatter": {
     color: "var(--md-fg-dim)",
