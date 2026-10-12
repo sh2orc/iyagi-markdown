@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   cachedLinkPreview,
+  footnoteDefinition,
   previewRenderInput,
   cleanMarkers,
   invalidateLinkPreviews,
@@ -90,5 +91,31 @@ describe("previewRenderInput(v2 렌더 입력)", () => {
   it("짧으면 그대로, 프론트매터 제외", () => {
     expect(previewRenderInput("# T\n\n본문\n")).toBe("# T\n\n본문");
     expect(previewRenderInput("---\nx: 1\n---\n\n본문\n")).toBe("본문");
+  });
+});
+
+describe("footnoteDefinition", () => {
+  const doc = "본문[^1] 과 각주.\n\n[^1]: 첫 **각주** 내용 — `코드` 포함.\n    이어지는 줄.\n\n[^2]: 둘째.\n";
+
+  it("라벨 정의를 찾아 마커 정리·연속 줄 결합", () => {
+    expect(footnoteDefinition(doc, "1")).toBe("첫 각주 내용 — 코드 포함. 이어지는 줄.");
+  });
+
+  it("없는 라벨·빈 라벨은 빈 문자열", () => {
+    expect(footnoteDefinition(doc, "9")).toBe("");
+    expect(footnoteDefinition(doc, "")).toBe("");
+  });
+
+  it("정규식 특수문자 라벨도 안전", () => {
+    const d = "본문[^a.b*c].\n\n[^a.b*c]: 특수 라벨 각주.\n";
+    expect(footnoteDefinition(d, "a.b*c")).toBe("특수 라벨 각주.");
+  });
+
+  it("긴 정의는 maxChars에서 자른다", () => {
+    const long = "설명 ".repeat(200).trim();
+    const d = `본문[^x].\n\n[^x]: ${long}\n`;
+    const out = footnoteDefinition(d, "x", 100);
+    expect(out.length).toBe(100);
+    expect(out.endsWith("…")).toBe(true);
   });
 });

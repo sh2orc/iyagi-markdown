@@ -80,6 +80,7 @@ import {
   rememberLinkPreview,
   scheduleHideLinkPreview,
   showLinkPreview,
+  footnoteDefinition,
 } from "./linkPreview";
 
 /** 위키 호버 머무름 타이머 — mouseout에서 취소(지나갈 때 팝오버 방지). */
@@ -233,9 +234,22 @@ function baseExtensions(): Extension[] {
     EditorView.domEventHandlers({
       // 위키링크 호버 미리보기(Obsidian page preview v1) — 350ms 머무르면
       // 대상 문서 제목·첫 문단 팝오버(마커 정리 텍스트). 문서 읽기는 비동기.
-      mouseover(event) {
+      mouseover(event, view) {
         const el = (event.target as HTMLElement | null)?.closest?.(".md-wikilink");
         clearWikiHoverTimer();
+        // 각주 참조 호버 — 같은 문서의 정의를 팝오버(정의 찾기: 순수 스캔).
+        const fn = (event.target as HTMLElement | null)?.closest?.(".md-footnote-ref");
+        if (fn?.isConnected) {
+          const label = fn.getAttribute("title")?.replace(/^\[\^|\]$/g, "") ?? "";
+          const def = footnoteDefinition(view.state.doc.toString(), label);
+          if (def) {
+            const { x, y } = event;
+            wikiHoverTimer = window.setTimeout(() => {
+              showLinkPreview(x, y, `각주: ${label}`, def);
+            }, 350);
+          }
+          return;
+        }
         if (el?.isConnected && el.getAttribute("data-wiki-path") && isInApp()) {
           const path = el.getAttribute("data-wiki-path")!;
           const x = event.clientX;
@@ -266,7 +280,8 @@ function baseExtensions(): Extension[] {
         }
       },
       mouseout(event) {
-        const el = (event.target as HTMLElement | null)?.closest?.(".md-wikilink");
+        const t = event.target as HTMLElement | null;
+        const el = t?.closest?.(".md-wikilink") ?? t?.closest?.(".md-footnote-ref");
         if (el) {
           clearWikiHoverTimer();
           scheduleHideLinkPreview();

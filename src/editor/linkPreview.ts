@@ -44,6 +44,24 @@ export function previewTextOf(markdown: string, maxChars = 400): { title: string
   return { title, body };
 }
 
+
+/** 각주 정의 찾기 — [^라벨]: 정의(4칸 들여쓰기 연속 줄 포함). 순수 함수. */
+export function footnoteDefinition(text: string, label: string, maxChars = 300): string {
+  if (!label) return "";
+  const esc = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = new RegExp(`^\\[\\^${esc}\\]:\\s*(.+)$`, "m").exec(text);
+  if (!m) return "";
+  const lines = [m[1]];
+  const after = text.slice(m.index + m[0].length).split("\n").slice(1);
+  for (const l of after) {
+    if (/^ {4,}\S/.test(l)) lines.push(l.trim());
+    else break;
+  }
+  let out = cleanMarkers(lines.join(" "));
+  if (out.length > maxChars) out = `${out.slice(0, maxChars - 1)}…`;
+  return out;
+}
+
 /** 표시용 마커 정리 — 굵게/기울임/코드/링크/이미지/각주/위키. */
 export function cleanMarkers(text: string): string {
   return text
