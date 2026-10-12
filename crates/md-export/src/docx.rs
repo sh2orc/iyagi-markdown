@@ -752,6 +752,17 @@ fn extract_footnotes(markdown: &str) -> (String, Vec<(String, String)>) {
     (replaced.join("\n"), defs)
 }
 
+/// 하이퍼링크 안 런들에 Hyperlink 글자 스타일 주입 — 이미 rPr가 있으면
+/// 그 안 맨 앞에 rStyle을(rPr 첫 자리가 규격 순서), 없으면 rPr를 새로 만든다.
+fn apply_hyperlink_style(runs: &str) -> String {
+    runs.replace("<w:r><w:rPr>", "<w:r><w:rPr><w:rStyle w:val=\"Hyperlink\"/>")
+        .replace("<w:r>", "<w:r><w:rPr><w:rStyle w:val=\"Hyperlink\"/></w:rPr>")
+        .replace(
+            "</w:rPr><w:rPr><w:rStyle w:val=\"Hyperlink\"/>",
+            "<w:rStyle w:val=\"Hyperlink\"/></w:rPr>",
+        )
+}
+
 /// 본문 문자열의 자리표시자(\u{E000}라벨\u{E000})를 footnoteReference로 치환.
 /// 등록 안 된 라벨은 원문 [^라벨]로 복원(데이터 무손실).
 fn resolve_footnote_refs(body: &str, ctx: &Ctx) -> String {
@@ -984,12 +995,12 @@ fn inline<'a>(
             // 내부 앵커(#슬러그)는 문서 내 북마크로 — 외부 URL만 관계를 쓴다.
             if let Some(anchor) = link.url.strip_prefix('#') {
                 if !anchor.is_empty() {
-                    let _ = write!(out, "<w:hyperlink w:anchor=\"{anchor}\">{runs}</w:hyperlink>");
+                    let _ = write!(out, "<w:hyperlink w:anchor=\"{anchor}\">{}</w:hyperlink>", apply_hyperlink_style(&runs));
                     return Ok(());
                 }
             }
             let id = ctx.add_hyperlink(&link.url);
-            let _ = write!(out, "<w:hyperlink r:id=\"rIdH{id}\">{runs}</w:hyperlink>");
+            let _ = write!(out, "<w:hyperlink r:id=\"rIdH{id}\">{}</w:hyperlink>", apply_hyperlink_style(&runs));
         }
         NodeValue::Image(link) => {
             let alt: String = node
@@ -1831,6 +1842,41 @@ mod tests {
         assert!(doc2.contains("<w:gridCol w:w=\"4320\"/>"));
         let _ = std::fs::remove_file(&out);
         let _ = std::fs::remove_file(&out2);
+    }
+
+    #[test]
+    fn hyperlink_runs_carry_style() {
+        let md = "[링크 텍스트](https://x.y)와 [**굵게 링크**](https://a.b)\n";
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let out = tmp("hlink");
+        export_docx(
+            md,
+            &DocxExportOptions {
+                math: &math,
+                diagrams: &diagrams,
+                images: &images,
+                style: None,
+                page_numbers: false,
+                table_widths: &HashMap::new(),
+                title: None,
+                author: None,
+                toc: false,
+                header_title: None,
+            },
+            &out,
+        )
+        .unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        use std::io::Read;
+        let mut doc = String::new();
+        zip.by_name("word/document.xml").unwrap().read_to_string(&mut doc).unwrap();
+        // 모든 하이퍼링크 런에 rStyle Hyperlink — 굵게 런(rPr 기존)도 겹침 없이.
+        assert!(doc.matches("w:rStyle w:val=\"Hyperlink\"").count() >= 3);
+        assert!(!doc.contains("</w:rPr><w:rPr>"), "rPr 중복 없음");
+        let _ = std::fs::remove_file(&out);
     }
 
     #[test]
