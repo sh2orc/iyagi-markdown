@@ -74,6 +74,7 @@ const ioAdapter = {
   backlinks: (root: string, path: string) => api.backlinks(root, path),
   speakStart: (text: string, rate: number, voice: string) => api.speakStart(text, rate, voice),
   speakStop: () => api.speakStop(),
+  speakStatus: () => api.speakStatus(),
 };
 
 export interface PdfExportOptions {

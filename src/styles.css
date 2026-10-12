@@ -1576,6 +1576,12 @@ body.resizing .toc {
   font-variant-numeric: tabular-nums;
 }
 
+.status-speaking {
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  color: var(--md-accent);
+}
+
 .status-backlinks {
   font-variant-numeric: tabular-nums;
   cursor: pointer;

@@ -281,3 +281,37 @@ describe("책갈피 순환", () => {
     expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(4);
   });
 });
+
+describe("읽는 중 표시", () => {
+  it("시작·중지가 speaking을 토글하고 폴링은 자연 종료를 감지", async () => {
+    vi.useFakeTimers();
+    try {
+      const io = fakeIo();
+      let active = true;
+      io.speakStart = async () => true;
+      io.speakStatus = async () => active;
+      io.speakStop = async () => {
+        active = false;
+      };
+      const store = new AppStore(io);
+      mount(store);
+      await openTab(store, "/tmp/sp.md");
+      store.speakActive();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(store.speaking).toBe(true);
+      // 자연 종료(say 끝남) — 폴링이 끈다.
+      active = false;
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(store.speaking).toBe(false);
+      // 다시 시작 후 수동 중지.
+      active = true;
+      store.speakActive();
+      await vi.advanceTimersByTimeAsync(10);
+      expect(store.speaking).toBe(true);
+      store.speakStop();
+      expect(store.speaking).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

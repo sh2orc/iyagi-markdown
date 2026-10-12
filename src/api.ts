@@ -184,6 +184,7 @@ export const api = {
     invoke<boolean>("speak_start", { text, rate, voice }),
   listVoices: () => invoke<Array<{ name: string; lang: string }>>("list_voices"),
   speakStop: () => invoke<void>("speak_stop"),
+  speakStatus: () => invoke<boolean>("speak_status"),
   snapshotRead: (path: string, ts: number) => invoke<string>("snapshot_read", { path, ts }),
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (settings: Settings) => invoke<void>("set_settings", { settings }),

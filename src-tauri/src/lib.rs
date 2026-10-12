@@ -65,6 +65,7 @@ pub fn run() {
             commands::list_voices,
             commands::speak_start,
             commands::speak_stop,
+            commands::speak_status,
             commands::import_image,
             commands::export_epub,
             commands::replace_workspace,

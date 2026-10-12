@@ -240,6 +240,27 @@ pub fn speak_start(text: String, rate: u32, voice: String) -> bool {
     }
 }
 
+/// 읽는 중인가(완료된 자식은 정리하고 false).
+#[tauri::command]
+pub fn speak_status() -> bool {
+    let mut g = SPEAKER.lock().unwrap();
+    if let Some(child) = g.as_mut() {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                let done = g.take();
+                if let Some(mut c) = done {
+                    let _ = c.wait();
+                }
+                false
+            }
+            Ok(None) => true,
+            Err(_) => false,
+        }
+    } else {
+        false
+    }
+}
+
 /// 읽기 중지.
 #[tauri::command]
 pub fn speak_stop() {

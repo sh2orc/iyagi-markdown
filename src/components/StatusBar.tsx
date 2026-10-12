@@ -70,6 +70,15 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, 
                 </button>
               </>
             )}
+            {store.speaking && (
+              <button
+                className="status-cell status-speaking"
+                title={t.speakStop}
+                onClick={() => store.speakStop()}
+              >
+                🔊 {t.speakStop}
+              </button>
+            )}
             {tab.backlinks !== null && tab.backlinks > 0 && (
               <button
                 className="status-cell status-backlinks"

@@ -107,6 +107,7 @@ export interface StoreIO {
   backlinks?(root: string, path: string): Promise<unknown[]>;
   speakStart?(text: string, rate: number, voice: string): Promise<boolean>;
   speakStop?(): Promise<void>;
+  speakStatus?(): Promise<boolean>;
 }
 
 let nextTabId = 1;
@@ -721,12 +722,34 @@ export class AppStore {
     void this.io.speakStart?.(text, rate, voice).then((started) => {
       if (started) {
         this.toast(sel.empty ? phrases.speakStartedDoc : phrases.speakStartedSel);
+        this.markSpeaking(true);
       }
     });
   }
 
   speakStop(): void {
     void this.io.speakStop?.();
+    this.markSpeaking(false);
+  }
+
+  /** 읽는 중 표시 — 시작 시 켜고 2초 폴링으로 자연 종료를 감지한다. */
+  speaking = false;
+  private speakingTimer: ReturnType<typeof setInterval> | null = null;
+
+  private markSpeaking(on: boolean): void {
+    this.speaking = on;
+    this.emit();
+    if (this.speakingTimer) {
+      clearInterval(this.speakingTimer);
+      this.speakingTimer = null;
+    }
+    if (on) {
+      this.speakingTimer = setInterval(() => {
+        void this.io.speakStatus?.().then((still) => {
+          if (!still && this.speaking) this.markSpeaking(false);
+        });
+      }, 2000);
+    }
   }
 
   toggleSentenceFocus(): void {
