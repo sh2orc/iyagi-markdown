@@ -142,13 +142,13 @@ const decorationField = StateField.define<DecorationSet>({
 // — 청크 계획 —
 
 /** 청크 목표 크기(문자). */
-const CHUNK_TARGET = 12_000;
+const CHUNK_TARGET = 4_000;
 /** 이보다 긴 컨테이너(List·Blockquote·ListItem)는 자식 경계로 쪼갠다. */
-const CHUNK_MAX = 32_000;
+const CHUNK_MAX = 16_000;
 /** 한 갱신 주기에서 청크 계산에 쓸 수 있는 예산(ms) — 남으면 타이머로 이어받는다. */
 const BUILD_BUDGET_MS = 12;
 /** 캐시로 유지할 청크 상한(초과하면 스캔 창 밖 청크를 정리한다). */
-const KEEP_CHUNKS = 48;
+const KEEP_CHUNKS = 144;
 
 /** 재귀 분할 대상 컨테이너 — 커서 노출 규칙(isRevealed/isTouched)이 블록
  *  전체가 아니라 줄·인라인 단위인 것만 넣는다(그래야 노출 결정이 청크 안에서
@@ -679,7 +679,11 @@ const plugin = ViewPlugin.fromClass(
         this.rememberSelection(u.state);
         if (u.state.facet(previewBehavior) === "reveal") {
           // 읽기 모드의 장식은 선택과 무관하므로 편집 모드만.
-          this.invalidate(u.view, Math.min(prevFirst, this.selFirst), Math.max(prevLast, this.selLast));
+          // 이전 커서 청크와 새 커서 청크 **각각만** 무효화한다 — 두 위치를
+          // 잇는 범위를 통째로 무효화하면 건너뛰기 이동 한 번에 문서 전체
+          // 재계산이 일어났다(29차 실측 1026%의 원인).
+          this.invalidate(u.view, prevFirst, prevLast);
+          this.invalidate(u.view, this.selFirst, this.selLast);
         }
       }
       if (u.docChanged || u.viewportChanged || u.selectionSet || u.focusChanged || configChanged || behaviorChanged) {

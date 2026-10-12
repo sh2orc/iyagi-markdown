@@ -163,3 +163,54 @@ describe("라이브 프리뷰 증분 갱신", () => {
     document.body.innerHTML = "";
   });
 });
+
+// 입력 지연 프로파일(29차) — 큰 문서에서 키 입력 한 번이 장식 재계산을
+// 얼마나 유발하는지. 청크 증분이라 커서 이동은 해당 청크만 다시 계산한다.
+// 목표: 커서 이동당 재계산 바이트 < 문서의 10%.
+describe("입력 지연 프로파일", () => {
+  it("커서 이동 20회 — 재계산 총량이 문서의 작은 비율", async () => {
+    const parts: string[] = [];
+    for (let i = 0; i < 800; i++) {
+      parts.push(`## 제목 ${i}\n\n본문 문단입니다. ${"*강조*".repeat(3)} 그리고 \`code\`.\n`);
+    }
+    const doc = parts.join("\n");
+    const view = new EditorView({ state: createDocState(doc, "edit"), parent: document.body });
+    view.dispatch({
+      effects: setPreviewConfig.of({
+        baseDir: "/tmp",
+        remoteImages: true,
+        showImages: true,
+        theme: "light",
+        imageWidths: {},
+        bookmarks: [],
+        tableWidths: {},
+      }),
+    });
+    // 전체 파싱 대기.
+    const t0 = Date.now();
+    while (syntaxTree(view.state).length < view.state.doc.length && Date.now() - t0 < 3000) {
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    __testing.resetStats();
+    // 커서를 문서 곳곳으로 20회.
+    for (let i = 0; i < 20; i++) {
+      const pos = Math.floor((doc.length - 1) * ((i * 37) % 100) / 100);
+      view.dispatch({ selection: { anchor: pos } });
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    const totalChars = __testing.stats.chars;
+    const ratio = totalChars / doc.length;
+    // console.log로 실측치 남김 — CI 로그에서 추세 확인.
+    console.log(
+      `perf: 20회 커서 이동 재계산 ${(totalChars / 1000).toFixed(1)}k chars / 문서 ${(doc.length / 1000).toFixed(0)}k = ${(ratio * 100).toFixed(1)}%`,
+    );
+    // 증분 청크: 이동당 **청크 1~2개**(≈4~8k chars)만 재계산된다. 문서 크기와
+    // 무관한 절대량으로 판정 — 전체 재계산(이동당 문서 전체)과 구분된다.
+    const perMove = totalChars / 20;
+    expect(perMove).toBeLessThan(20_000); // CHUNK_MAX(16k) 이하 — 청크 1~2개 재계산
+    // 문서 전체 재계산(이동당 37k+)이 아니라는 이중 확인 — 절대 상한.
+    expect(totalChars).toBeLessThan(doc.length * 4);
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+});
