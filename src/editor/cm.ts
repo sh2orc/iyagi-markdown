@@ -52,6 +52,7 @@ export interface PreviewConfigParam {
   showImages: boolean;
   theme: "light" | "dark";
   imageWidths: Record<string, number>;
+  bookmarks: number[];
 }
 
 /** 서식 복사용 markdown-it(지연 로드, 선택 시 예열). */
@@ -287,6 +288,7 @@ function currentPreviewConfig(view: EditorView): PreviewConfigParam {
       showImages: true,
       theme: "light",
       imageWidths: {},
+      bookmarks: [],
     }
   );
 }

@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 
 import { api } from "../api";
 import type { AppStore } from "../app/store";
-import { buildExportHtml } from "../export/html";
 import type { Translate } from "../i18n";
 import type { PdfOptions } from "./ExportSheet";
 
@@ -27,6 +26,8 @@ export function PrintPreview({ store, t, onExport, onCancel }: Props): JSX.Eleme
     const text = tab.state.doc.toString();
     const name = tab.path ? tab.title.replace(/\.(md|markdown)$/i, "") : "untitled";
     void (async () => {
+      // markdown-it은 여기서만 필요 — 동적 로드로 메인 청크를 가볍게 유지.
+      const { buildExportHtml } = await import("../export/html");
       const built = await buildExportHtml(text, {
         title: tab.path ? tab.title : name,
         baseDir: tab.path ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/" : store.state.workspace ?? "",

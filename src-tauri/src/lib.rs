@@ -75,6 +75,9 @@ pub fn run() {
             style_db::doc_style_get,
             style_db::doc_style_set,
             style_db::doc_style_clear,
+            style_db::bookmark_list,
+            style_db::bookmark_add,
+            style_db::bookmark_remove,
         ])
         .build(tauri::generate_context!())
         .expect("error while building IYAGI Markdown")

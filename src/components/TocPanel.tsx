@@ -95,6 +95,16 @@ export function TocPanel({ store, t, open }: Props): JSX.Element {
       <div ref={bodyRef} className="toc-fixed">
         <div className="toc-head">{t.tocTitle}</div>
         <div className="toc-body">
+          {(tab?.bookmarks?.length ?? 0) > 0 && (
+            <div className="toc-bookmarks">
+              <div className="sidebar-subtitle">★ {t.bookmarksSection}</div>
+              {tab!.bookmarks.map((line) => (
+                <button key={line} className="toc-item toc-bookmark-item" onClick={() => store.gotoBookmark(line)}>
+                  {line}줄 · {(doc ? doc.line(Math.min(line, doc.lines)).text.slice(0, 24) : "") || "—"}
+                </button>
+              ))}
+            </div>
+          )}
           {headings.length === 0 && <div className="toc-empty">{t.tocEmpty}</div>}
           {headings.map((h, i) => (
             <button

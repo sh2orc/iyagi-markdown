@@ -150,6 +150,15 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
           {item(`\`${t.tbCode}\``, () => run(() => fmt.toggleInlineCode(view)))}
         </>
       )}
+      {editable && tab?.path && (
+        <>
+          <span className="ctx-sep" />
+          {item(
+            store.active?.bookmarks.includes(menuLine(store)) ? t.ctxRemoveBookmark : t.ctxAddBookmark,
+            () => run(() => store.toggleBookmark()),
+          )}
+        </>
+      )}
       {editable && menu.inTable && (
         <>
           <span className="ctx-sep" />
@@ -170,4 +179,11 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
 
 function editableNow(store: AppStore): boolean {
   return store.active?.mode !== "read";
+}
+
+/** 우클릭한 줄 번호. */
+function menuLine(store: AppStore): number {
+  const v = store.view;
+  if (!v) return 1;
+  return v.state.doc.lineAt(v.state.selection.main.head).number;
 }

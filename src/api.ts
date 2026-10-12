@@ -152,6 +152,9 @@ export const api = {
   revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),
   openInNewWindow: (path: string) => invoke<void>("open_in_new_window", { path }),
   docStyleGet: (path: string) => invoke<string | null>("doc_style_get", { path }),
+  bookmarkList: (path: string) => invoke<number[]>("bookmark_list", { path }),
+  bookmarkAdd: (path: string, lineNo: number) => invoke<void>("bookmark_add", { path, lineNo }),
+  bookmarkRemove: (path: string, lineNo: number) => invoke<void>("bookmark_remove", { path, lineNo }),
   docStyleSet: (path: string, styleJson: string) =>
     invoke<void>("doc_style_set", { path, styleJson }),
   docStyleClear: (path: string) => invoke<void>("doc_style_clear", { path }),

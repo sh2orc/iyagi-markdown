@@ -147,6 +147,7 @@ function setPreviewConfigOf(view: EditorView): void {
       showImages: true,
       theme: "light",
       imageWidths: {},
+      bookmarks: [],
     }),
   });
 }

@@ -49,6 +49,9 @@ const ioAdapter = {
   saveSession: (session: Parameters<typeof api.saveSession>[0]) => api.saveSession(session),
   setAssetScope: (path: string, recursive: boolean) => api.setAssetScope(path, recursive),
   watchPaths: (files: string[], dirs: string[]) => api.watchPaths(files, dirs),
+  bookmarkList: (path: string) => api.bookmarkList(path),
+  bookmarkAdd: (path: string, lineNo: number) => api.bookmarkAdd(path, lineNo),
+  bookmarkRemove: (path: string, lineNo: number) => api.bookmarkRemove(path, lineNo),
 };
 
 export interface PdfExportOptions {

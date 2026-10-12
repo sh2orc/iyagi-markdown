@@ -42,6 +42,8 @@ export interface Tab {
   marks: { bold: boolean; italic: boolean; strike: boolean; code: boolean; link: boolean };
   /** 선택 통계(상태줄) — 선택 중일 때만 표시. */
   selChars: number;
+  /** 책갈피 줄 번호(SQLite 사이드카 — 원문 불변). */
+  bookmarks: number[];
   /** 저장 안 됨 표시 — 입력마다 O(문서) 비교 대신 증분 유지(정확성: 길이가
    *  같을 때만 문자열 비교로 확정한다). */
   dirty: boolean;
@@ -90,6 +92,9 @@ export interface StoreIO {
   getSession?(): Promise<SessionState | null>;
   docStyleGet?(path: string): Promise<string | null>;
   docStyleSet?(path: string, styleJson: string): Promise<void>;
+  bookmarkList?(path: string): Promise<number[]>;
+  bookmarkAdd?(path: string, lineNo: number): Promise<void>;
+  bookmarkRemove?(path: string, lineNo: number): Promise<void>;
 }
 
 let nextTabId = 1;
@@ -219,11 +224,19 @@ export class AppStore {
       docStyle: null,
       marks: { bold: false, italic: false, strike: false, code: false, link: false },
       selChars: 0,
+      bookmarks: [],
       dirty: false,
       words: countWords(doc.text),
       chars: doc.text.length,
     };
     this.state.tabs.push(tab);
+    // 책갈피 사이드카 로드.
+    if (path) {
+      void this.io.bookmarkList?.(path).then((lines) => {
+        tab.bookmarks = lines;
+        if (this.state.activeId === tab.id) this.emit();
+      });
+    }
     // 문서별 스타일 사이드카 로드(SQLite).
     if (path && this.io.docStyleGet) {
       void this.io.docStyleGet(path).then((json) => {
@@ -263,6 +276,7 @@ export class AppStore {
       docStyle: null,
       marks: { bold: false, italic: false, strike: false, code: false, link: false },
       selChars: 0,
+      bookmarks: [],
       dirty: false,
       words: 0,
       chars: 0,
@@ -583,6 +597,7 @@ export class AppStore {
       showImages: this.state.settings.showImages,
       theme: this.state.theme,
       imageWidths: tab?.docStyle?.imageWidths ?? {},
+      bookmarks: tab?.bookmarks ?? [],
     });
     this.applyDocStyleVars();
   }
@@ -594,6 +609,25 @@ export class AppStore {
     if (!this.hostEl) return;
     const tab = this.active;
     applyDocStyle(this.hostEl, tab?.docStyle ?? null, this.state.settings.fontSize);
+  }
+
+  /** 책갈피 토글 — 현재 커서 줄(원문 불변 — SQLite 사이드카). */
+  toggleBookmark(): void {
+    const tab = this.active;
+    if (!tab?.path || !this.view) return;
+    const line = this.view.state.doc.lineAt(this.view.state.selection.main.head).number;
+    const has = tab.bookmarks.includes(line);
+    tab.bookmarks = has ? tab.bookmarks.filter((l) => l !== line) : [...tab.bookmarks, line].sort((a, b) => a - b);
+    this.emit();
+    void (has ? this.io.bookmarkRemove?.(tab.path, line) : this.io.bookmarkAdd?.(tab.path, line));
+  }
+
+  /** 책갈피로 이동. */
+  gotoBookmark(line: number): void {
+    if (!this.view) return;
+    const doc = this.view.state.doc;
+    const l = doc.line(Math.min(Math.max(line, 1), doc.lines));
+    this.view.dispatch({ selection: { anchor: l.from }, scrollIntoView: true });
   }
 
   /** 이미지 표시 폭 변경(원문 불변 — 사이드카에만 저장). */
@@ -666,6 +700,7 @@ export class AppStore {
         docStyle: null,
         marks: { bold: false, italic: false, strike: false, code: false, link: false },
         selChars: 0,
+        bookmarks: [],
         dirty: false,
         words: countWords(doc.text),
         chars: doc.text.length,

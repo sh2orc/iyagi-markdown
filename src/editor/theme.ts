@@ -32,6 +32,7 @@ export const editorTheme = EditorView.theme({
     overflowAnchor: "none",
   },
   ".cm-line": {
+    position: "relative",
     padding: "0 16px",
     // 줄 간 리듬: 기본 0.1em — 문단·제목은 클래스로 더 붙인다.
     paddingBottom: "0.1em",
@@ -152,6 +153,17 @@ export const editorTheme = EditorView.theme({
     verticalAlign: "super",
     lineHeight: "0",
     cursor: "help",
+  },
+  ".md-bookmark": {
+    boxShadow: "inset 3px 0 0 var(--md-accent)",
+  },
+  ".md-bookmark::before": {
+    content: "'★'",
+    position: "absolute",
+    left: "2px",
+    fontSize: "0.7em",
+    color: "var(--md-accent)",
+    opacity: 0.8,
   },
   ".md-footnote-def": {
     fontSize: "0.82em",

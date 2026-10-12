@@ -54,6 +54,8 @@ export interface PreviewConfig {
   theme: "light" | "dark";
   /** 이미지 표시 폭(원본 경로 → %) — 문서 스타일 사이드카. */
   imageWidths: Record<string, number>;
+  /** 책갈피 줄 번호 — SQLite 사이드카. */
+  bookmarks: number[];
 }
 
 export const setPreviewConfig = StateEffect.define<PreviewConfig>();
@@ -65,6 +67,7 @@ export const previewConfigField = StateField.define<PreviewConfig>({
     showImages: true,
     theme: "light",
     imageWidths: {},
+    bookmarks: [],
   }),
   update(value, tr) {
     for (const e of tr.effects) {
@@ -200,7 +203,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
   const ranges: Range<Decoration>[] = [];
   const doc = view.state.doc;
   const behavior = view.state.facet(previewBehavior);
-  const { baseDir, remoteImages, showImages, theme, imageWidths } =
+  const { baseDir, remoteImages, showImages, theme, imageWidths, bookmarks } =
     view.state.field(previewConfigField);
 
   // 노출할 줄 = 편집 모드에서 커서·선택(·조합)이 걸친 줄.
@@ -285,6 +288,13 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
         }
       },
     });
+    // 책갈피 줄 장식 — 청크 창 안의 줄만(별 배지 + 왼쪽 강조선).
+    for (const bm of bookmarks) {
+      const line = doc.line(Math.min(Math.max(bm, 1), doc.lines));
+      if (line.from >= chunkFrom && line.from < chunkTo) {
+        ranges.push(Decoration.line({ class: "md-bookmark" }).range(line.from));
+      }
+    }
     // 빈 줄은 낮게 — 블록 사이가 오밀조밀 붙게(불렛↔표 등). 코드 블록 안은 제외.
     // 청크 창의 줄만: 경계가 줄 중간이면(원자 블록이 창보다 길 때) 다음 줄부터.
     let n = doc.lineAt(chunkFrom).number;
