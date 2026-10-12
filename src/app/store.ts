@@ -612,6 +612,9 @@ export class AppStore {
     if (!this.hostEl) return;
     const tab = this.active;
     applyDocStyle(this.hostEl, tab?.docStyle ?? null, this.state.settings.fontSize);
+    // 행간·글꼴 크기가 바뀌면 CM의 높이 추정이 어긋나 스크롤이 뛸 수 있다 —
+    // 즉시 재측정을 잡는다.
+    this.view?.requestMeasure();
   }
 
   /** 책갈피 토글 — 현재 커서 줄(원문 불변 — SQLite 사이드카). */

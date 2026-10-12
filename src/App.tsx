@@ -488,6 +488,8 @@ export function App(): JSX.Element {
       "--md-line-width",
       state.settings.lineWidth > 0 ? `${state.settings.lineWidth}px` : "100%",
     );
+    // 글꼴 크기가 바뀌면 줄 높이가 변해 CM 추정이 어긋난다 — 재측정.
+    editorView.current?.requestMeasure();
   }, [state.theme, state.settings.fontSize, state.settings.lineWidth]);
 
   // — 앵커 스크롤(링크 클릭) —
