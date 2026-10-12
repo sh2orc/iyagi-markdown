@@ -7,7 +7,7 @@ import { redo, undo } from "@codemirror/commands";
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
-import { findLinkAt } from "../editor/livePreview";
+import { findImageAt, findLinkAt } from "../editor/livePreview";
 import { LinkDialog, type LinkEditTarget } from "./LinkDialog";
 import { previewConfigField } from "../editor/livePreview";
 
@@ -24,11 +24,13 @@ interface MenuState {
   canRedo: boolean;
   inTable: boolean;
   link: { url: string; text: string; from: number; to: number; baseDir: string } | null;
+  img: { url: string; alt: string; from: number; to: number } | null;
 }
 
 export function ContextMenu({ store, t }: Props): JSX.Element | null {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [linkEdit, setLinkEdit] = useState<LinkEditTarget | null>(null);
+  const [imgEdit, setImgEdit] = useState<LinkEditTarget | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -40,6 +42,7 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
       const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
       const sel = view.state.selection.main;
       const link = pos == null ? null : findLinkAt(view.state, pos);
+      const img = pos == null || link ? null : findImageAt(view.state, pos);
       const baseDir = view.state.field(previewConfigField, false)?.baseDir ?? "";
       setMenu({
         x: e.clientX,
@@ -50,6 +53,7 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
         canRedo: editableNow(store),
         inTable: pos != null && !!fmt.tableAround(view),
         link: link ? { url: link.url, text: link.text, from: link.from, to: link.to, baseDir } : null,
+      img: img ? { url: img.url, alt: img.alt, from: img.from, to: img.to } : null,
       });
     };
     const close = () => setMenu(null);
@@ -138,6 +142,7 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
       {menu.link && item(t.ctxOpenLink, openLink)}
       {menu.link && item(t.ctxCopyLink, copyLink)}
       {menu.link && item(t.ctxEditLink, () => setLinkEdit({ text: menu.link!.text, url: menu.link!.url, from: menu.link!.from, to: menu.link!.to }))}
+      {menu.img && item(t.ctxEditImage, () => setImgEdit({ text: menu.img!.alt, url: menu.img!.url, from: menu.img!.from, to: menu.img!.to }))}
       {menu.link && <span className="ctx-sep" />}
       {item(t.ctxUndo, () => run(() => undo(view)), { disabled: !menu.canUndo || !editable })}
       {item(t.ctxRedo, () => run(() => redo(view)), { disabled: !menu.canRedo || !editable })}
@@ -196,6 +201,26 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
             });
             view.focus();
             store.toast(t.linkEdited);
+          }}
+        />
+      )}
+      {imgEdit && (
+        <LinkDialog
+          kind="image"
+          initial={imgEdit}
+          t={t}
+          onCancel={() => setImgEdit(null)}
+          onConfirm={(next) => {
+            const view = store.view;
+            setImgEdit(null);
+            if (!view) return;
+            view.dispatch({
+              changes: { from: imgEdit.from, to: imgEdit.to, insert: `![${next.text}](${next.url})` },
+              selection: { anchor: imgEdit.from + next.text.length + 4 },
+              userEvent: "input.editImage",
+            });
+            view.focus();
+            store.toast(t.imageEdited);
           }}
         />
       )}

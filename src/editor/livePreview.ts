@@ -933,6 +933,31 @@ export function findLinkAt(
   return found;
 }
 
+/** 클릭 위치의 이미지 정보 — ![대체텍스트](src) 파싱(제목 포함 형태도). */
+export function findImageAt(
+  state: EditorState,
+  pos: number,
+): { url: string; alt: string; from: number; to: number } | null {
+  let found: { url: string; alt: string; from: number; to: number } | null = null;
+  syntaxTree(state).iterate({
+    from: Math.max(0, pos - 2000),
+    to: Math.min(state.doc.length, pos + 2000),
+    enter: (node) => {
+      if (found) return false;
+      if (node.name === "Image" && pos >= node.from && pos <= node.to) {
+        const raw = state.doc.sliceString(node.from, node.to);
+        const m = /^!\[([\s\S]*)\]\(\s*<?([^\s)>]*?)>?(?:\s+"[^"]*")?\s*\)$/.exec(raw);
+        if (m) {
+          found = { alt: m[1], url: m[2], from: node.from, to: node.to };
+          return false;
+        }
+      }
+      return;
+    },
+  });
+  return found;
+}
+
 /** 테스트 전용 내부 노출. */
 export const __testing = {
   decorationField: decorationField,

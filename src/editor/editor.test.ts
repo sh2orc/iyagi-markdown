@@ -367,3 +367,44 @@ describe("findLinkAt", async () => {
     expect(findLinkAt(stateOf(doc), doc.indexOf("그냥"))).toBeNull();
   });
 });
+
+// — 이미지 설명 편집(findImageAt) —
+describe("findImageAt", async () => {
+  const { findImageAt } = await import("./livePreview");
+  const { EditorState } = await import("@codemirror/state");
+  const { markdown, markdownLanguage } = await import("@codemirror/lang-markdown");
+  const { GFM } = await import("@lezer/markdown");
+  const { ensureSyntaxTree } = await import("@codemirror/language");
+  const { mathSyntax } = await import("./mathSyntax");
+
+  const stateOf = (doc: string) => {
+    const st = EditorState.create({
+      doc,
+      extensions: [markdown({ base: markdownLanguage, extensions: [GFM, mathSyntax], addKeymap: false })],
+    });
+    ensureSyntaxTree(st, doc.length + 100, 5000);
+    return st;
+  };
+
+  it("대체 텍스트·경로·범위를 정확히", () => {
+    const doc = "앞 ![실험 설정도](assets/setup.png) 뒤";
+    const at = doc.indexOf("실험");
+    const img = findImageAt(stateOf(doc), at);
+    expect(img?.alt).toBe("실험 설정도");
+    expect(img?.url).toBe("assets/setup.png");
+    expect(doc.slice(img!.from, img!.to)).toBe("![실험 설정도](assets/setup.png)");
+  });
+
+  it("제목(\u0022…\u0022)이 붙은 형태도 경로만", () => {
+    const doc = '![그림](a.png "제목")';
+    const img = findImageAt(stateOf(doc), 3);
+    expect(img?.url).toBe("a.png");
+    expect(img?.alt).toBe("그림");
+  });
+
+  it("빈 대체 텍스트도 허용·이미지 밖은 null", () => {
+    const doc = "![](x.png) 일반 텍스트";
+    expect(findImageAt(stateOf(doc), 2)?.alt).toBe("");
+    expect(findImageAt(stateOf(doc), doc.indexOf("일반"))).toBeNull();
+  });
+});

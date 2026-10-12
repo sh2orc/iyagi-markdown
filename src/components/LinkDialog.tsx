@@ -15,11 +15,13 @@ export interface LinkEditTarget {
 interface Props {
   initial: LinkEditTarget;
   t: Translate;
+  /** link = [텍스트](url), image = ![대체텍스트](src) — 라벨만 달라진다. */
+  kind?: "link" | "image";
   onConfirm: (next: { text: string; url: string }) => void;
   onCancel: () => void;
 }
 
-export function LinkDialog({ initial, t, onConfirm, onCancel }: Props): JSX.Element {
+export function LinkDialog({ initial, t, kind = "link", onConfirm, onCancel }: Props): JSX.Element {
   const [text, setText] = useState(initial.text);
   const [url, setUrl] = useState(initial.url);
   const urlRef = useRef<HTMLInputElement | null>(null);
@@ -43,17 +45,17 @@ export function LinkDialog({ initial, t, onConfirm, onCancel }: Props): JSX.Elem
       onClick={(e) => e.target === e.currentTarget && onCancel()}
     >
       <div className="modal link-dialog">
-        <div className="modal-title">{t.linkEditTitle}</div>
+        <div className="modal-title">{kind === "image" ? t.imageEditTitle : t.linkEditTitle}</div>
         <label className="settings-label">
-          {t.linkEditText}
+          {kind === "image" ? t.imageEditAlt : t.linkEditText}
           <input value={text} onChange={(e) => setText(e.target.value)} autoFocus={!initial.text} />
         </label>
         <label className="settings-label">
-          {t.linkEditUrl}
+          {kind === "image" ? t.imageEditSrc : t.linkEditUrl}
           <input
             ref={urlRef}
             value={url}
-            placeholder="https://…"
+            placeholder={kind === "image" ? "assets/…" : "https://…"}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
