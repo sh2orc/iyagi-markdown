@@ -260,3 +260,17 @@ describe("highlightToBold (DOCX 강등)", () => {
     expect(highlightToBold("==a== and ==b==")).toBe("**a** and **b**");
   });
 });
+
+describe("각주 정의 블록 (lezer 확장)", () => {
+  it("[^label]: 줄을 FootnoteDef로, 이어 다른 블록 보존", () => {
+    const names = nodeNames("[^a]: 정의 내용\n\n# 다음 제목\n");
+    expect(names).toContain("FootnoteDef");
+    expect(names).toContain("ATXHeading1");
+  });
+
+  it("콜론 없는 [^label] 참조는 정의가 아니다(문단 안 인라인)", () => {
+    const names = nodeNames("각주 참조 [^a] 여기\n");
+    expect(names).not.toContain("FootnoteDef");
+    expect(names).toContain("FootnoteRef");
+  });
+});

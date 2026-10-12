@@ -223,12 +223,6 @@ export const editorTheme = EditorView.theme({
   ".md-codeblock.md-code-first.md-code-last": { borderRadius: "9px" },
   ".md-codeblock-indented": { paddingLeft: "18px" },
 
-  // — 각주 정의 영역(문서 끝) — 흐리고 작게, 위 구분선 —
-  ".md-footnote-def": {
-    color: "var(--md-fg-dim)",
-    fontSize: "0.85em",
-    lineHeight: "1.5",
-  },
   ".md-footnote-def.cm-line": { padding: "0 18px" },
 
   // — 하이라이트 ==텍스트== — 테마별 노랑 배경 —
