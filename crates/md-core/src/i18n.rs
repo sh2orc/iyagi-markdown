@@ -97,6 +97,7 @@ pub enum Msg {
     Shortcuts,
     CommandPalette,
     WorkspaceSearch,
+    Versions,
     Yes,
 }
 
@@ -137,6 +138,7 @@ impl Msg {
             Msg::FindPrev => "Find Previous",
             Msg::Replace => "Replace…",
             Msg::WorkspaceSearch => "Search in Folder…",
+            Msg::Versions => "Restore Version…",
             Msg::View => "View",
             Msg::ModeEdit => "Editing Mode",
             Msg::ModeRead => "Reading Mode",
@@ -192,6 +194,7 @@ impl Msg {
             Msg::FindPrev => "이전 찾기",
             Msg::Replace => "바꾸기…",
             Msg::WorkspaceSearch => "폴더에서 검색…",
+            Msg::Versions => "이전 버전 복원…",
             Msg::View => "보기",
             Msg::ModeEdit => "편집 모드",
             Msg::ModeRead => "읽기 모드",

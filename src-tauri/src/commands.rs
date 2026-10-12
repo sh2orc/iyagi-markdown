@@ -96,8 +96,18 @@ pub async fn write_document(
     meta: DocMeta,
 ) -> Result<WriteOutcome, String> {
     let p = PathBuf::from(&path);
+    let data_dir = app.path().app_data_dir().map_err(err)?;
+    let doc_path = path.clone();
     // 원자적 저장도 스레드 풀로(쓰기+rename+메타데이터 조회).
     let m = tauri::async_runtime::spawn_blocking(move || {
+        // 교체될 내용을 먼저 버전 기록으로 남긴다(Obsidian file recovery식) —
+        // 실패해도 저장 자체는 계속된다(원칙: 스냅숏은 부가 기능).
+        if let Ok(bytes) = std::fs::read(&p) {
+            let old = String::from_utf8_lossy(&bytes).into_owned();
+            if old != text {
+                let _ = md_core::snapshots::save_snapshot(&data_dir, &doc_path, &old);
+            }
+        }
         write_doc_atomic(&p, &text, meta).map_err(err)?;
         std::fs::metadata(&p).map_err(err)
     })
@@ -114,6 +124,29 @@ pub async fn write_document(
             .unwrap_or(0.0),
         size: m.len(),
     })
+}
+
+// — 버전 기록(스냅숏 사이드카) —
+
+#[tauri::command]
+pub async fn snapshot_list(
+    app: AppHandle,
+    path: String,
+) -> Result<Vec<md_core::snapshots::SnapshotInfo>, String> {
+    let dir = app.path().app_data_dir().map_err(err)?;
+    tauri::async_runtime::spawn_blocking(move || Ok(md_core::snapshots::list_snapshots(&dir, &path)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn snapshot_read(app: AppHandle, path: String, ts: u64) -> Result<String, String> {
+    let dir = app.path().app_data_dir().map_err(err)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        md_core::snapshots::read_snapshot(&dir, &path, ts).map_err(err)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 내보내기 HTML 조립용 이미지 등 바이너리 읽기(경로 제한 없음 — 샌드박스 없는

@@ -19,5 +19,6 @@ pub mod links;
 pub mod recent;
 pub mod search;
 pub mod session;
+pub mod snapshots;
 pub mod settings;
 pub mod tree;

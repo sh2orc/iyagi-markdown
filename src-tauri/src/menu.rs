@@ -116,6 +116,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
     ] {
         file_menu.append(&mi(app, id, label, accel)?)?;
     }
+    file_menu.append(&mi(app, "versions", t(Msg::Versions), None)?)?;
     file_menu.append(&mi(app, "print", t(Msg::Print), Some("CmdOrCtrl+P"))?)?;
     file_menu.append(&PredefinedMenuItem::separator(app)?)?;
     for (id, label) in [
