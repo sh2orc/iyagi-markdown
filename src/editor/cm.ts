@@ -5,6 +5,7 @@
 // "보기"일 뿐이므로 전환에 변환이 없다(§0 D4/D5).
 
 import { searchKeymap } from "@codemirror/search";
+import { copyFormat, pasteFormat } from "./formatPainter";
 import { Compartment, EditorState, Extension } from "@codemirror/state";
 import { EditorView, keymap, type ViewUpdate } from "@codemirror/view";
 import { defaultKeymap, history, historyField, historyKeymap } from "@codemirror/commands";
@@ -182,6 +183,9 @@ function baseExtensions(): Extension[] {
       { key: "Alt-ArrowDown", run: (v) => fmt.moveLines(v, false) },
       { key: "Mod-d", run: (v) => fmt.duplicateLine(v), preventDefault: true },
       { key: "Mod-Shift-k", run: (v) => fmt.deleteLines(v), preventDefault: true },
+      // 서식 복사/붙여넣기(Format Painter) — ⌘⇧C는 인라인 코드라 ⌥⌘C/⌥⌘V.
+      { key: "Mod-Alt-c", run: (v) => copyFormat(v), preventDefault: true },
+      { key: "Mod-Alt-v", run: (v) => pasteFormat(v), preventDefault: true },
       // 입력 보조 — 괄호 쌍·마커 감싸기(선택 있을 때). 개별 문자 키.
       { key: "(", run: (v) => fmt.typePair(v, "(") },
       { key: "[", run: (v) => fmt.typePair(v, "[") },
