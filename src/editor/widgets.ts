@@ -3,6 +3,7 @@
 // 원문 텍스트 편집으로 번역된다(§4-1).
 
 import { EditorState } from "@codemirror/state";
+import { captionWorthy } from "./caption";
 import { EditorView, WidgetType } from "@codemirror/view";
 
 import { convertFileSrc, isInApp } from "../api";
@@ -186,6 +187,13 @@ export class ImageWidget extends WidgetType {
     // 클릭 → 확대 뷰어(App이 등록한 콜백 — 원문 불변, 보기만).
     img.addEventListener("click", () => imageViewerHandler?.(this.src, this.alt));
     wrap.append(img);
+    // 캡션 후보 alt면 이미지 아래 설명 — 내보내기 figcaption과 같은 규칙.
+    if (captionWorthy(this.alt)) {
+      const cap = document.createElement("span");
+      cap.className = "md-image-caption";
+      cap.textContent = this.alt;
+      wrap.append(cap);
+    }
     // 크기 조절 핸들(편집 중에만) — 드래그로 폭(%)을 정하고 놓으면 문서
     // 스타일 사이드카에 저장한다. **원문은 전혀 수정되지 않는다.**
     const editable = view.state.facet(EditorState.readOnly).valueOf() !== true;

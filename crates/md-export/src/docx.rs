@@ -46,6 +46,8 @@ struct Ctx<'a> {
     footnotes: Vec<String>,
     /// 문서별 표 열 폭(px) — 헤더 내용 키(사이드카).
     table_widths: std::collections::HashMap<String, Vec<u32>>,
+    /// 그림 캡션 번호(SEQ 초기값 — Word가 갱신).
+    figures: u32,
     footnote_ids: std::collections::HashMap<String, usize>,
     /// 북마크 슬러그 중복 카운터(GitHub식 -1 접미 — 프런트 tocMarkdown과 같은 규칙).
     slug_seen: std::collections::HashMap<String, usize>,
@@ -135,6 +137,7 @@ pub fn export_docx(
         table_widths: (*table_widths).clone(),
         footnote_ids: std::collections::HashMap::new(),
         slug_seen: std::collections::HashMap::new(),
+        figures: 0,
     };
     // 추출한 각주 정의를 Ctx에 등록 — 각각 마크다운으로 파싱해 인라인 서식
     // (굵게·링크·수식)까지 각주 안에 유지.
@@ -205,6 +208,68 @@ fn sect_pr(page_numbers: bool, has_header: bool) -> String {
     format!(
         "<w:sectPr>{header}{footer}<w:pgSz w:w=\"11906\" w:h=\"16838\"/>\
 <w:pgMar w:top=\"1418\" w:right=\"1418\" w:bottom=\"1418\" w:left=\"1418\"/></w:sectPr>"
+    )
+}
+
+/// 캡션으로 쓸 만한 alt인지 — 프런트 caption.ts와 같은 규칙.
+fn caption_worthy(alt: &str) -> bool {
+    let t = alt.trim();
+    let len = t.chars().count();
+    if !(2..=120).contains(&len) {
+        return false;
+    }
+    if regex_like_filename(t) {
+        return false;
+    }
+    let lower = t.to_ascii_lowercase();
+    for prefix in [
+        "img", "image", "screenshot", "screen", "shot", "pic", "photo", "figure", "fig",
+    ] {
+        // 자동 파일명 토큰(img, img_1234, screenshot 2024 …) 하나로 끝나면 제외.
+        if let Some(rest) = lower.strip_prefix(prefix) {
+            let rest = rest.trim_matches([' ', '_', '-']);
+            let rest = rest.trim_end_matches(|c: char| c.is_ascii_digit() || c == ' ' || c == '_' || c == '-');
+            if rest.is_empty() {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// 전체가 하나의 파일명(확장자로 끝)인지 — 간단 패턴.
+fn regex_like_filename(t: &str) -> bool {
+    let Some((stem, ext)) = t.rsplit_once('.') else {
+        return false;
+    };
+    if !matches!(
+        ext.to_ascii_lowercase().as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "heic" | "avif" | "tif" | "tiff"
+    ) {
+        return false;
+    }
+    !stem.is_empty()
+        && stem
+            .chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | '(' | ')' | '_' | '-' | '[' | ']'))
+}
+
+/// 그림 캡션 문단 — SEQ Figure 필드(Word가 번호를 계속 매김) + 설명.
+fn figure_caption_xml(alt: &str, n: u32) -> String {
+    format!(
+        concat!(
+            "<w:p><w:pPr><w:pStyle w:val=\"Caption\"/><w:jc w:val=\"center\"/></w:pPr>",
+            "<w:r><w:t xml:space=\"preserve\">그림 </w:t></w:r>",
+            "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r>",
+            "<w:r><w:instrText xml:space=\"preserve\"> SEQ Figure \\* ARABIC </w:instrText></w:r>",
+            "<w:r><w:fldChar w:fldCharType=\"separate\"/></w:r>",
+            "<w:r><w:t>{}</w:t></w:r>",
+            "<w:r><w:fldChar w:fldCharType=\"end\"/></w:r>",
+            "<w:r><w:t xml:space=\"preserve\"> — {}</w:t></w:r>",
+            "</w:p>"
+        ),
+        n,
+        esc(alt)
     )
 }
 
@@ -927,17 +992,21 @@ fn inline<'a>(
             let _ = write!(out, "<w:hyperlink r:id=\"rIdH{id}\">{runs}</w:hyperlink>");
         }
         NodeValue::Image(link) => {
+            let alt: String = node
+                .children()
+                .map(|c| match &c.data.borrow().value {
+                    NodeValue::Text(t) => t.to_string(),
+                    _ => String::new(),
+                })
+                .collect();
             if let Some(drawing) = image_drawing(ctx, &link.url) {
                 out.push_str(&drawing);
+                // 캡션 후보 alt면 그림 캡션 문단(SEQ Figure — Word가 갱신).
+                if caption_worthy(&alt) {
+                    ctx.figures += 1;
+                    out.push_str(&figure_caption_xml(&alt, ctx.figures));
+                }
             } else {
-                // 파일을 읽지 못하면 대체 텍스트.
-                let alt: String = node
-                    .children()
-                    .map(|c| match &c.data.borrow().value {
-                        NodeValue::Text(t) => t.to_string(),
-                        _ => String::new(),
-                    })
-                    .collect();
                 out.push_str(&text_run(&format!("[{alt}]"), style));
             }
         }
@@ -1344,6 +1413,9 @@ const STYLES_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone
 </w:tblBorders></w:tblPr></w:style>
 <w:style w:type="character" w:styleId="Hyperlink"><w:name w:val="Hyperlink"/>
 <w:rPr><w:color w:val="@LINKCLR@"/><w:u w:val="single"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="Caption"><w:name w:val="caption"/>
+<w:basedOn w:val="Normal"/><w:pPr><w:jc w:val="center"/></w:pPr>
+<w:rPr><w:i/><w:color w:val="59636E"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="TOCHeading"><w:name w:val="TOC Heading"/>
 <w:basedOn w:val="Normal"/><w:pPr><w:spacing w:before="240" w:after="120"/></w:pPr>
 <w:rPr><w:b/><w:sz w:val="28"/><w:szCs w:val="28"/></w:rPr></w:style>
@@ -1489,6 +1561,7 @@ mod tests {
             footnote_ids: [("a".to_string(), 1usize)].into_iter().collect(),
             slug_seen: std::collections::HashMap::new(),
             table_widths: HashMap::new(),
+            figures: 0,
         };
         let body = "x\u{E000}a\u{E000}y";
         let out = resolve_footnote_refs(body, &ctx);
@@ -1758,6 +1831,58 @@ mod tests {
         assert!(doc2.contains("<w:gridCol w:w=\"4320\"/>"));
         let _ = std::fs::remove_file(&out);
         let _ = std::fs::remove_file(&out2);
+    }
+
+    #[test]
+    fn figure_captions_seq_and_guards() {
+        let png: Vec<u8> = vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1F, 0x15, 0xC4, 0x89, 0, 0, 0, 0x0A, 0x49,
+            0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0, 1, 0, 0, 5, 0, 1, 0x0D, 0x0A, 0x2D, 0xB4, 0,
+            0, 0, 0, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        let dir = std::env::temp_dir().join(format!("md-export-fig-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.png"), &png).unwrap();
+        std::fs::write(dir.join("b.png"), &png).unwrap();
+        let md = "![실험 설정도](a.png)\n\n![screenshot.png](b.png)\n";
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(dir.to_string_lossy().into_owned());
+        let out = tmp("figcap");
+        export_docx(
+            md,
+            &DocxExportOptions {
+                math: &math,
+                diagrams: &diagrams,
+                images: &images,
+                style: None,
+                page_numbers: false,
+                table_widths: &HashMap::new(),
+                title: None,
+                author: None,
+                toc: false,
+                header_title: None,
+            },
+            &out,
+        )
+        .unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        use std::io::Read;
+        let mut doc = String::new();
+        zip.by_name("word/document.xml").unwrap().read_to_string(&mut doc).unwrap();
+        // 캡션 후보만: SEQ 필드 + 설명, 번호 1.
+        assert!(doc.contains(" SEQ Figure \\* ARABIC "));
+        assert!(doc.contains("그림 </w:t>"));
+        assert!(doc.contains(" — 실험 설정도"));
+        assert_eq!(doc.matches("SEQ Figure").count(), 1); // 파일명 alt는 제외
+        let mut styles = String::new();
+        zip.by_name("word/styles.xml").unwrap().read_to_string(&mut styles).unwrap();
+        assert!(styles.contains("\"caption\""));
+        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

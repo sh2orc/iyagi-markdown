@@ -62,3 +62,34 @@ describe("applyTableWidths / tableKey", () => {
     expect(applyTableWidths(html, { x: [500] })).toBe(html);
   });
 });
+
+describe("applyFigcaptions / captionWorthy", () => {
+  it("파일명·자동명·빈 alt는 캡션 아님", async () => {
+    const { captionWorthy } = await import("../editor/caption");
+    expect(captionWorthy("실험 설정도")).toBe(true);
+    expect(captionWorthy("Screenshot of results")).toBe(true); // 설명문 — 캡션 맞음
+    expect(captionWorthy("screenshot 2024")).toBe(false);
+    expect(captionWorthy("screenshot.png")).toBe(false);
+    expect(captionWorthy("img_1234")).toBe(false);
+    expect(captionWorthy("img")).toBe(false);
+    expect(captionWorthy("")).toBe(false);
+    expect(captionWorthy("a")).toBe(false);
+  });
+
+  it("캡션 후보만 figure로 — 문서 순서 번호", async () => {
+    const { applyFigcaptions } = await import("./html");
+    const html = `<p><img src="a.png" alt="첫 그림"></p><p><img src="b.png" alt="img.png"></p><p><img src="c.png" alt="둘째 그림"></p>`;
+    const out = applyFigcaptions(html);
+    expect(out).toContain("<figcaption>그림 1 — 첫 그림</figcaption>");
+    expect(out).toContain("<figcaption>그림 2 — 둘째 그림</figcaption>");
+    expect(out).not.toContain("img.png</figcaption>");
+    // 후보 아닌 것은 p 유지.
+    expect(out).toContain('<p><img src="b.png" alt="img.png"></p>');
+  });
+
+  it("이스케이프된 alt도 판정에 반영", async () => {
+    const { applyFigcaptions } = await import("./html");
+    const out = applyFigcaptions(`<p><img src="x.png" alt="A &amp; B 구성"></p>`);
+    expect(out).toContain("A &amp; B 구성");
+  });
+});

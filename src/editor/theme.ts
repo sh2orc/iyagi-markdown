@@ -293,6 +293,13 @@ export const editorTheme = EditorView.theme({
   },
   ".md-image:hover .md-img-handle": { display: "block" },
   ".md-image img": { maxWidth: "100%", borderRadius: "6px", display: "block" },
+  ".md-image-caption": {
+    display: "block",
+    fontSize: "0.8em",
+    color: "var(--md-raw, #8a919c)",
+    textAlign: "center",
+    marginTop: "2px",
+  },
   ".md-img-line": { textAlign: "center", paddingBottom: "0.3em", paddingTop: "0.3em" },
   ".md-image-missing": {
     color: "var(--md-error)",

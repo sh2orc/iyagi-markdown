@@ -8,6 +8,7 @@
 
 import MarkdownIt, { type MarkdownIt as MarkdownItType, type StateInline, type Token } from "markdown-it";
 import { htmlTableKey } from "../editor/tableKey";
+import { captionWorthy } from "../editor/caption";
 import footnote from "markdown-it-footnote";
 
 import { ensureHighlight, escapeHtml, highlightHtml } from "../plugins/highlight";
@@ -282,6 +283,22 @@ export function applyTableWidths(
   });
 }
 
+
+/** 캡션 후보 alt를 <figure><figcaption>로 — 문서 순서대로 '그림 N — 설명'.
+ *  markdown-it의 <p><img></p>를 변환하고, style(img 폭)은 그대로 옮긴다. */
+export function applyFigcaptions(html: string): string {
+  let n = 0;
+  return html.replace(/<p>(<img\b[^>]*>)<\/p>/g, (_m, img: string) => {
+    const alt = / alt="([^"]*)"/.exec(img)?.[1] ?? "";
+    // alt는 markdown-it가 이미 이스케이프한 값 — 그대로 figcaption에 쓴다.
+    if (!captionWorthy(alt.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"'))) {
+      return `<p>${img}</p>`;
+    }
+    n += 1;
+    return `<figure>${img}<figcaption>그림 ${n} — ${alt}</figcaption></figure>`;
+  });
+}
+
 /** 사이드카 이미지 폭(%)을 <img> style로 반영. 원본 src를 키로 쓰므로
  *  data URI 인라인化 전에 호출한다. 퍼센트 디코딩한 표기도 같이 매칭. */
 export function applyImageWidths(html: string, widths: Record<string, number>): string {
@@ -446,7 +463,8 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
   const withImages = opts.inlineImages === false
     ? withWidths
     : await inlineImages(withWidths, opts.baseDir, opts.readBytes);
-  const sanitized = await sanitize(withImages);
+  const withCaptions = applyFigcaptions(withImages);
+  const sanitized = await sanitize(withCaptions);
   const marginCss = opts.forPdf
     ? `body{margin:${opts.marginMm ?? 14}mm !important;}` +
       `html{font-size:${(16 * (opts.scale ?? 1)).toFixed(1)}px;}`
@@ -546,6 +564,8 @@ body{margin:0 auto;padding:24px 16px;max-width:820px;font-family:-apple-system,B
 .markdown-body th,.markdown-body td{border:1px solid ${c.border};padding:6px 14px;}
 .markdown-body th{background:${c.codeBg};font-weight:600;}
 .markdown-body img{max-width:100%;border-radius:6px;}
+.markdown-body figure{margin:1.2em 0;text-align:center;}
+.markdown-body figcaption{font-size:.85em;color:#8a919c;margin-top:.45em;}
 .markdown-body hr{border:none;border-top:2px solid ${c.border};margin:1.6em 0;}
 .markdown-body .task-item{margin-right:.45em;}
 .markdown-body li.task-item-done{text-decoration:line-through;opacity:.6;}
