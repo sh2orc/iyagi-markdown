@@ -36,6 +36,7 @@ import {
 
 import { lexicallyClean, percentDecode } from "../links";
 import { parseWikiLink, resolveWikiLink } from "./wiki";
+import { phrases } from "../app/phrases";
 import {
   BulletWidget,
   DiagramWidget,
@@ -480,7 +481,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
             ranges.push(replace({}).range(from, from + 1));
             ranges.push(replace({}).range(labelEnd, to));
             if (labelEnd > from + 1) {
-              ranges.push(Decoration.mark({ class: "md-link", attributes: { title: inline[2] } }).range(from + 1, labelEnd));
+              ranges.push(Decoration.mark({ class: "md-link", attributes: { title: `${phrases.linkOpen}: ${inline[2]}` } }).range(from + 1, labelEnd));
             }
             return;
           }

@@ -19,6 +19,7 @@ import {
 } from "./api";
 import { AppStore, resolveTheme, type ExportKind, type Tab } from "./app/store";
 import { replaceDoc, setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
+import { setPhrases } from "./app/phrases";
 import { stripFrontMatter } from "./editor/frontmatter";
 import { EPUB_CSS, epubChapterInputs, splitEpubChapters } from "./export/epub";
 import { relPath } from "./paths";
@@ -152,6 +153,14 @@ export function App(): JSX.Element {
   // — 초기화 —
   useEffect(() => {
     store.phrases = { bigDocSource: t.bigDocSource };
+    setPhrases({
+      mathError: t.mathError,
+      diagramError: t.diagramError,
+      imgMissing: t.imgMissing,
+      imgLoadBlocked: t.imgLoadBlocked,
+      linkOpen: t.linkOpen,
+      saveFailed: t.saveFailed,
+    });
     let disposed = false;
     initBridge();
     // 앱 셸 첫 페인트가 나왔다 — index.html의 부트 스플래시를 치운다.

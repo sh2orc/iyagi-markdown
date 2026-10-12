@@ -1,4 +1,5 @@
 // KaTeX 지연 로딩. 문서에 수식이 있을 때만 청크(CSS+폰트)를 내려받는다(§1-2).
+import { phrases } from "../app/phrases";
 
 type Katex = typeof import("katex");
 
@@ -142,7 +143,7 @@ function applyResult(
     el.append(pre);
     const msg = document.createElement("span");
     msg.className = "md-math-error-msg";
-    msg.textContent = res.error;
+    msg.textContent = `${phrases.mathError}: ${res.error}`;
     el.append(msg);
     return;
   }

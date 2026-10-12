@@ -21,6 +21,7 @@ import { applyDocStyle, DEFAULT_DOC_STYLE as DEFAULT_DOC_STYLE_T } from "./docSt
 import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, type ViewMode } from "../editor/cm";
 import { applyWriting } from "../editor/writing";
 import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
+import { phrases } from "./phrases";
 import { buildWikiIndex } from "../editor/wiki";
 import { dirname } from "../paths";
 
@@ -210,7 +211,7 @@ export class AppStore {
     try {
       doc = await this.io.readDocument(path);
     } catch (e) {
-      this.toast(e instanceof Error ? e.message : String(e), "error");
+      this.toast(`${phrases.saveFailed}: ${e instanceof Error ? e.message : String(e)}`, "error");
       return;
     }
     // §7: 임계(1MB) 초과 문서는 장식 비용이 커진다 — 소스 모드로 열고 알린다.
@@ -496,7 +497,7 @@ export class AppStore {
       this.scheduleSessionSave();
       return true;
     } catch (e) {
-      this.toast(e instanceof Error ? e.message : String(e), "error");
+      this.toast(`${phrases.saveFailed}: ${e instanceof Error ? e.message : String(e)}`, "error");
       return false;
     }
   }
@@ -562,7 +563,7 @@ export class AppStore {
       tab.conflict = null;
       this.emit();
     } catch (e) {
-      this.toast(e instanceof Error ? e.message : String(e), "error");
+      this.toast(`${phrases.saveFailed}: ${e instanceof Error ? e.message : String(e)}`, "error");
     }
   }
 
