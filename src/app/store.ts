@@ -420,17 +420,37 @@ export class AppStore {
       const prevDoc = update.startState.doc;
       const fmLen = frontMatterLen(prevDoc.toString());
       let touchedFm = false;
+      let firstA = Infinity;
+      let lastA = -1;
+      let charDelta = 0;
       update.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
         if (fromA < fmLen) {
           // 프론트매터 영역(닫는 --- 포함 경계)의 편집 — 통계에 넣지 않는다.
           touchedFm = true;
           return;
         }
+        firstA = Math.min(firstA, fromA);
+        lastA = Math.max(lastA, toA);
         const removed = toA > fromA ? prevDoc.sliceString(fromA, toA) : "";
-        const text = inserted.toString();
-        tab.words += countWords(text) - countWords(removed);
-        tab.chars += text.length - removed.length;
+        charDelta += inserted.length - removed.length;
       });
+      if (!touchedFm && lastA >= 0) {
+        // 단어 수는 영역 기반 정확 증분: 변경 범위를 감싼 단어 경계 구간의
+        // 앞뒤 단어 수 차이. 문자 수는 산술적으로 정확. (경계를 가로지르는
+        // 편집에서 words-removed 근사가 어긋나던 버그 수정 — 여러 변경의
+        // 사이 변하지 않는 구간은 양쪽에 같이 세려 상쇄된다.)
+        const doc = this.view.state.doc;
+        const startA = expandWordStart(prevDoc, firstA);
+        const endA = expandWordEnd(prevDoc, lastA);
+        // 결합 방향이 핵심: 시작은 삽입 **앞**(포함), 끝은 **뒤** — 확장이
+        // 경계 없이 변경점과 겹쳐도 삽입된 텍스트가 구역 안에 들어온다.
+        const startB = update.changes.mapPos(startA, -1);
+        const endB = update.changes.mapPos(endA, 1);
+        const wPrev = countWords(prevDoc.sliceString(startA, endA));
+        const wNew = countWords(doc.sliceString(startB, endB));
+        tab.words += wNew - wPrev;
+        tab.chars += charDelta;
+      }
       if (touchedFm) {
         // 프론트매터 편집 중에만 전체 재계산(O(문서)지만 드문 경로 — 본문
         // 타이핑은 여전히 증분만).
@@ -971,6 +991,27 @@ export function countCheckboxes(text: string): { done: number; total: number } {
     if (m[1] !== " ") done++;
   }
   return { done, total };
+}
+
+const isWsChar = (ch: string): boolean => ch === " " || ch === "\t" || ch === "\n" || ch === "\r";
+
+/** pos를 왼쪽 단어 경계(공백 지나서)로 확장. */
+function expandWordStart(doc: { sliceString(f: number, t: number): string }, pos: number): number {
+  let p = pos;
+  while (p > 0 && !isWsChar(doc.sliceString(p - 1, p))) p--;
+  return p;
+}
+
+/** pos를 오른쪽 단어 경계로 확장. */
+function expandWordEnd(doc: { sliceString(f: number, t: number): string }, pos: number): number {
+  let p = pos;
+  let guard = 0;
+  while (guard++ < 1_000_000) {
+    const ch = doc.sliceString(p, p + 1);
+    if (ch === "" || isWsChar(ch)) break;
+    p++;
+  }
+  return p;
 }
 
 function checkboxOf(text: string): { done: number; total: number } | null {
