@@ -99,6 +99,92 @@ fn collect_files(dir: &Path, depth: u32, max_depth: u32, out: &mut Vec<PathBuf>)
     }
 }
 
+/// 문서를 [[이름]]으로 참조하는 백링크를 찾는다(문서 자신 제외).
+/// 이름 비교는 대소문자무시 — stem 일치 또는 루트 기준 상대 경로(확장자 없음)가
+/// 대상을 접미로 포함([[folder/note]] → notes/의 note.md). 프런트 해석 규칙
+/// (editor/wiki.ts resolveWikiLink)과 같은 방향의 관대함.
+pub fn find_backlinks(root: &Path, doc_path: &str, max: usize) -> std::io::Result<Vec<SearchHit>> {
+    let mut out = Vec::new();
+    if max == 0 {
+        return Ok(out);
+    }
+    let doc_file = Path::new(doc_path);
+    let file_name = doc_file
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stem = match file_name.rfind('.') {
+        Some(i) => file_name[..i].to_lowercase(),
+        None => file_name.to_lowercase(),
+    };
+    if stem.is_empty() {
+        return Ok(out);
+    }
+    // 루트 기준 상대 경로(확장자 제거·소문자) — 경로 포함 참조 비교용.
+    let root_s = root.to_string_lossy();
+    let rel_stem = doc_path
+        .strip_prefix(root_s.as_ref())
+        .unwrap_or(doc_path)
+        .trim_start_matches('/')
+        .to_lowercase();
+    let rel_stem = match rel_stem.rfind('.') {
+        Some(i) => rel_stem[..i].to_string(),
+        None => rel_stem,
+    };
+    let mut files = Vec::new();
+    collect_files(root, 0, 12, &mut files);
+    for path in files {
+        if out.len() >= max {
+            break;
+        }
+        if path.as_os_str().to_string_lossy() == doc_path {
+            continue; // 문서 자신
+        }
+        let bytes = match fs::read(&path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        let text = String::from_utf8_lossy(&bytes);
+        for (i, line) in text.lines().enumerate() {
+            if out.len() >= max {
+                break;
+            }
+            // 줄 안의 모든 [[..]] 검사 — 대상은 | 또는 # 앞까지.
+            let mut from = 0;
+            while let Some(open) = line[from..].find("[[") {
+                let abs_open = from + open;
+                let rest = &line[abs_open + 2..];
+                let close = rest.find("]]").map(|c| abs_open + 2 + c);
+                let nl = rest.find('\n').map(|c| abs_open + 2 + c);
+                let end = match (close, nl) {
+                    (Some(c), Some(n)) => c.min(n),
+                    (Some(c), None) => c,
+                    (None, _) => break,
+                };
+                let body = &line[abs_open + 2..end];
+                let target = body
+                    .split(['|', '#'])
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .replace('\\', "/")
+                    .to_lowercase();
+                if !target.is_empty()
+                    && (target == stem || (target.contains('/') && rel_stem.ends_with(&target)))
+                {
+                    out.push(SearchHit {
+                        path: path.to_string_lossy().into_owned(),
+                        line_no: i as u32 + 1,
+                        line: clip_line(line, abs_open),
+                    });
+                }
+                from = end.max(abs_open + 2);
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn char_floor(s: &str, mut i: usize) -> usize {
     while i > 0 && !s.is_char_boundary(i) {
         i -= 1;
@@ -179,6 +265,34 @@ mod tests {
         let hits = search_tree(&d, "needle", 3).unwrap();
         assert_eq!(hits.len(), 3);
         assert!(hits.iter().all(|h| !h.path.contains("node_modules") && !h.path.contains("/.h/")));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn backlinks_find_refs_excluding_self() {
+        let d = tempdir("bl");
+        fs::write(d.join("target.md"), "대상 문서\n").unwrap();
+        fs::write(
+            d.join("a.md"),
+            "이전에 [[target]]를 봤다.\n[[target|표시]]도 있다.\n[[other]]는 아님.\n[[folder/target]] 경로 참조.\n",
+        )
+        .unwrap();
+        fs::write(d.join("self.md"), "[[target]] 자기 참조 아님 — 다른 문서.\n").unwrap();
+        let hits = find_backlinks(&d, d.join("target.md").to_str().unwrap(), 100).unwrap();
+        let lines: Vec<u32> = hits.iter().map(|h| h.line_no).collect();
+        // [[folder/target]]은 루트의 target.md가 아닌 folder/target.md를 가리킨다 —
+        // 백링크 아닌 것이 올바른 해석(에디터 resolveWikiLink와 같은 규칙).
+        assert_eq!(lines, vec![1, 2]);
+        assert!(hits.iter().all(|h| h.path.ends_with("a.md")));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn backlinks_exclude_self_and_empty_stem() {
+        let d = tempdir("blself");
+        fs::write(d.join("me.md"), "[[me]] 자기 자신.\n").unwrap();
+        let me = d.join("me.md").to_str().unwrap().to_string();
+        assert!(find_backlinks(&d, &me, 100).unwrap().is_empty());
         let _ = fs::remove_dir_all(&d);
     }
 
