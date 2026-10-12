@@ -77,7 +77,10 @@ export function ttsTextOf(markdown: string): string {
         if (cells.every((c) => /^:?-{2,}:?$/.test(c) || c === "")) return "";
         return cells.filter(Boolean).join(", ");
       }
-      return cleanMarkers(l.replace(/^\s*#{1,6}\s+/, ""));
+      const cleaned = cleanMarkers(l.replace(/^\s*#{1,6}\s+/, ""));
+      // 가로선(--- · ***)은 낭독하지 않는다.
+      if (/^\s*([-*_])\1*\s*$/.test(cleaned)) return "";
+      return cleaned;
     })
     .filter((l) => l.trim().length > 0)
     .join("\n");

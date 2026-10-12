@@ -134,3 +134,10 @@ describe("ttsTextOf 표 처리", () => {
     expect(ttsTextOf(md)).toBe("항목, 값\n사과, 3개");
   });
 });
+
+describe("ttsTextOf 가로선", () => {
+  it("--- · *** · ___ 줄은 생략", () => {
+    expect(ttsTextOf("위\n\n---\n\n아래")).toBe("위\n아래");
+    expect(ttsTextOf("***\n")).toBe("");
+  });
+});
