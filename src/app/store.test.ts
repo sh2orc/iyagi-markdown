@@ -36,7 +36,16 @@ function mount(store: AppStore): EditorView {
 }
 
 /** rAF 코얼레싱된 emit이 흐르게 한 프레임 기다린다. */
-const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+/** rAF가 굶주려도(시스템 부하·타이머 모킹 잔향) 1초 안엔 진행 — 큰 문서
+ *  스트레스 테스트가 무한 대기로 시간만 쓰지 않게. */
+const nextFrame = () =>
+  new Promise<void>((r) => {
+    const t = setTimeout(r, 1_000);
+    requestAnimationFrame(() => {
+      clearTimeout(t);
+      r();
+    });
+  });
 
 async function openTab(store: AppStore, path: string): Promise<void> {
   await store.openPath(path);
@@ -243,5 +252,5 @@ describe("큰 문서 증분 통계(수동 QA '5MB 문서'의 자동화 근사)",
     expect(t.chars).toBe(finalText.length);
     expect(t.words).toBe(countWords(finalText));
     expect(t.dirty).toBe(true);
-  }, 30_000);
+  });
 });
