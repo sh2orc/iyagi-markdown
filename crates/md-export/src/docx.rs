@@ -300,7 +300,11 @@ fn table<'a>(
 <w:top w:val=\"single\" w:sz=\"4\" w:color=\"B8BCC4\"/><w:left w:val=\"single\" w:sz=\"4\" w:color=\"B8BCC4\"/>\
 <w:bottom w:val=\"single\" w:sz=\"4\" w:color=\"B8BCC4\"/><w:right w:val=\"single\" w:sz=\"4\" w:color=\"B8BCC4\"/>\
 <w:insideH w:val=\"single\" w:sz=\"4\" w:color=\"B8BCC4\"/><w:insideV w:val=\"single\" w:sz=\"4\" w:color=\"B8BCC4\"/>\
-</w:tblBorders></w:tblPr><w:tblGrid>"
+</w:tblBorders>\
+<w:tblCellMar>\
+<w:top w:w=\"80\" w:type=\"dxa\"/><w:left w:w=\"120\" w:type=\"dxa\"/>\
+<w:bottom w:w=\"80\" w:type=\"dxa\"/><w:right w:w=\"120\" w:type=\"dxa\"/>\
+</w:tblCellMar></w:tblPr><w:tblGrid>"
     );
     for _ in 0..n_cols {
         let _ = write!(out, "<w:gridCol w:w=\"{col_tw}\"/>");
@@ -326,7 +330,7 @@ fn table<'a>(
                     _ => "",
                 };
                 let shade = if is_header {
-                    "<w:shd w:val=\"clear\" w:fill=\"F2F3F5\"/>"
+                    "<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"F2F3F5\"/>"
                 } else {
                     ""
                 };
