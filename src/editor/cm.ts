@@ -255,8 +255,11 @@ function baseExtensions(): Extension[] {
           }
           return;
         }
-        if (el?.isConnected && el.getAttribute("data-wiki-path") && isInApp()) {
-          const path = el.getAttribute("data-wiki-path")!;
+        // 내부 마크다운 링크(data-md-link)도 같은 미리보기.
+        const hoverPath =
+          el?.getAttribute("data-wiki-path") ?? el?.getAttribute("data-md-link") ?? null;
+        if (el?.isConnected && hoverPath && isInApp()) {
+          const path = hoverPath;
           const x = event.clientX;
           const y = event.clientY;
           // 350ms 머무름 — 그 전에 떠나면 취소(지나가던 길에 팝오버가 튀는

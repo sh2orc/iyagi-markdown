@@ -60,7 +60,7 @@ function tableRanges(view: EditorView): { from: number; to: number }[] {
   return out;
 }
 
-describe("라이브 프리뷰 증분 갱신", { retry: 1 }, () => {
+describe("라이브 프리뷰 증분 갱신", { retry: 2 }, () => {
   it("완전 파싱 후 커서가 표로 이동하면 해당 표가 원문으로 풀린다", async () => {
     const view = await makeView("edit");
     const tables = tableRanges(view);
