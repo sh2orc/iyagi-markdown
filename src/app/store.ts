@@ -292,6 +292,7 @@ export class AppStore {
       marks: { bold: false, italic: false, strike: false, code: false, link: false },
       selChars: 0,
       checkbox: null,
+      backlinks: null,
       bookmarks: [],
       dirty: false,
       words: 0,

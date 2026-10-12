@@ -178,3 +178,36 @@ describe("countCheckboxes", () => {
     expect(countCheckboxes("문서 없음\n")).toEqual({ done: 0, total: 0 });
   });
 });
+
+describe("백링크 배지 (탭 전환 디바운스·캐시)", () => {
+  it("활성 탭의 백링크 수를 비동기로 채우고, 재방문은 캐시를 쓴다", async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const io = fakeIo();
+      io.backlinks = async (_root, path) => {
+        calls++;
+        return path === "/tmp/a.md" ? [{}, {}, {}] : [{}];
+      };
+      const store = new AppStore(io);
+      mount(store);
+      store.state.workspace = "/tmp";
+      await openTab(store, "/tmp/a.md");
+      await vi.advanceTimersByTimeAsync(500);
+      expect(store.active!.backlinks).toBe(3);
+      expect(calls).toBe(1);
+
+      await openTab(store, "/tmp/b.md");
+      await vi.advanceTimersByTimeAsync(500);
+      expect(store.active!.backlinks).toBe(1);
+      expect(calls).toBe(2);
+
+      // 되돌아가면 스캔 없이(캐시) 즉시.
+      await openTab(store, "/tmp/a.md");
+      expect(store.active!.backlinks).toBe(3);
+      expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
