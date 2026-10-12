@@ -51,6 +51,7 @@ import { BacklinksPanel } from "./components/BacklinksPanel";
 import { WorkspaceSearch } from "./components/WorkspaceSearch";
 import { ImageViewer } from "./components/ImageViewer";
 import { DiffPanel } from "./components/DiffPanel";
+import { GraphView } from "./components/GraphView";
 import * as fmt from "./editor/format";
 
 const ioAdapter = {
@@ -115,6 +116,7 @@ export function App(): JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [wsSearchOpen, setWsSearchOpen] = useState(false);
   const [wsSearchQuery, setWsSearchQuery] = useState("");
+  const [graphOpen, setGraphOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [backlinksOpen, setBacklinksOpen] = useState(false);
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
@@ -881,9 +883,21 @@ export function App(): JSX.Element {
           onOpenPrint={() => setPrintOpen(true)}
           onOpenExport={(kind) => store.setExportKind(kind)}
           onOpenDiff={() => setDiffOpen(true)}
+          onOpenGraph={() => setGraphOpen(true)}
           onOpenWsSearch={() => setWsSearchOpen(true)}
           onOpenVersions={() => setVersionsOpen(true)}
           onOpenBacklinks={() => setBacklinksOpen(true)}
+        />
+      )}
+      {graphOpen && (
+        <GraphView
+          store={store}
+          t={t}
+          onClose={() => setGraphOpen(false)}
+          onOpen={(path) => {
+            setGraphOpen(false);
+            void store.openPath(path);
+          }}
         />
       )}
       {wsSearchOpen && (

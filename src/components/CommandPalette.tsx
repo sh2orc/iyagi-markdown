@@ -28,6 +28,7 @@ interface Props {
   t: Translate;
   onClose: () => void;
   onOpenDiff?: () => void;
+  onOpenGraph?: () => void;
   onOpenWsSearch?: () => void;
   onOpenVersions?: () => void;
   onOpenBacklinks?: () => void;
@@ -110,6 +111,7 @@ export function CommandPalette({
       { id: "stats", label: `${t.statsTitle}`, run: onOpenStats },
       { id: "style", label: `${t.styleTitle} — Aa`, run: onOpenStyle },
       { id: "shortcuts", label: `${t.shortcutsTitle}`, run: onOpenShortcuts },
+          ...(onOpenGraph ? [{ id: "graph", label: `${t.graphTitle}`, run: onOpenGraph }] : []),
       ...(onOpenDiff ? [{ id: "diff", label: `${t.diffTitle}…`, run: onOpenDiff }] : []),
       { id: "wssearch", label: `${t.wsSearchTitle} ⇧⌘F`, run: () => onOpenWsSearch?.() },
       { id: "versions", label: `${t.scFile}: ${t.versionsTitle}`, run: () => onOpenVersions?.() },

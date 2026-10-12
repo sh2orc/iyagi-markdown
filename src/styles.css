@@ -2001,3 +2001,77 @@ body.resizing .toc {
   margin-left: 8px;
   float: right;
 }
+
+/* 그래프 뷰 */
+
+.graph-frame {
+  width: min(700px, 92vw);
+  height: min(72vh, 620px);
+  background: var(--md-bg);
+  border: 1px solid var(--md-border);
+  border-radius: 14px;
+  box-shadow: var(--md-shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.graph-count {
+  font-size: 12.5px;
+  color: var(--md-fg-dim);
+  flex: 1;
+}
+
+.graph-body {
+  flex: 1;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.graph-svg {
+  cursor: default;
+}
+
+.graph-edge {
+  stroke: var(--md-border-strong);
+  stroke-width: 1;
+  opacity: 0.3;
+}
+.graph-edge.is-hl {
+  stroke: var(--md-accent);
+  opacity: 0.7;
+  stroke-width: 1.5;
+}
+
+.graph-node circle {
+  fill: var(--md-accent-soft);
+  stroke: var(--md-border-strong);
+  stroke-width: 1.5;
+  cursor: pointer;
+  transition: fill 0.12s;
+}
+.graph-node:hover circle {
+  fill: var(--md-accent);
+}
+.graph-node.is-active circle {
+  fill: var(--md-accent);
+  stroke: var(--md-accent);
+}
+.graph-node.is-sel circle {
+  stroke: var(--md-accent);
+  stroke-width: 2.5;
+}
+
+.graph-label {
+  font-size: 10px;
+  fill: var(--md-fg-dim);
+  font-family: var(--md-prose-font);
+  pointer-events: none;
+}
+
+.graph-detail {
+  padding: 10px 14px;
+  border-top: 1px solid var(--md-border);
+  display: flex;
+  justify-content: center;
+}
