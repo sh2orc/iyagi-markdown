@@ -253,8 +253,6 @@ describe("하이라이트 문법 (lezer 확장)", () => {
   });
 });
 
-);
-
 describe("각주 정의 블록 (lezer 확장)", () => {
   it("[^label]: 줄을 FootnoteDef로, 이어 다른 블록 보존", () => {
     const names = nodeNames("[^a]: 정의 내용\n\n# 다음 제목\n");
