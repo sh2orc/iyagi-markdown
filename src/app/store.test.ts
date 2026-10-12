@@ -323,10 +323,12 @@ describe("외부 변경(수동 QA 항목 자동화)", () => {
     await openTab(store, "/tmp/ext.md");
     const t = store.active!;
 
-    // 1) 더티 아님 → 내용 교체·커서 보존·충돌 없음.
+    // 1) 더티 아님 → 자동 다시 읽기(비동기 — 완료 대기)·충돌 없음.
     view.dispatch({ selection: { anchor: 5 } });
     store.syncActiveState();
     store.externalChange("/tmp/ext.md", "changed");
+    await new Promise((r) => setTimeout(r, 20));
+    await nextFrame();
     expect(t.conflict).toBeNull();
     expect(t.dirty).toBe(false);
 
