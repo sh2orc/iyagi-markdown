@@ -2170,3 +2170,22 @@ body.resizing .toc {
   display: flex;
   justify-content: center;
 }
+
+/* — 특수 문자 패널(Word 기호) — */
+.symbol-modal { min-width: 460px; max-width: 560px; }
+.symbol-search { margin: 10px 16px 0; width: calc(100% - 32px); }
+.symbol-cats { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 16px 6px; }
+.symbol-cat {
+  font-size: 12px; padding: 3px 10px; border-radius: 99px;
+  background: rgba(127, 127, 127, 0.1); border: none; cursor: pointer; color: inherit;
+}
+.symbol-cat.is-sel { background: rgba(10, 108, 214, 0.16); font-weight: 600; }
+.symbol-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+  gap: 4px; padding: 6px 16px 12px; max-height: 320px; overflow-y: auto;
+}
+.symbol-cell {
+  font-size: 18px; line-height: 1.4; padding: 6px 0; border-radius: 8px;
+  background: rgba(127, 127, 127, 0.07); border: none; cursor: pointer; color: inherit;
+}
+.symbol-cell:hover { background: rgba(10, 108, 214, 0.14); }

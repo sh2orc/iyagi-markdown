@@ -167,6 +167,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
                 t(Msg::WorkspaceSearch),
                 Some("Shift+CmdOrCtrl+F"),
             )?,
+            &mi(app, "insert-symbols", t(Msg::InsertSymbols), None)?,
         ],
     )?;
 

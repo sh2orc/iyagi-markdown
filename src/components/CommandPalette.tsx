@@ -65,6 +65,7 @@ interface Props {
   onOpenBrokenLinks?: () => void;
   onOpenShortcuts: () => void;
   onOpenStats: () => void;
+  onOpenSymbols?: () => void;
   onOpenStyle: () => void;
   onOpenPrint: () => void;
   onOpenExport: (kind: "html" | "pdf" | "docx") => void;
@@ -76,6 +77,7 @@ export function CommandPalette({
   onClose,
   onOpenShortcuts,
   onOpenStats,
+  onOpenSymbols,
   onOpenStyle,
   onOpenPrint,
   onOpenExport,
@@ -143,6 +145,7 @@ export function CommandPalette({
       { id: "toc", label: `${t.scView}: ${t.tocTitle} ⇧⌘T`, run: () => store.setToc(!store.state.tocOpen) },
       { id: "save", label: `${t.scFile}: ${t.save} ⌘S`, run: () => void store.saveActive() },
       { id: "stats", label: `${t.statsTitle}`, run: onOpenStats },
+      ...(onOpenSymbols ? [{ id: "symbols", label: `${t.symbolTitle}…`, run: onOpenSymbols }] : []),
       { id: "style", label: `${t.styleTitle} — Aa`, run: onOpenStyle },
       { id: "shortcuts", label: `${t.shortcutsTitle}`, run: onOpenShortcuts },
           ...(onOpenGraph ? [{ id: "graph", label: `${t.graphTitle}`, run: onOpenGraph }] : []),
