@@ -99,6 +99,7 @@ pub enum Msg {
     WorkspaceSearch,
     Versions,
     Backlinks,
+    ExportEpub,
     Yes,
 }
 
