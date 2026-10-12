@@ -7,6 +7,7 @@
 // 편집 화면(CM6 위젯)과는 별개 파이프라인이다 — 모양 차이는 공통 CSS 토큰으로 관리(§4-4).
 
 import MarkdownIt, { type MarkdownIt as MarkdownItType, type StateInline, type Token } from "markdown-it";
+import { htmlTableKey } from "../editor/tableKey";
 import footnote from "markdown-it-footnote";
 
 import { ensureHighlight, escapeHtml, highlightHtml } from "../plugins/highlight";
@@ -36,6 +37,8 @@ export interface ExportHtmlOptions {
   pageNumbers?: boolean;
   /** 사이드카 이미지 폭(%) — 마크다운 src 키. 인라인化 전 <img>에 style로. */
   imageWidths?: Record<string, number>;
+  /** 사이드카 표 열 폭(px) — 헤더 내용 키. <colgroup> 비율로. */
+  tableWidths?: Record<string, number[]>;
   /** 로컬 이미지를 data URI로 인라인할지(HTML 내보내기 기본 켬). */
   inlineImages?: boolean;
   /** 이미지 바이너리 읽기(앱: Tauri 명령). 없으면 인라인 생략. */
@@ -183,6 +186,27 @@ function cleanMermaidSvg(svg: string): string {
 }
 
 // — 이미지 인라인 —
+
+/** 사이드카 표 열 폭(px)을 렌더된 <table>의 <colgroup> %(비율)로 반영.
+ *  편집기에서 드래그한 비율이 페이지 폭에 맞아 재배치된다. */
+export function applyTableWidths(
+  html: string,
+  widths: Record<string, number[]>,
+): string {
+  const keys = Object.keys(widths);
+  if (keys.length === 0) return html;
+  return html.replace(/<table\b[^>]*>[\s\S]*?<\/table>/gi, (table) => {
+    const cells = widths[htmlTableKey(table)];
+    if (!cells || cells.length < 2) return table;
+    const sum = cells.reduce((a, b) => a + b, 0);
+    if (sum <= 0) return table;
+    const cols = cells
+      .map((w) => `<col style="width:${((w / sum) * 100).toFixed(2)}%">`)
+      .join("");
+    // 마크다운-it은 colgroup 없이 렌더한다 — 여기가 첫 삽입이다.
+    return table.replace(/(<table\b[^>]*>)/, `$1<colgroup>${cols}</colgroup>`);
+  });
+}
 
 /** 사이드카 이미지 폭(%)을 <img> style로 반영. 원본 src를 키로 쓰므로
  *  data URI 인라인化 전에 호출한다. 퍼센트 디코딩한 표기도 같이 매칭. */
@@ -341,7 +365,10 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
   );
   const [{ body }, katexCss] = await Promise.all([renderMarkdownBody(body0, opts), inlineKatexCss()]);
   // 사이드카 폭은 원본 src 키로 매칭 — data URI 인라인化 전에 적용한다.
-  const withWidths = applyImageWidths(body, opts.imageWidths ?? {});
+  const withWidths = applyTableWidths(
+    applyImageWidths(body, opts.imageWidths ?? {}),
+    opts.tableWidths ?? {},
+  );
   const withImages = opts.inlineImages === false
     ? withWidths
     : await inlineImages(withWidths, opts.baseDir, opts.readBytes);
@@ -520,6 +547,8 @@ export async function buildDocxManifest(
   };
   /** 사이드카 이미지 폭(%) — 마크다운 src 키 → 그림 extent 축소. */
   imageWidths?: Record<string, number>;
+  /** 사이드카 표 열 폭(px) — 헤더 내용 키 → tblGrid 비율. */
+  tableWidths?: Record<string, number[]>;
 }> {
   const math: Record<string, string> = {};
   const diagrams: Record<string, string> = {};

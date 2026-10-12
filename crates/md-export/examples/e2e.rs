@@ -34,12 +34,15 @@ $$x^2 + \frac{1}{2}$$
     let images = md_export::ImageSource::new(String::new());
     md_export::docx::export_docx(
         md,
-        &math,
-        &diagrams,
-        &images,
+        &md_export::docx::DocxExportOptions {
+            math: &math,
+            diagrams: &diagrams,
+            images: &images,
+            style: Some(("serif", 12.0, 1.5, true, String::new(), "justify".to_string())),
+            page_numbers: true,
+            table_widths: &std::collections::HashMap::new(),
+        },
         std::path::Path::new("/tmp/iyagi-e2e.docx"),
-        Some(("serif", 12.0, 1.5, true, String::new(), "justify".to_string())),
-        true,
     )
     .unwrap();
     println!("DOCX 생성 완료");

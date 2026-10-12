@@ -72,7 +72,7 @@ const ioAdapter = {
   bookmarkRemove: (path: string, lineNo: number) => api.bookmarkRemove(path, lineNo),
   setSettings: (settings: Parameters<typeof api.setSettings>[0]) => api.setSettings(settings),
   backlinks: (root: string, path: string) => api.backlinks(root, path),
-  speakStart: (text: string, rate: number) => api.speakStart(text, rate),
+  speakStart: (text: string, rate: number, voice: string) => api.speakStart(text, rate, voice),
   speakStop: () => api.speakStop(),
 };
 

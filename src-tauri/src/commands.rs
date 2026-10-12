@@ -162,8 +162,47 @@ static SPEAKER: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mutex
 
 /// 텍스트를 시스템 목소리로 읽는다. 진행 중이면 먼저 끊는다. 실패는 조용히
 /// (say 없는 환경) — 반환값은 시작 성공 여부.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VoiceInfo {
+    pub name: String,
+    /// BCP 언어 태그(ko_KR 등).
+    pub lang: String,
+}
+
+/// 시스템 목소리 목록(say -v '?') — 이름·언어만.
 #[tauri::command]
-pub fn speak_start(text: String, rate: u32) -> bool {
+pub async fn list_voices() -> Result<Vec<VoiceInfo>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let out = std::process::Command::new("say")
+            .arg("-v")
+            .arg("?")
+            .output()
+            .map_err(err)?;
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        let mut voices = Vec::new();
+        for line in text.lines() {
+            // "Yuna              ko_KR  # /path" — 이름은 공백 포함 가능, 2+ 공백 구분.
+            let trimmed = line.trim_end();
+            let Some((head, rest)) = trimmed.split_once("  ") else {
+                continue;
+            };
+            let lang = rest.split_whitespace().next().unwrap_or("");
+            if lang.chars().next().is_some_and(|c| c.is_ascii_lowercase()) && lang.contains('_') {
+                voices.push(VoiceInfo {
+                    name: head.trim().to_string(),
+                    lang: lang.to_string(),
+                });
+            }
+        }
+        Ok(voices)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub fn speak_start(text: String, rate: u32, voice: String) -> bool {
     {
         let mut g = SPEAKER.lock().unwrap();
         if let Some(mut child) = g.take() {
@@ -171,9 +210,12 @@ pub fn speak_start(text: String, rate: u32) -> bool {
             let _ = child.wait();
         }
     }
-    match std::process::Command::new("say")
-        .arg("-r")
-        .arg(rate.to_string())
+    let mut cmd = std::process::Command::new("say");
+    cmd.arg("-r").arg(rate.to_string());
+    if !voice.trim().is_empty() {
+        cmd.arg("-v").arg(voice.trim());
+    }
+    match cmd
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -383,6 +425,9 @@ pub struct DocxManifest {
     /// 문서별 이미지 폭(%) — 마크다운 src 키(사이드카 imageWidths).
     #[serde(default)]
     pub image_widths: std::collections::HashMap<String, u32>,
+    /// 문서별 표 열 폭(px) — 헤더 내용 키(사이드카 tableWidths).
+    #[serde(default)]
+    pub table_widths: std::collections::HashMap<String, Vec<u32>>,
     /// 문서별 기본 서체(라이브 프리뷰 스타일 반영).
     pub style: Option<DocxStyleSpec>,
 }
@@ -425,21 +470,24 @@ pub fn export_docx(
     images.set_widths(manifest.image_widths);
     md_export::docx::export_docx(
         &markdown,
-        &manifest.math,
-        &manifest.diagrams,
-        &images,
+        &md_export::docx::DocxExportOptions {
+            math: &manifest.math,
+            diagrams: &manifest.diagrams,
+            images: &images,
+            style: manifest.style.as_ref().map(|s| {
+                (
+                    s.font.as_str(),
+                    s.size_pt,
+                    s.line_height,
+                    s.first_line_indent,
+                    s.accent.clone().unwrap_or_default(),
+                    s.text_align.clone().unwrap_or_default(),
+                )
+            }),
+            page_numbers: manifest.style.as_ref().is_some_and(|s| s.page_numbers),
+            table_widths: &manifest.table_widths,
+        },
         Path::new(&out_path),
-        manifest.style.as_ref().map(|s| {
-        (
-            s.font.as_str(),
-            s.size_pt,
-            s.line_height,
-            s.first_line_indent,
-            s.accent.clone().unwrap_or_default(),
-            s.text_align.clone().unwrap_or_default(),
-        )
-    }),
-        manifest.style.as_ref().is_some_and(|s| s.page_numbers),
     )
     .map_err(err)
 }

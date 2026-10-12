@@ -62,6 +62,7 @@ pub fn run() {
             commands::snapshot_list,
             commands::snapshot_read,
             commands::backlinks,
+            commands::list_voices,
             commands::speak_start,
             commands::speak_stop,
             commands::import_image,

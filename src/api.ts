@@ -45,6 +45,10 @@ export interface Settings {
   focusSentence: boolean;
   /** TTS 읽기 속도(기준 175). */
   ttsRate: number;
+  /** 읽기 목소리(빈 값 = 시스템 기본). */
+  ttsVoice: string;
+  /** TTS 음성(빈 문자열 = 시스템 기본). */
+  ttsVoice: string;
 }
 
 export interface SessionTab {
@@ -175,7 +179,9 @@ export const api = {
   snapshotList: (path: string) => invoke<SnapshotInfo[]>("snapshot_list", { path }),
   backlinks: (root: string, path: string) =>
     invoke<SearchHit[]>("backlinks", { root, path }),
-  speakStart: (text: string, rate: number) => invoke<boolean>("speak_start", { text, rate }),
+  speakStart: (text: string, rate: number, voice: string) =>
+    invoke<boolean>("speak_start", { text, rate, voice }),
+  listVoices: () => invoke<Array<{ name: string; lang: string }>>("list_voices"),
   speakStop: () => invoke<void>("speak_stop"),
   snapshotRead: (path: string, ts: number) => invoke<string>("snapshot_read", { path, ts }),
   getSettings: () => invoke<Settings>("get_settings"),

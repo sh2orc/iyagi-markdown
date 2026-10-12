@@ -36,6 +36,7 @@ import {
 
 import { lexicallyClean, percentDecode } from "../links";
 import { parseWikiLink, resolveWikiLink } from "./wiki";
+import { mdTableKey } from "./tableKey";
 import { phrases } from "../app/phrases";
 import {
   BulletWidget,
@@ -123,9 +124,11 @@ export const previewBehavior = Facet.define<PreviewBehavior, PreviewBehavior>({
 });
 
 /** 표 폭 저장 콜백 — App이 스토어와 연결(원문 불변 사이드카). */
-export let tableWidthsSaveHandler: ((lineNo: number, widths: number[]) => void) | null = null;
+export let tableWidthsSaveHandler:
+  | ((lineNo: number, key: string, widths: number[]) => void)
+  | null = null;
 export function setTableWidthsSaveHandler(
-  fn: ((lineNo: number, widths: number[]) => void) | null,
+  fn: ((lineNo: number, key: string, widths: number[]) => void) | null,
 ): void {
   tableWidthsSaveHandler = fn;
 }
@@ -632,12 +635,15 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
         if (name === "Table") {
           if (isRevealed(from, to)) return;
           const startLine = doc.lineAt(from).number;
+          const key = mdTableKey(slice(from, to));
+          // 헤더 키 우선 — 줄 번호 키(구 사이드카)는 폴백.
+          const saved = tableWidths[key] ?? tableWidths[String(startLine)];
           ranges.push(
             replace({
               widget: new TableWidget(
                 slice(from, to),
-                tableWidths[String(startLine)],
-                (widths) => tableWidthsSaveHandler?.(startLine, widths),
+                saved,
+                (widths) => tableWidthsSaveHandler?.(startLine, key, widths),
               ),
               block: true,
             }).range(from, to),

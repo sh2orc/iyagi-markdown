@@ -44,6 +44,8 @@ struct Ctx<'a> {
     next_doc_id: i64,
     /// 각주 정의(순서 = id). 라벨 → id(1부터).
     footnotes: Vec<String>,
+    /// 문서별 표 열 폭(px) — 헤더 내용 키(사이드카).
+    table_widths: std::collections::HashMap<String, Vec<u32>>,
     footnote_ids: std::collections::HashMap<String, usize>,
     /// 북마크 슬러그 중복 카운터(GitHub식 -1 접미 — 프런트 tocMarkdown과 같은 규칙).
     slug_seen: std::collections::HashMap<String, usize>,
@@ -83,16 +85,25 @@ impl<'a> Ctx<'a> {
     }
 }
 
+/// 내보내기 옵션 묶음 — export_docx 인자가 늘어 구조체로.
+pub struct DocxExportOptions<'a> {
+    pub math: &'a HashMap<String, String>,
+    pub diagrams: &'a HashMap<String, String>,
+    pub images: &'a ImageSource,
+    /// (font, pt, 행간, 들여쓰기, 강조색, 정렬).
+    pub style: Option<(&'a str, f64, f64, bool, String, String)>,
+    pub page_numbers: bool,
+    /// 헤더 내용 키 → 열 px(사이드카).
+    pub table_widths: &'a HashMap<String, Vec<u32>>,
+}
+
 /// 진입점: 마크다운 → .docx 파일.
 pub fn export_docx(
     markdown: &str,
-    math: &HashMap<String, String>,
-    diagrams: &HashMap<String, String>,
-    images: &ImageSource,
+    opts: &DocxExportOptions<'_>,
     out: &Path,
-    style: Option<(&str, f64, f64, bool, String, String)>, // (font, pt, 행간, 들여쓰기, 강조색, 정렬)
-    page_numbers: bool,
 ) -> Result<(), DocxError> {
+    let DocxExportOptions { math, diagrams, images, style, page_numbers, table_widths } = opts;
     let mut options = Options::default();
     options.extension.table = true;
     options.extension.strikethrough = true;
@@ -114,6 +125,7 @@ pub fn export_docx(
         hyperlinks: Vec::new(),
         next_doc_id: 100,
         footnotes: Vec::new(),
+        table_widths: (*table_widths).clone(),
         footnote_ids: std::collections::HashMap::new(),
         slug_seen: std::collections::HashMap::new(),
     };
@@ -136,12 +148,12 @@ pub fn export_docx(
     for child in root.children() {
         block(child, &mut ctx, &mut body, 0, false)?;
     }
-    body.push_str(&sect_pr(page_numbers));
+    body.push_str(&sect_pr(*page_numbers));
 
     // 각주 참조 자리표시자(\\u{E000}라벨\\u{E000}) → footnoteReference 런.
     let body = resolve_footnote_refs(&body, &ctx);
 
-    write_docx_zip(out, &body, &ctx, style, page_numbers)?;
+    write_docx_zip(out, &body, &ctx, style.clone(), *page_numbers)?;
     Ok(())
 }
 
@@ -378,6 +390,36 @@ fn math_paragraph(latex: &str, ctx: &Ctx, out: &mut String) {
 
 // — 표 —
 
+/// 셀 안 텍스트 전체 수집(재귀 — 인라인 서식 안까지).
+fn collect_text<'a>(node: &'a AstNode<'a>, out: &mut String) {
+    match &node.data.borrow().value {
+        NodeValue::Text(t) => out.push_str(t),
+        _ => {
+            for c in node.children() {
+                collect_text(c, out);
+            }
+        }
+    }
+}
+
+/// 표 헤더 키 — 프런트 tableKey.ts와 같은 규칙: 셀 텍스트에서 공백·강조
+/// 마커 제거 후 \x1f 결합. 줄 이동·서식 변화에 불변한 식별자.
+fn table_header_key<'a>(node: &'a AstNode<'a>) -> String {
+    let mut cells: Vec<String> = Vec::new();
+    if let Some(row) = node.children().next() {
+        for cell in row.children() {
+            let mut text = String::new();
+            collect_text(cell, &mut text);
+            let norm: String = text
+                .chars()
+                .filter(|c| !c.is_whitespace() && !matches!(c, '*' | '_' | '`' | '~'))
+                .collect();
+            cells.push(norm);
+        }
+    }
+    cells.join("\u{1f}")
+}
+
 fn table<'a>(
     node: &'a AstNode<'a>,
     t: &NodeTable,
@@ -385,8 +427,20 @@ fn table<'a>(
     out: &mut String,
 ) -> Result<(), DocxError> {
     let n_cols = t.num_columns;
-    // 열 폭: 균등(텍스트 폭 5537× twip? 6in=8640 twip).
-    let col_tw = 8640 / n_cols.max(1);
+    // 열 폭: 사이드카 지정이면 비율 반영, 아니면 균등(6in=8640 twip).
+    let key = table_header_key(node);
+    let custom = ctx
+        .table_widths
+        .get(&key)
+        .filter(|w| w.len() >= 2 && w.iter().sum::<u32>() > 0);
+    let col_tws: Vec<i64> = match custom {
+        Some(w) => {
+            let sum: f64 = w.iter().map(|&x| f64::from(x)).sum();
+            w.iter().map(|&x| ((8640.0 * f64::from(x)) / sum).round() as i64).collect()
+        }
+        None => vec![8640 / n_cols.max(1) as i64; n_cols],
+    };
+    let col_tw = col_tws[0];
     let _ = write!(
         out,
         "<w:tbl><w:tblPr><w:tblStyle w:val=\"TableGrid\"/>\
@@ -400,8 +454,9 @@ fn table<'a>(
 <w:bottom w:w=\"80\" w:type=\"dxa\"/><w:right w:w=\"120\" w:type=\"dxa\"/>\
 </w:tblCellMar></w:tblPr><w:tblGrid>"
     );
-    for _ in 0..n_cols {
-        let _ = write!(out, "<w:gridCol w:w=\"{col_tw}\"/>");
+    for (i, tw) in col_tws.iter().enumerate() {
+        let _ = write!(out, "<w:gridCol w:w=\"{tw}\"/>");
+        let _ = i;
     }
     out.push_str("</w:tblGrid>");
 
@@ -430,9 +485,10 @@ fn table<'a>(
                 };
                 let bold = if is_header { "<w:b/>" } else { "" };
                 // 헤더는 rPr b를 각 run에 넣을 수 없어 셀 수준 스타일로.
+                let cell_tw = col_tws.get(col_idx).copied().unwrap_or(col_tw);
                 let _ = write!(
                     out,
-                    "<w:tc><w:tcPr>{shade}<w:tcW w:w=\"{col_tw}\" w:type=\"dxa\"/></w:tcPr>\
+                    "<w:tc><w:tcPr>{shade}<w:tcW w:w=\"{cell_tw}\" w:type=\"dxa\"/></w:tcPr>\
 <w:p><w:pPr>{jc}<w:rPr>{bold}</w:rPr></w:pPr>{runs}</w:p></w:tc>"
                 );
                 col_idx += 1;
@@ -1279,7 +1335,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("basic");
-        export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new() }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         assert!(bytes.len() > 2000);
         // zip 매직.
@@ -1316,6 +1372,7 @@ mod tests {
             footnotes: vec!["DEF".into()],
             footnote_ids: [("a".to_string(), 1usize)].into_iter().collect(),
             slug_seen: std::collections::HashMap::new(),
+            table_widths: HashMap::new(),
         };
         let body = "x\u{E000}a\u{E000}y";
         let out = resolve_footnote_refs(body, &ctx);
@@ -1330,7 +1387,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("anchor");
-        export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new() }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1357,7 +1414,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("fn");
-        export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new() }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1392,7 +1449,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("hl");
-        export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new() }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1420,7 +1477,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("math");
-        export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new() }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1450,7 +1507,7 @@ mod tests {
         let math = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("mermaid");
-        export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new() }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1491,7 +1548,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(dir.to_string_lossy().into_owned());
         let out = tmp("img");
-        export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new() }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1531,7 +1588,7 @@ mod tests {
                 images.set_widths([("a.png".to_string(), p)].into_iter().collect());
             }
             let out = tmp("imgw");
-            export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
+            export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new() }, &out).unwrap();
             let bytes = std::fs::read(&out).unwrap();
             let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
             use std::io::Read;
@@ -1556,13 +1613,45 @@ mod tests {
     }
 
     #[test]
+    fn table_width_pct_writes_grid() {
+        let md = "| 이름 | 값 |\n|---|---|\n| a | 1 |\n";
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let mut widths: HashMap<String, Vec<u32>> = HashMap::new();
+        widths.insert("이름\u{1f}값".to_string(), vec![100, 300]);
+        let out = tmp("tblw");
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &widths }, &out).unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        use std::io::Read;
+        let mut doc = String::new();
+        zip.by_name("word/document.xml").unwrap().read_to_string(&mut doc).unwrap();
+        // 비율 1:3 → 8640을 2160/6480으로 분할.
+        assert!(doc.contains("<w:gridCol w:w=\"2160\"/>"));
+        assert!(doc.contains("<w:gridCol w:w=\"6480\"/>"));
+        assert!(doc.contains("<w:tcW w:w=\"2160\""));
+        assert!(doc.contains("<w:tcW w:w=\"6480\""));
+        // 지정 없는 표는 균등(4320).
+        let out2 = tmp("tblw-even");
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new() }, &out2).unwrap();
+        let bytes2 = std::fs::read(&out2).unwrap();
+        let mut z2 = zip::ZipArchive::new(std::io::Cursor::new(&bytes2)).unwrap();
+        let mut doc2 = String::new();
+        z2.by_name("word/document.xml").unwrap().read_to_string(&mut doc2).unwrap();
+        assert!(doc2.contains("<w:gridCol w:w=\"4320\"/>"));
+        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_file(&out2);
+    }
+
+    #[test]
     fn page_numbers_footer_wired() {
         let md = "# 문서\n\n본문.\n";
         let math = HashMap::new();
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("footer");
-        export_docx(md, &math, &diagrams, &images, &out, None, true).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: true, table_widths: &HashMap::new() }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1586,7 +1675,7 @@ mod tests {
         assert!(ct.contains("/word/footer1.xml"));
         // 끄면 아예 없다.
         let out2 = tmp("footer-off");
-        export_docx(md, &math, &diagrams, &images, &out2, None, false).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new() }, &out2).unwrap();
         let bytes2 = std::fs::read(&out2).unwrap();
         let z2 = zip::ZipArchive::new(std::io::Cursor::new(&bytes2)).unwrap();
         assert!(z2.file_names().filter_map(|n| n.ok()).all(|n| n != "word/footer1.xml"));

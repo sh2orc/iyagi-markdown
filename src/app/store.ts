@@ -105,7 +105,7 @@ export interface StoreIO {
   bookmarkRemove?(path: string, lineNo: number): Promise<void>;
   setSettings?(settings: Settings): Promise<void>;
   backlinks?(root: string, path: string): Promise<unknown[]>;
-  speakStart?(text: string, rate: number): Promise<boolean>;
+  speakStart?(text: string, rate: number, voice: string): Promise<boolean>;
   speakStop?(): Promise<void>;
 }
 
@@ -717,7 +717,8 @@ export class AppStore {
       : stripFrontMatter(this.view.state.doc.toString());
     if (!text.trim()) return;
     const rate = rateOverride ?? this.state.settings.ttsRate;
-    void this.io.speakStart?.(text, rate).then((started) => {
+    const voice = this.state.settings.ttsVoice;
+    void this.io.speakStart?.(text, rate, voice).then((started) => {
       if (started) {
         this.toast(sel.empty ? phrases.speakStartedDoc : phrases.speakStartedSel);
       }
@@ -1140,6 +1141,7 @@ export function defaultSettings(): Settings {
     focusMode: false,
     focusSentence: false,
     ttsRate: 175,
+    ttsVoice: "",
   };
 }
 

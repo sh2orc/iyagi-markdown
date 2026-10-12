@@ -67,6 +67,9 @@ pub struct Settings {
     /// 소리내어 읽기 속도(say -r, 분당 단어 근사).
     #[serde(default = "default_tts_rate")]
     pub tts_rate: u32,
+    /// 읽기 목소리(say -v 이름, 빈 값 = 시스템 기본).
+    #[serde(default)]
+    pub tts_voice: String,
 }
 
 fn default_tts_rate() -> u32 {

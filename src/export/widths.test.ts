@@ -36,3 +36,29 @@ describe("applyImageWidths", () => {
     expect(out).toBe(`<img src="x.png" style="width:30%;height:auto"/>`);
   });
 });
+
+describe("applyTableWidths / tableKey", () => {
+  it("마크다운 원문 키와 렌더된 HTML 키가 일치한다(서식·엔티티 포함)", async () => {
+    const { mdTableKey, htmlTableKey } = await import("../editor/tableKey");
+    const md = "| **이름** | 값 & 단위 |\n|---|---|\n| a | 1 |";
+    const html = "<table><thead><tr><th><strong>이름</strong></th><th>값 &amp; 단위</th></tr></thead><tbody><tr><td>a</td><td>1</td></tr></tbody></table>";
+    expect(mdTableKey(md)).toBe(htmlTableKey(html));
+  });
+
+  it("매칭 표에 colgroup 비율을 넣는다", async () => {
+    const { applyTableWidths } = await import("./html");
+    const { mdTableKey } = await import("../editor/tableKey");
+    const html = "<table><thead><tr><th>a</th><th>b</th></tr></thead></table>";
+    const out = applyTableWidths(html, { [mdTableKey("| a | b |\n|---|---|")]: [100, 300] });
+    expect(out).toContain("<colgroup>");
+    expect(out).toContain('width:25.00%');
+    expect(out).toContain('width:75.00%');
+  });
+
+  it("키가 없으면 무동작·1열 폭은 무시", async () => {
+    const { applyTableWidths } = await import("./html");
+    const html = "<table><tr><th>x</th></tr></table>";
+    expect(applyTableWidths(html, {})).toBe(html);
+    expect(applyTableWidths(html, { x: [500] })).toBe(html);
+  });
+});
