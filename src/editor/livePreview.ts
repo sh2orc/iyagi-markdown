@@ -907,22 +907,23 @@ function extractFenceBody(text: string): string {
   return s;
 }
 
-/** 클릭 위치의 링크 정보(내부 열기/외부 열기 분류는 links.ts가). */
+/** 클릭 위치의 링크 정보(내부 열기/외부 열기 분류는 links.ts가).
+ *  text는 표시 텍스트(링크 편집 대화상자용). */
 export function findLinkAt(
   state: EditorState,
   pos: number,
-): { url: string; from: number; to: number } | null {
-  let found: { url: string; from: number; to: number } | null = null;
+): { url: string; text: string; from: number; to: number } | null {
+  let found: { url: string; text: string; from: number; to: number } | null = null;
   syntaxTree(state).iterate({
     from: Math.max(0, pos - 2000),
     to: Math.min(state.doc.length, pos + 2000),
     enter: (node) => {
       if (found) return false;
       if (node.name === "Link" && pos >= node.from && pos <= node.to) {
-        const text = state.doc.sliceString(node.from, node.to);
-        const m = /^\[([\s\S]*)\]\(\s*<?([^)>]*?)>?\s*\)$/.exec(text);
+        const raw = state.doc.sliceString(node.from, node.to);
+        const m = /^\[([\s\S]*)\]\(\s*<?([^)>]*?)>?\s*\)$/.exec(raw);
         if (m) {
-          found = { url: m[2], from: node.from, to: node.to };
+          found = { url: m[2], text: m[1], from: node.from, to: node.to };
           return false;
         }
       }

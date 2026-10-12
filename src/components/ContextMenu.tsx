@@ -8,6 +8,7 @@ import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
 import { findLinkAt } from "../editor/livePreview";
+import { LinkDialog, type LinkEditTarget } from "./LinkDialog";
 import { previewConfigField } from "../editor/livePreview";
 
 interface Props {
@@ -22,11 +23,12 @@ interface MenuState {
   canUndo: boolean;
   canRedo: boolean;
   inTable: boolean;
-  link: { url: string; baseDir: string } | null;
+  link: { url: string; text: string; from: number; to: number; baseDir: string } | null;
 }
 
 export function ContextMenu({ store, t }: Props): JSX.Element | null {
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [linkEdit, setLinkEdit] = useState<LinkEditTarget | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -47,7 +49,7 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
         canUndo: editableNow(store),
         canRedo: editableNow(store),
         inTable: pos != null && !!fmt.tableAround(view),
-        link: link ? { url: link.url, baseDir } : null,
+        link: link ? { url: link.url, text: link.text, from: link.from, to: link.to, baseDir } : null,
       });
     };
     const close = () => setMenu(null);
@@ -131,9 +133,11 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
   );
 
   return (
+    <>
     <div ref={menuRef} className="ctx-menu" style={style} onContextMenu={(e) => e.preventDefault()}>
       {menu.link && item(t.ctxOpenLink, openLink)}
       {menu.link && item(t.ctxCopyLink, copyLink)}
+      {menu.link && item(t.ctxEditLink, () => setLinkEdit({ text: menu.link!.text, url: menu.link!.url, from: menu.link!.from, to: menu.link!.to }))}
       {menu.link && <span className="ctx-sep" />}
       {item(t.ctxUndo, () => run(() => undo(view)), { disabled: !menu.canUndo || !editable })}
       {item(t.ctxRedo, () => run(() => redo(view)), { disabled: !menu.canRedo || !editable })}
@@ -175,6 +179,27 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
         </>
       )}
     </div>
+
+      {linkEdit && (
+        <LinkDialog
+          initial={linkEdit}
+          t={t}
+          onCancel={() => setLinkEdit(null)}
+          onConfirm={(next) => {
+            const view = store.view;
+            setLinkEdit(null);
+            if (!view) return;
+            view.dispatch({
+              changes: { from: linkEdit.from, to: linkEdit.to, insert: `[${next.text}](${next.url})` },
+              selection: { anchor: linkEdit.from + next.text.length + 3 },
+              userEvent: "input.editLink",
+            });
+            view.focus();
+            store.toast(t.linkEdited);
+          }}
+        />
+      )}
+    </>
   );
 }
 

@@ -327,3 +327,43 @@ describe("목록 항목 접기", () => {
     expect(listItemFoldOf(state, doc.indexOf("항목 A"))).toBeNull(); // 줄 시작 아님
   });
 });
+
+// — 링크 편집(findLinkAt의 텍스트·URL 추출) —
+describe("findLinkAt", async () => {
+  const { findLinkAt } = await import("./livePreview");
+  const { EditorState } = await import("@codemirror/state");
+  const { markdown, markdownLanguage } = await import("@codemirror/lang-markdown");
+  const { GFM } = await import("@lezer/markdown");
+  const { ensureSyntaxTree } = await import("@codemirror/language");
+  const { mathSyntax } = await import("./mathSyntax");
+
+  const stateOf = (doc: string) => {
+    const st = EditorState.create({
+      doc,
+      extensions: [markdown({ base: markdownLanguage, extensions: [GFM, mathSyntax], addKeymap: false })],
+    });
+    ensureSyntaxTree(st, doc.length + 100, 5000);
+    return st;
+  };
+
+  it("표시 텍스트와 URL, 범위를 정확히", () => {
+    const doc = "앞 [사이트](https://x.y/z?a=1) 뒤";
+    const at = doc.indexOf("사이트");
+    const link = findLinkAt(stateOf(doc), at);
+    expect(link?.text).toBe("사이트");
+    expect(link?.url).toBe("https://x.y/z?a=1");
+    expect(doc.slice(link!.from, link!.to)).toBe("[사이트](https://x.y/z?a=1)");
+  });
+
+  it("URL에 <꺾쇠>가 있으면 벗겨낸다", () => {
+    const doc = "[문서](<my file.md>)";
+    const link = findLinkAt(stateOf(doc), 1);
+    expect(link?.url).toBe("my file.md");
+    expect(link?.text).toBe("문서");
+  });
+
+  it("링크 밖이면 null", () => {
+    const doc = "[링크](https://x) 그냥 텍스트";
+    expect(findLinkAt(stateOf(doc), doc.indexOf("그냥"))).toBeNull();
+  });
+});
