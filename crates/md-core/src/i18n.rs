@@ -95,6 +95,7 @@ pub enum Msg {
     BringAllToFront,
     Help,
     Shortcuts,
+    CommandPalette,
     Yes,
 }
 
@@ -151,6 +152,7 @@ impl Msg {
             Msg::BringAllToFront => "Bring All to Front",
             Msg::Help => "Help",
             Msg::Shortcuts => "Keyboard Shortcuts…",
+            Msg::CommandPalette => "Command Palette…",
             Msg::Yes => "Yes",
         };
         let ko = |m: Msg| match m {
@@ -204,6 +206,7 @@ impl Msg {
             Msg::BringAllToFront => "모두 앞으로 가져오기",
             Msg::Help => "도움말",
             Msg::Shortcuts => "키보드 단축키…",
+            Msg::CommandPalette => "명령 팔레트…",
             Msg::Yes => "예",
         };
         match lang {

@@ -37,6 +37,7 @@ import { StylePanel } from "./components/StylePanel";
 import { PrintPreview } from "./components/PrintPreview";
 import { ShortcutsPanel } from "./components/ShortcutsPanel";
 import { StatsPanel } from "./components/StatsPanel";
+import { CommandPalette } from "./components/CommandPalette";
 
 const ioAdapter = {
   readDocument: (path: string) => api.readDocument(path),
@@ -95,6 +96,7 @@ export function App(): JSX.Element {
   const [printOpen, setPrintOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -292,6 +294,9 @@ export function App(): JSX.Element {
         case "shortcuts":
           setShortcutsOpen(true);
           break;
+        case "command-palette":
+          setPaletteOpen(true);
+          break;
         case "new-tab":
           store.newTab();
           break;
@@ -411,6 +416,9 @@ export function App(): JSX.Element {
       } else if (key === ",") {
         e.preventDefault();
         setSettingsOpen(true);
+      } else if (key === "p" && e.shiftKey) {
+        e.preventDefault();
+        setPaletteOpen(true);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -583,6 +591,18 @@ export function App(): JSX.Element {
         t={t}
       />
       {styleOpen && <StylePanel store={store} onClose={() => setStyleOpen(false)} t={t} />}
+      {paletteOpen && (
+        <CommandPalette
+          store={store}
+          t={t}
+          onClose={() => setPaletteOpen(false)}
+          onOpenShortcuts={() => setShortcutsOpen(true)}
+          onOpenStats={() => setStatsOpen(true)}
+          onOpenStyle={() => setStyleOpen(true)}
+          onOpenPrint={() => setPrintOpen(true)}
+          onOpenExport={(kind) => store.setExportKind(kind)}
+        />
+      )}
       {shortcutsOpen && <ShortcutsPanel t={t} onClose={() => setShortcutsOpen(false)} />}
       {statsOpen && <StatsPanel store={store} t={t} onClose={() => setStatsOpen(false)} />}
       {printOpen && (

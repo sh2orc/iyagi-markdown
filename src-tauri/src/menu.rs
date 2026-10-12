@@ -34,6 +34,7 @@ const CUSTOM_IDS: &[&str] = &[
     "next-tab",
     "prev-tab",
     "shortcuts",
+    "command-palette",
 ];
 
 pub fn is_custom(id: &str) -> bool {
@@ -168,6 +169,8 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         t(Msg::View),
         true,
         &[
+            &mi(app, "command-palette", t(Msg::CommandPalette), Some("Shift-CmdOrCtrl-P"))?,
+            &PredefinedMenuItem::separator(app)?,
             &mi(app, "mode-edit", t(Msg::ModeEdit), None)?,
             &mi(app, "mode-read", t(Msg::ModeRead), Some("CmdOrCtrl+E"))?,
             &mi(app, "mode-source", t(Msg::ModeSource), Some("CmdOrCtrl+/"))?,
