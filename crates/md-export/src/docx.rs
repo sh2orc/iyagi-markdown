@@ -42,6 +42,9 @@ struct Ctx<'a> {
     hyperlinks: Vec<String>,
     /// 그림 고유 id 시퀀스.
     next_doc_id: i64,
+    /// 각주 정의(순서 = id). 라벨 → id(1부터).
+    footnotes: Vec<String>,
+    footnote_ids: std::collections::HashMap<String, usize>,
 }
 
 impl<'a> Ctx<'a> {
@@ -91,6 +94,8 @@ pub fn export_docx(
         media: Vec::new(),
         hyperlinks: Vec::new(),
         next_doc_id: 100,
+        footnotes: Vec::new(),
+        footnote_ids: std::collections::HashMap::new(),
     };
     let mut body = String::new();
     for child in root.children() {
@@ -100,6 +105,9 @@ pub fn export_docx(
         "<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/>\
 <w:pgMar w:top=\"1418\" w:right=\"1418\" w:bottom=\"1418\" w:left=\"1418\"/></w:sectPr>",
     );
+
+    // 각주 참조 자리표시자(\\u{1}라벨\\u{1}) → footnoteReference 런.
+    let body = resolve_footnote_refs(&body, &ctx);
 
     write_docx_zip(out, &body, &ctx, style)?;
     Ok(())
@@ -116,6 +124,13 @@ fn block<'a>(
 ) -> Result<(), DocxError> {
     match &node.data.borrow().value {
         NodeValue::Paragraph => {
+            // 각주 정의 [^라벨]: … — 본문 흐름에서 빼고 footnotes.xml로.
+            if let Some(label) = take_footnote_def(node, ctx) {
+                let runs = inline_children(node, ctx, list_level)?;
+                ctx.footnote_ids.insert(label, ctx.footnotes.len() + 1);
+                ctx.footnotes.push(runs);
+                return Ok(());
+            }
             let runs = inline_children(node, ctx, list_level)?;
             let quote = if in_quote {
                 " w:val=\"IYAGIQuote\""
@@ -389,6 +404,85 @@ fn rpr(style: &RunStyle) -> String {
     }
 }
 
+
+// — 각주(Word 네이티브) —
+
+/// 문단이 각주 정의([\^라벨]: …)면 접두를 떼고 라벨을 돌려준다(제자리 수정).
+fn take_footnote_def(node: &AstNode<'_>, _ctx: &mut Ctx) -> Option<String> {
+    // 첫 자식 텍스트 노드의 [^라벨]: 접두를 떼낸다(나머지 인라인은 그대로).
+    let c = node.children().next()?;
+    let mut data = c.data.borrow_mut();
+    if let NodeValue::Text(t) = &mut data.value {
+        if let Some((label, remainder)) = split_def_prefix(t) {
+            *t = std::borrow::Cow::Owned(remainder);
+            return Some(label);
+        }
+    }
+    None
+}
+
+/// "[^라벨]: 나머지" → (라벨, 나머지). 형식이 아니면 None.
+fn split_def_prefix(t: &str) -> Option<(String, String)> {
+    let rest = t.strip_prefix("[^")?;
+    let close = rest.find(']')?;
+    let label = &rest[..close];
+    if label.is_empty() || label.contains(char::is_whitespace) {
+        return None;
+    }
+    let after = rest[close + 1..].strip_prefix(':')?;
+    Some((
+        label.to_string(),
+        after.strip_prefix(' ').unwrap_or(after).to_string(),
+    ))
+}
+
+/// 본문 문자열의 자리표시자(\u{1}라벨\u{1})를 footnoteReference로 치환.
+/// 등록 안 된 라벨은 원문 [^라벨]로 복원(데이터 무손실).
+fn resolve_footnote_refs(body: &str, ctx: &Ctx) -> String {
+    let mut out = String::with_capacity(body.len());
+    let mut rest = body;
+    while let Some(i) = rest.find('\u{1}') {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 1..];
+        match after.find('\u{1}') {
+            Some(j) => {
+                let label = &after[..j];
+                match ctx.footnote_ids.get(label) {
+                    Some(id) => out.push_str(&format!(
+                        "<w:r><w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr><w:footnoteReference w:id=\"{id}\"/></w:r>"
+                    )),
+                    None => out.push_str(&format!("[^{label}]")),
+                }
+                rest = &after[j + 1..];
+            }
+            None => {
+                out.push('\u{1}');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// word/footnotes.xml — 구분자(-1)·연속 구분자(0) + 정의(1..N).
+fn footnotes_xml(ctx: &Ctx) -> String {
+    let mut s = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:footnotes xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">\
+<w:footnote w:type=\"separator\" w:id=\"-1\"><w:p><w:pPr><w:spacing w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr><w:r><w:separator/></w:r></w:p></w:footnote>\
+<w:footnote w:type=\"continuationSeparator\" w:id=\"0\"><w:p><w:pPr><w:spacing w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>",
+    );
+    for (i, runs) in ctx.footnotes.iter().enumerate() {
+        let _ = write!(
+            s,
+            "<w:footnote w:id=\"{}\"><w:p><w:pPr><w:sz w:val=\"18\"/></w:pPr>{runs}</w:p></w:footnote>",
+            i + 1
+        );
+    }
+    s.push_str("</w:footnotes>");
+    s
+}
+
 fn plain_run(text: &str, style: &RunStyle) -> String {
     if text.is_empty() {
         return String::new();
@@ -412,6 +506,36 @@ fn highlight_run(text: &str, style: &RunStyle) -> String {
 }
 
 fn text_run(text: &str, style: &RunStyle) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+    // 각주 참조 [^라벨] → 자리표시자 런(문서 조립 뒤 치환). 하이라이트와
+    // 겹치는 경우는 드물어 각각 독립 스캔.
+    if text.contains("[^") {
+        let mut out = String::new();
+        let mut rest = text;
+        while let Some(i) = rest.find("[^") {
+            let after = &rest[i + 2..];
+            match after.find(']') {
+                Some(j) if j > 0 && !after[..j].contains(char::is_whitespace) => {
+                    let label = &after[..j];
+                    out.push_str(&highlight_text_run(&rest[..i], style));
+                    out.push_str(&plain_run(
+                        &format!("{FNSEP}{label}{FNSEP}", FNSEP = '\u{1}'),
+                        style,
+                    ));
+                    rest = &after[j + 1..];
+                }
+                _ => break,
+            }
+        }
+        out.push_str(&highlight_text_run(rest, style));
+        return out;
+    }
+    highlight_text_run(text, style)
+}
+
+fn highlight_text_run(text: &str, style: &RunStyle) -> String {
     if text.is_empty() {
         return String::new();
     }
@@ -685,9 +809,13 @@ fn write_docx_zip(
         Ok(zip.write_all(data.as_bytes())?)
     };
 
+    let has_footnotes = !ctx.footnotes.is_empty();
     add(&mut zip, "[Content_Types].xml", &content_types(ctx))?;
     add(&mut zip, "_rels/.rels", RELS_ROOT)?;
     add(&mut zip, "word/document.xml", &document(body))?;
+    if has_footnotes {
+        add(&mut zip, "word/footnotes.xml", &footnotes_xml(ctx))?;
+    }
     add(
         &mut zip,
         "word/_rels/document.xml.rels",
@@ -777,6 +905,12 @@ fn document_rels(ctx: &Ctx) -> String {
 <Relationship Id="rIdNum" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
 <Relationship Id="rIdSettings" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>"#,
     );
+    if !ctx.footnotes.is_empty() {
+        let _ = write!(
+            s,
+            "<Relationship Id=\"rIdFootnotes\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes\" Target=\"footnotes.xml\"/>"
+        );
+    }
     for (i, url) in ctx.hyperlinks.iter().enumerate() {
         let _ = write!(
             s,
