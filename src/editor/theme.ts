@@ -317,6 +317,7 @@ export const editorTheme = EditorView.theme({
     padding: "5px 12px",
   },
   ".md-table th": {
+    position: "relative", // 열 폭 핸들이 th에 붙게
     backgroundColor: "var(--md-table-head)",
     fontWeight: "650",
     borderBottom: "2px solid var(--md-border-strong)",
@@ -324,6 +325,24 @@ export const editorTheme = EditorView.theme({
   },
   ".md-table th:hover": {
     backgroundColor: "var(--md-accent-soft)",
+  },
+  ".md-col-handle": {
+    position: "absolute",
+    right: "-4px",
+    top: "10%",
+    bottom: "10%",
+    width: "7px",
+    cursor: "col-resize",
+  },
+  ".md-col-handle::after": {
+    content: "' '",
+    display: "block",
+    margin: "0 3px",
+    height: "100%",
+    borderRight: "2px solid transparent",
+  },
+  ".md-col-handle:hover::after, .md-col-handle:active::after": {
+    borderRightColor: "var(--md-accent)",
   },
   ".md-table th[data-align]::after": {
     content: "attr(data-align)",

@@ -345,6 +345,8 @@ const tableCellText = (raw: string): DocumentFragment => {
 };
 
 export class TableWidget extends WidgetType {
+  #widths: number[] | null = null;
+
   constructor(readonly src: string) {
     super();
   }
@@ -359,6 +361,17 @@ export class TableWidget extends WidgetType {
     wrap.className = "md-table-wrap";
     const table = document.createElement("table");
     table.className = "md-table";
+    table.style.tableLayout = "fixed"; // 열 폭 드래그가 정확히 반영되게.
+    const nCols = Math.max(parsed.header.length, 1);
+    // 열 폭 상태(재생성에도 유지 — 위젯 인스턴스가 살아 있는 동안).
+    const colgroup = document.createElement("colgroup");
+    for (let i = 0; i < nCols; i++) {
+      const col = document.createElement("col");
+      const w = this.#widths?.[i];
+      if (w) col.style.width = `${w}px`;
+      colgroup.append(col);
+    }
+    table.append(colgroup);
     const thead = document.createElement("thead");
     const hrow = document.createElement("tr");
     parsed.header.forEach((cell, i) => {
@@ -370,6 +383,32 @@ export class TableWidget extends WidgetType {
         e.preventDefault();
         tableHeaderClickHandler?.(i, e.altKey);
       });
+      // 열 너비 드래그 핸들(마지막 열 제외) — **표시 폭만** 조절(원문 불변).
+      if (i < nCols - 1) {
+        const handle = document.createElement("span");
+        handle.className = "md-col-handle";
+        handle.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const startX = e.clientX;
+          const col = colgroup.children[i] as HTMLElement;
+          const startW = col.getBoundingClientRect().width;
+          const move = (ev: PointerEvent) => {
+            const w = Math.max(48, startW + ev.clientX - startX);
+            col.style.width = `${w}px`;
+          };
+          const up = () => {
+            window.removeEventListener("pointermove", move);
+            window.removeEventListener("pointerup", up);
+            this.#widths = Array.from(colgroup.children).map(
+              (c) => (c as HTMLElement).getBoundingClientRect().width,
+            );
+          };
+          window.addEventListener("pointermove", move);
+          window.addEventListener("pointerup", up);
+        });
+        th.append(handle);
+      }
       th.append(tableCellText(cell));
       // 정렬 상태 표시(Word 표 도구의 정렬 아이콘에 대응).
       if (a === "left") th.dataset.align = "↤";
