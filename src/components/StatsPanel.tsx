@@ -2,6 +2,8 @@
 // 스토어의 증분 카운터 + 문단·제목·표·읽기 시간은 여는 순간에만 계산한다.
 
 import type { AppStore } from "../app/store";
+import { sentenceSpans } from "../editor/writing";
+import { stripFrontMatter } from "../editor/frontmatter";
 import type { Translate } from "../i18n";
 import { collectHeadings } from "../links";
 
@@ -26,6 +28,12 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
   const headings = collectHeadings(text).length;
   const tables = (text.match(/^\|[\s:|-]+\|\s*$/gm) ?? []).length;
   const codeBlocks = (text.match(/^```/gm) ?? []).length / 2;
+  // 문장 지표(작가용) — sentenceSpans 재활용(14차). 본문만(FM 제외).
+  const body = stripFrontMatter(text);
+  const spans = sentenceSpans(body);
+  const sentences = spans.length;
+  const avgSentenceLen = sentences > 0 ? body.replace(/\s+/g, " ").length / sentences : 0;
+
   const rows: Array<[string, string]> = [
     [t.f.words(tab.words), String(tab.words)],
     [t.f.chars(tab.chars), String(tab.chars)],
@@ -34,6 +42,8 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
     [t.tbTable, String(Math.floor(tables))],
     ["Code", String(Math.floor(codeBlocks))],
     [t.statReading, `${readingMinutes(text)} ${t.statMin}`],
+    [t.statSentences, String(sentences)],
+    [t.statAvgSentence, `${avgSentenceLen.toFixed(1)} ${t.statChars}`],
   ];
   void t;
 
