@@ -32,7 +32,7 @@ export function StylePanel({ store, onClose, t }: Props): JSX.Element | null {
   };
 
   return (
-    <div className="overlay modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal settings-modal">
         <div className="modal-title">
           {t.styleTitle}

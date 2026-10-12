@@ -37,7 +37,7 @@ export function ExportSheet({ kind, t, onRun, onCancel, pageNumbers = true, onTo
           : t.exportDocx;
 
   return (
-    <div className="overlay modal-overlay" onClick={(e) => e.target === e.currentTarget && onCancel()}>
+    <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onCancel()}>
       <div className="modal">
         <div className="modal-title">{t.exportTitle}</div>
         <div className="modal-kind">{label}</div>

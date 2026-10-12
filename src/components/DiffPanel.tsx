@@ -51,7 +51,7 @@ export function DiffPanel({ store, t, onClose }: Props): JSX.Element | null {
   if (!tab) return null;
 
   return (
-    <div className="overlay modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="diff-frame">
         <div className="print-head">
           <span className="print-title">

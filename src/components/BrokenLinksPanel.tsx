@@ -36,7 +36,7 @@ export function BrokenLinksPanel({ store, t, onClose, onGoto }: Props): JSX.Elem
   }, [tab?.path]);
 
   return (
-    <div className="overlay palette-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay palette-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="palette wssearch">
         <div className="palette-input palette-input-static">
           {t.brokenLinksTitle}

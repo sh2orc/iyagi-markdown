@@ -64,7 +64,7 @@ const GROUPS = (t: Translate): Array<{ title: string; items: [string, string][] 
 
 export function ShortcutsPanel({ t, onClose }: Props): JSX.Element {
   return (
-    <div className="overlay modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal shortcuts-modal">
         <div className="modal-title">{t.shortcutsTitle}</div>
         <div className="shortcuts-grid">

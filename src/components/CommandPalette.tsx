@@ -278,7 +278,7 @@ export function CommandPalette({
   };
 
   return (
-    <div className="overlay palette-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay palette-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="palette">
         <input
           ref={inputRef}

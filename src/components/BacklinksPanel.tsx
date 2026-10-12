@@ -90,6 +90,8 @@ export function BacklinksPanel({ store, t, onClose, onOpenHit }: Props): JSX.Ele
   return (
     <div
       className="overlay palette-overlay"
+      role="dialog"
+      aria-modal="true"
       tabIndex={-1}
       onKeyDown={(e) => {
         if (e.key === "ArrowDown") {

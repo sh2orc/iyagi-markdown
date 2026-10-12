@@ -59,7 +59,7 @@ export function PrintPreview({ store, t, onExport, onCancel }: Props): JSX.Eleme
   if (!tab) return null;
 
   return (
-    <div className="overlay print-overlay" onClick={(e) => e.target === e.currentTarget && onCancel()}>
+    <div className="overlay print-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onCancel()}>
       <div className="print-frame">
         <div className="print-head">
           <span className="print-title">{t.printPreviewTitle}</span>

@@ -15,7 +15,7 @@ export function CloseConfirm({
   const dirtyTabs = store.state.tabs.filter((x) => x.dirty);
   const name = dirtyTabs[0]?.path?.split("/").pop() ?? t.untitled;
   return (
-    <div className="overlay modal-overlay">
+    <div className="overlay modal-overlay" role="dialog" aria-modal="true">
       <div className="modal">
         <div className="modal-title">{t.dirtyTitle}</div>
         <p className="modal-text">
@@ -69,7 +69,7 @@ export function ConflictDialog({
   const removed = tab.conflict === "removed";
   const name = tab.path?.split("/").pop() ?? t.untitled;
   return (
-    <div className="overlay modal-overlay">
+    <div className="overlay modal-overlay" role="dialog" aria-modal="true">
       <div className="modal">
         <div className="modal-title">{t.extChangedTitle}</div>
         <p className="modal-text">

@@ -88,7 +88,7 @@ export function VersionsPanel({ store, t, onClose, onRestore }: Props): JSX.Elem
   const summary = useMemo(() => diffSummary(ops), [ops]);
 
   return (
-    <div className="overlay modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal versions-modal">
         <div className="modal-title">
           {t.versionsTitle}
