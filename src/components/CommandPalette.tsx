@@ -18,6 +18,13 @@ import { smoothScrollIntoView } from "../editor/cm";
 import { foldAll, unfoldAll } from "@codemirror/language";
 import { DOC_TEMPLATES } from "../app/templates";
 
+/** 라벨 끝의 단축키 토큰 분리 — "저장 ⌘S" → ["저장", "⌘S"]. 순수 함수. */
+export function splitKbd(label: string): [string, string | null] {
+  const m = /\s+([\u2318\u21e7\u2325\u2303\u2191\u2193][\w\u2318\u21e7\u2325\u2303\u2191\u2193+\-\/]*)$/.exec(label);
+  if (!m) return [label, null];
+  return [label.slice(0, m.index), m[1] ?? null];
+}
+
 interface Cmd {
   id: string;
   label: string;
@@ -372,9 +379,11 @@ export function CommandPalette({
             }
             const cls = `palette-item ${i === sel ? "is-sel" : ""}`;
             if (r.kind === "cmd") {
+              const [text, kbd] = splitKbd(r.c.label);
               return (
                 <button key={r.c.id} className={cls} onMouseEnter={() => setSel(i)} onClick={() => runIdx(i)}>
-                  {r.c.label}
+                  <span className="palette-cmd-text">{text}</span>
+                  {kbd && <kbd className="palette-kbd">{kbd}</kbd>}
                 </button>
               );
             }

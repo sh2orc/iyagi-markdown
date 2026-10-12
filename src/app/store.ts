@@ -590,8 +590,17 @@ export class AppStore {
   async reloadTab(id: string, keepPosition: boolean): Promise<void> {
     const tab = this.state.tabs.find((t) => t.id === id);
     if (!tab?.path) return;
+    const wasDirty = tab.dirty;
     try {
       const doc = await this.io.readDocument(tab.path);
+      // 읽는 사이 사용자가 편집했다면 덮어쓰지 않는다(편집 유실 방지) —
+      // 자동 리로드 경로만. 사용자가 명시적으로 다시 읽기를 고른 경우도
+      // dirty면 충돌로 알리는 쪽이 안전하다.
+      if (!wasDirty && tab.dirty) {
+        tab.conflict = "conflict";
+        this.emit();
+        return;
+      }
       const isActive = tab.id === this.state.activeId;
       if (isActive && this.view) {
         const sel = this.view.state.selection.main.head;

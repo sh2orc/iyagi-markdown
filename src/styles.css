@@ -2365,3 +2365,15 @@ body.resizing .toc {
   font-size: 11.5px; color: var(--md-fg-dim); white-space: nowrap;
 }
 .print-ctl input[type="range"] { width: 90px; }
+
+/* — 팔레트 단축키 칩 — */
+.palette-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.palette-cmd-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-kbd {
+  flex: none;
+  font-family: var(--md-code-font, ui-monospace, monospace);
+  font-size: 10.5px; color: var(--md-fg-dim);
+  background: var(--md-code-bg);
+  border: 1px solid var(--md-border);
+  border-radius: 5px; padding: 1px 6px;
+}
