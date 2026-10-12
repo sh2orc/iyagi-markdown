@@ -228,7 +228,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
 
     let menu = Menu::with_items(
         app,
-        &[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu],
+        &[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu, &help_menu],
     )?;
     app.set_menu(menu).map(|_| ())
 }

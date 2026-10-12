@@ -241,7 +241,7 @@ fn slice_pdf_pages(
     pt_w: f64,
     pt_h: f64,
     out: &Path,
-    page_numbers: bool,
+    _page_numbers: bool,
 ) -> Result<(), String> {
     use objc2_core_foundation::{CFRetained, CGPoint, CGRect, CGSize};
     use objc2_core_graphics::{
