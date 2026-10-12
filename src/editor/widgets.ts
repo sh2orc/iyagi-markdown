@@ -352,6 +352,10 @@ export class TableWidget extends WidgetType {
       const a = parsed.align[i];
       if (a) th.style.textAlign = a;
       th.append(tableCellText(cell));
+      // 정렬 상태 표시(Word 표 도구의 정렬 아이콘에 대응).
+      if (a === "left") th.dataset.align = "↤";
+      else if (a === "center") th.dataset.align = "↔";
+      else if (a === "right") th.dataset.align = "↦";
       hrow.append(th);
     });
     thead.append(hrow);

@@ -145,7 +145,13 @@ export const editorTheme = EditorView.theme({
     cursor: "pointer",
   },
   ".md-link-ref": { color: "var(--md-link)", textDecoration: "underline dotted" },
-  ".md-url": { color: "var(--md-link)", opacity: 0.9 },
+  ".md-url": {
+    color: "var(--md-link)",
+    textDecoration: "underline",
+    textDecorationColor: "var(--md-link-underline)",
+    textUnderlineOffset: "2.5px",
+    cursor: "pointer",
+  },
   ".md-html": { color: "var(--md-raw)" },
   ".md-footnote-ref": {
     color: "var(--md-link)",
@@ -302,6 +308,12 @@ export const editorTheme = EditorView.theme({
     backgroundColor: "var(--md-table-head)",
     fontWeight: "650",
     borderBottom: "2px solid var(--md-border-strong)",
+  },
+  ".md-table th[data-align]::after": {
+    content: "attr(data-align)",
+    fontSize: "0.75em",
+    opacity: 0.5,
+    marginLeft: "0.35em",
   },
   ".md-table tr:last-child td": { borderBottom: "1px solid var(--md-table-line)" },
 
