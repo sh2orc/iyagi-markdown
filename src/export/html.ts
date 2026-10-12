@@ -32,6 +32,8 @@ export interface ExportHtmlOptions {
   forPdf?: boolean;
   marginMm?: number;
   scale?: number;
+  /** PDF 하단 페이지 번호(N / M — WebKit 인쇄에서 매 페이지 반복). */
+  pageNumbers?: boolean;
   /** 로컬 이미지를 data URI로 인라인할지(HTML 내보내기 기본 켬). */
   inlineImages?: boolean;
   /** 이미지 바이너리 읽기(앱: Tauri 명령). 없으면 인라인 생략. */
@@ -46,6 +48,24 @@ function makeMd(): MarkdownItType {
   const md = new MarkdownIt({ html: true, linkify: true, breaks: false, typographer: false });
   md.use(footnote);
   // $…$ · $$…$$ 수식 규칙(§4-4: KaTeX로 렌더).
+  // ==하이라이트== → <mark>(Obsidian 호환).
+  md.inline.ruler.before("escape", "iyagi_highlight", (state: StateInline, silent: boolean) => {
+    const src = state.src;
+    const pos = state.pos;
+    if (src.charCodeAt(pos) !== 0x3d || src.charCodeAt(pos + 1) !== 0x3d) return false;
+    const after = src.charCodeAt(pos + 2);
+    if (after === 0x20 || after === 0x0a || after === 0x3d || Number.isNaN(after)) return false;
+    const close = src.indexOf("==", pos + 2);
+    if (close === -1 || src[close - 1] === "\\") return false;
+    if (!silent) {
+      const token = state.push("iyagi_highlight", "", 0);
+      token.content = src.slice(pos + 2, close);
+    }
+    state.pos = close + 2;
+    return true;
+  });
+  md.renderer.rules.iyagi_highlight = (tokens, idx) =>
+    `<mark class="hl">${escapeHtml(tokens[idx].content)}</mark>`;
   md.inline.ruler.before("escape", "iyagi_math", (state: StateInline, silent: boolean) => {
     const src = state.src;
     const pos = state.pos;
@@ -288,6 +308,21 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
     ? `body{margin:${opts.marginMm ?? 14}mm !important;}` +
       `html{font-size:${(16 * (opts.scale ?? 1)).toFixed(1)}px;}`
     : "";
+  // 페이지 번호 — 고정 위치 요소가 WebKit createPDF에서 매 "페이지"(=컬럼)에
+  // 반복 나타나지는 않으므로, JS로 컬럼 수를 세어 개별 번호 DOM을 absolute로 심는다.
+  const pageNumCss = opts.forPdf && opts.pageNumbers
+    ? `.pdf-pagenum {
+        position: fixed;
+        bottom: 8mm;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 9px;
+        color: #888;
+        font-family: -apple-system, sans-serif;
+      }
+      .pdf-pagenum-data { position: absolute; top: 0; left: 0; right: 0; }`
+    : "";
   // 문서별 스타일 — 라이브 프리뷰의 문서 스타일 패널과 같은 값.
   const st = opts.style;
   const styleCss = st
@@ -318,15 +353,45 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
 :root{color-scheme:${opts.theme};}
 ${themeCss(opts.theme)}
 ${styleCss}
+${pageNumCss}
 ${katexCss}
 ${marginCss}
 </style>
 </head>
 <body>
+${opts.forPdf && opts.pageNumbers ? `<div class="pdf-pagenum" aria-hidden="true"></div>` : ""}
 ${opts.forPdf ? "" : `<header class="doc-header"><h1>${escapeHtml(opts.title)}</h1></header>`}
 <article class="markdown-body">
 ${sanitized}
 </article>
+${opts.forPdf && opts.pageNumbers ? `<script>
+(function() {
+  var d = document.querySelector('.pdf-pagenum');
+  if (!d) return;
+  var body = document.body;
+  // 콘텐츠가 실제로 흐르는 폭(고정 wrapper가 있으면 그 폭, 없으면 body 폭).
+  var wrap = document.querySelector('#iyagi-page-wrap');
+  var colW = wrap ? parseFloat(getComputedStyle(wrap).columnWidth) : 0;
+  if (!colW) return;
+  var total = Math.max(1, Math.ceil((wrap ? wrap.scrollWidth : body.scrollWidth) / (colW + parseFloat(getComputedStyle(wrap).columnGap || '0'))));
+  var text = ' / ' + total;
+  // WebKit 인쇄에서 fixed 요소는 한 번만 렌더된다 — 대신 각 컬럼 위치에 absolute 번호.
+  d.remove();
+  wrap.style.position = 'relative';
+  for (var i = 1; i <= total; i++) {
+    var el = document.createElement('div');
+    el.className = 'pdf-pagenum-data';
+    el.style.left = ((i - 1) * (colW + parseFloat(getComputedStyle(wrap).columnGap || '0'))) + 'px';
+    el.style.width = colW + 'px';
+    el.style.top = (wrap.offsetHeight - 24) + 'px';
+    el.style.textAlign = 'center';
+    el.style.fontSize = '9px';
+    el.style.color = '#888';
+    el.textContent = i + text;
+    wrap.appendChild(el);
+  }
+})();
+</script>` : ""}
 </body>
 </html>`;
 }

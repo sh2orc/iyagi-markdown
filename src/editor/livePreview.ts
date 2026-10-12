@@ -495,6 +495,12 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
           return;
         }
 
+        // — 하이라이트 ==텍스트==(커스텀 문법) —
+        if (name === "Highlight") {
+          ranges.push(Decoration.mark({ class: "md-highlight" }).range(from, to));
+          return;
+        }
+
         // — 위키링크 [[이름]](커스텀 문법) —
         if (name === "WikiLink") {
           const raw = slice(from, to);

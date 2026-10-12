@@ -223,6 +223,13 @@ export const editorTheme = EditorView.theme({
   ".md-codeblock.md-code-first.md-code-last": { borderRadius: "9px" },
   ".md-codeblock-indented": { paddingLeft: "18px" },
 
+  // — 하이라이트 ==텍스트== — 테마별 노랑 배경 —
+  ".md-highlight": {
+    backgroundColor: "color-mix(in srgb, #ffd60a 38%, transparent)",
+    borderRadius: "3px",
+    padding: "0.05em 0.15em",
+  },
+
   // — 위키링크(커스텀 문법 [[..]]) — 해석되면 강조 링크, 아니면 흐린 점선 —
   ".md-wikilink": {
     color: "var(--md-accent)",

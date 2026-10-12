@@ -7,8 +7,31 @@ const DOLLAR = 36;
 const BACKSLASH = 92;
 
 export const mathSyntax: MarkdownExtension = {
-  defineNodes: [{ name: "InlineMath" }, { name: "MathBlock", block: true }, { name: "FootnoteRef" }],
+  defineNodes: [
+    { name: "InlineMath" },
+    { name: "MathBlock", block: true },
+    { name: "FootnoteRef" },
+    { name: "Highlight" },
+  ],
   parseInline: [
+    {
+      // ==하이라이트== (Obsidian). 여는 == 뒤 공백/줄바꿈 아니고 같은 줄에서 닫힌다.
+      name: "iyagiHighlight",
+      before: "Escape",
+      parse(cx, next, pos) {
+        if (next !== 0x3d /* = */ || cx.char(pos + 1) !== 0x3d) return -1;
+        const after = cx.char(pos + 2);
+        if (after === 32 || after === 10 || after === 9 || after === -1 || after === 0x3d) return -1;
+        for (let i = pos + 2; i < cx.end; i++) {
+          const c = cx.char(i);
+          if (c === 0x0a) return -1; // 줄 안에서 닫혀야 한다
+          if (c === 0x3d && cx.char(i + 1) === 0x3d) {
+            return cx.addElement(cx.elt("Highlight", pos, i + 2));
+          }
+        }
+        return -1;
+      },
+    },
     {
       // 각주 참조 [^label] — Link 파서보다 먼저 잡는다.
       name: "iyagiFootnoteRef",
@@ -93,3 +116,9 @@ export const mathSyntax: MarkdownExtension = {
     },
   ],
 };
+
+/** DOCX 경로용 ==하이라이트== 강등 — comrak이 모르는 문법을 굵게로.
+ *  (HTML·PDF는 <mark>로 그대로, DOCX만 이 변환을 쓴다.) 순수 함수. */
+export function highlightToBold(text: string): string {
+  return text.replace(/==([^=\n]+)==/g, "**$1**");
+}

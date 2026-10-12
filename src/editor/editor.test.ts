@@ -10,7 +10,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import { languages } from "@codemirror/language-data";
 
-import { mathSyntax } from "./mathSyntax";
+import { mathSyntax, highlightToBold } from "./mathSyntax";
 import { parseTable } from "./widgets";
 import { computeMatches, updateMatchesForChanges } from "../search/searchCm";
 import { createDocState } from "./cm";
@@ -237,5 +237,26 @@ describe("서식 복사 프리워머", () => {
     const { __testingCopy } = await import("./cm");
     await __testingCopy.prewarm();
     expect(__testingCopy.ready()).toBe(true);
+  });
+});
+
+describe("하이라이트 문법 (lezer 확장)", () => {
+  it("==텍스트== 를 Highlight로, 여는 == 뒤 공백은 아님", () => {
+    const names = nodeNames("==강조== 끝");
+    expect(names).toContain("Highlight");
+    const no = nodeNames("== 공백==");
+    expect(no).not.toContain("Highlight");
+  });
+
+  it("줄을 넘거나 닫힘이 없으면 하이라이트가 아니다", () => {
+    expect(nodeNames("==열기만")).not.toContain("Highlight");
+  });
+});
+
+describe("highlightToBold (DOCX 강등)", () => {
+  it("==x== → **x**, 빈/여러 줄 안전", () => {
+    expect(highlightToBold("a ==b== c")).toBe("a **b** c");
+    expect(highlightToBold("==\nx==")).toBe("==\nx==");
+    expect(highlightToBold("==a== and ==b==")).toBe("**a** and **b**");
   });
 });

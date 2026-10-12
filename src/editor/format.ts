@@ -34,6 +34,7 @@ export const toggleBold = (view: EditorView) => wrapSelection(view, "**");
 export const toggleItalic = (view: EditorView) => wrapSelection(view, "*");
 export const toggleStrikethrough = (view: EditorView) => wrapSelection(view, "~~");
 export const toggleInlineCode = (view: EditorView) => wrapSelection(view, "`");
+export const toggleHighlight = (view: EditorView) => wrapSelection(view, "==");
 
 /** 인라인 링크 삽입: 선택 텍스트를 [텍스트](url)로. */
 export function insertLink(view: EditorView, url = ""): boolean {
