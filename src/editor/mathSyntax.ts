@@ -80,16 +80,27 @@ export const mathSyntax: MarkdownExtension = {
   ],
   parseBlock: [
     {
-      // 각주 정의 [^label]: … — 문서 끝의 각주 영역을 블록으로(단일 줄).
-      // 연속 들여쓰기 줄은 v1에서 그냥 문단(소비 규칙 위반 위험 없게).
+      // 각주 정의 [^label]: … — 문서 끝의 각주 영역을 블록으로. 연속 줄은
+      // 4칸 들여쓰기. 정지 규칙은 lezer IndentedCode와 같다: 브레이커 줄
+      // 위에서 멈추고(요소에 포함하지 않음) 반환 — 메인 루프가 그 줄부터
+      // 다음 블록을 파싱한다.
       name: "iyagiFootnoteDef",
       before: "HorizontalRule",
       parse(cx, line) {
         const t = line.text.slice(line.pos);
         if (!/^\[\^[^\]\s]+\]:/.test(t)) return false;
         const from = cx.lineStart + line.pos;
-        cx.nextLine();
-        cx.addElement(cx.elt("FootnoteDef", from, from + t.length));
+        let to = cx.lineStart + line.text.length;
+        // line.depth/cx.stack는 공개 타입에 없는 lezer 내부 필드(IndentedCode
+        // 같은 정지 규칙용) — 최소 캐스트로 사용.
+        const li = line as unknown as { depth: number };
+        const ci = cx as unknown as { stack: unknown[] };
+        while (cx.nextLine() && li.depth >= ci.stack.length) {
+          if (line.pos === line.text.length) break; // 빈 줄 — 정의 끝
+          if (line.indent - line.baseIndent < 4) break; // 들여쓰기 연속 아님
+          to = cx.lineStart + line.text.length;
+        }
+        cx.addElement(cx.elt("FootnoteDef", from, to));
         return true;
       },
     },

@@ -274,3 +274,28 @@ describe("각주 정의 블록 (lezer 확장)", () => {
     expect(names).toContain("FootnoteRef");
   });
 });
+
+describe("각주 정의 여러 줄", () => {
+  it("4칸 들여쓰기 연속 줄을 포함, 빈 줄 뒤 문서 보존", () => {
+    const doc = "[^a]: 첫 줄\n    이어지는 설명\n    더 이어짐\n\n뒤 문단.\n";
+    const names = nodeNames(doc);
+    expect(names).toContain("FootnoteDef");
+    expect(names).toContain("Paragraph");
+    // 정의 범위가 연속 줄까지 — 상태로 직접 확인
+    const state = EditorState.create({
+      doc,
+      extensions: [markdown({ base: markdownLanguage, extensions: [GFM, mathSyntax], codeLanguages: languages, addKeymap: false })],
+    });
+    ensureSyntaxTree(state, doc.length + 100, 1000);
+    let def: { from: number; to: number } | null = null;
+    syntaxTree(state).iterate({ enter: (n) => { if (n.name === "FootnoteDef") def = { from: n.from, to: n.to }; } });
+    expect(def!.to).toBe(doc.indexOf("\n\n뒤 문단"));
+  });
+
+  it("들여쓰기 없는 다음 줄은 정의가 아니다(브레이커 보존)", () => {
+    const doc = "[^a]: 정의\n# 바로 제목\n";
+    const names = nodeNames(doc);
+    expect(names).toContain("FootnoteDef");
+    expect(names).toContain("ATXHeading1");
+  });
+});
