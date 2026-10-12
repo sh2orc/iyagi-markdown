@@ -18,9 +18,14 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats }
   const dirty = tab?.dirty ?? false;
   const words = tab?.words ?? 0;
   const chars = tab?.chars ?? 0;
-  // 선택 통계 — 선택 중일 때만 (O(선택 길이)).
+  // 선택 통계 — 선택 중일 때만. 단어 수 세기는 선택이 클 때(전체 선택 드래그
+  // 등) 프레임을 태우므로 작은 선택까지만, 그 위는 글자 수만 보여 준다.
   const sel = tab?.state.selection.main;
-  const selText = sel && !sel.empty ? tab!.state.doc.sliceString(sel.from, sel.to) : null;
+  const selLen = sel && !sel.empty ? sel.to - sel.from : 0;
+  const selWords =
+    sel && !sel.empty && selLen <= 50_000
+      ? countWords(tab!.state.doc.sliceString(sel.from, sel.to))
+      : null;
 
   return (
     <footer className="statusbar">
@@ -54,7 +59,8 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats }
             <span className="status-cell">{t.col} {tab.cursorCol}</span>
             {tab.selChars > 0 ? (
               <span className="status-cell status-sel">
-                {t.f.words(countWords(selText ?? ""))} · {t.f.chars(tab.selChars)} {t.sel}
+                {selWords != null ? `${t.f.words(selWords)} · ` : ""}
+                {t.f.chars(tab.selChars)} {t.sel}
               </span>
             ) : (
               <>

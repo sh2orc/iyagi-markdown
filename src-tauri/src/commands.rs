@@ -279,6 +279,50 @@ pub fn write_export_file(path: String, contents: String) -> Result<(), String> {
     md_core::io::write_bytes_atomic(Path::new(&path), contents.as_bytes()).map_err(err)
 }
 
+/// 활성 문서(또는 지정 경로)를 **새 창**에서 연다(Word "새 창으로 보기").
+/// 새 창은 label이 달라 세션 저장·메뉴 상태는 메인 창이 계속 소유한다.
+#[tauri::command]
+pub fn open_in_new_window(
+    app: AppHandle,
+    path: Option<String>,
+) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    let label = format!("doc-{}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0));
+    let url = match &path {
+        Some(p) => WebviewUrl::App(format!("index.html?file={}", urlencode(p)).into()),
+        None => WebviewUrl::App("index.html".into()),
+    };
+    let title = path
+        .as_deref()
+        .and_then(|p| std::path::Path::new(p).file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "IYAGI Markdown".to_string());
+    WebviewWindowBuilder::new(&app, &label, url)
+        .title(&title)
+        .inner_size(900.0, 700.0)
+        .min_inner_size(480.0, 360.0)
+        .build()
+        .map(|_| ())
+        .map_err(err)
+}
+
+/// 경로 trivial 인코딩(쿼리 파라미터용).
+fn urlencode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
 // — 시스템 연동 —
 
 #[tauri::command]

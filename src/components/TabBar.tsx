@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 
+import { api, isInApp } from "../api";
 import type { AppStore, Tab } from "../app/store";
 import type { Translate } from "../i18n";
 
@@ -52,6 +53,17 @@ export function TabBar({ store, t, onClose }: Props): JSX.Element {
               <span className="tab-mark">{modeMark(tab.mode)}</span>
               <span className="tab-title">{tab.path ? tab.title : t.untitled}</span>
               <span className={`tab-dot ${dirty ? "tab-dot-dirty" : ""}`} title={t.dirtyTitle} />
+              <button
+                className="tab-newwin"
+                aria-label={t.tbNewWindow}
+                title={t.tbNewWindow}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (tab.path && isInApp()) void api.openInNewWindow(tab.path);
+                }}
+              >
+                ⤢
+              </button>
               <button
                 className="tab-close"
                 aria-label={t.closeTab}

@@ -150,6 +150,7 @@ export const api = {
   writeExportFile: (path: string, contents: string) =>
     invoke<void>("write_export_file", { path, contents }),
   revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),
+  openInNewWindow: (path: string) => invoke<void>("open_in_new_window", { path }),
   docStyleGet: (path: string) => invoke<string | null>("doc_style_get", { path }),
   docStyleSet: (path: string, styleJson: string) =>
     invoke<void>("doc_style_set", { path, styleJson }),

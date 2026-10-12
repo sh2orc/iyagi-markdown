@@ -17,6 +17,14 @@ export interface ExportHtmlOptions {
   title: string;
   baseDir: string;
   theme: "light" | "dark";
+  /** 문서별 스타일(라이브 프리뷰와 동일 반영 — 폰트·크기·행간·들여쓰기·강조색). */
+  style?: {
+    font: "system" | "serif" | "round" | "mono";
+    fontSize: number;
+    lineHeight: number;
+    firstLineIndent: boolean;
+    accent: string | null;
+  };
   /** PDF용: 본문 여백(mm)과 배율을 CSS에 반영한다. */
   forPdf?: boolean;
   marginMm?: number;
@@ -268,6 +276,25 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
     ? `body{margin:${opts.marginMm ?? 14}mm !important;}` +
       `html{font-size:${(16 * (opts.scale ?? 1)).toFixed(1)}px;}`
     : "";
+  // 문서별 스타일 — 라이브 프리뷰의 문서 스타일 패널과 같은 값.
+  const st = opts.style;
+  const styleCss = st
+    ? `body{` +
+      (st.font === "serif"
+        ? `font-family:"New York",ui-serif,Georgia,"Apple SD Gothic Neo","Nanum Myeongjo",serif;`
+        : st.font === "round"
+          ? `font-family:ui-rounded,-apple-system,"SF Pro Rounded","Apple SD Gothic Neo",sans-serif;`
+          : st.font === "mono"
+            ? `font-family:ui-monospace,"SF Mono",Menlo,monospace;`
+            : "") +
+      (st.fontSize > 0 ? `font-size:${st.fontSize}px;` : "") +
+      (st.lineHeight > 0 ? `line-height:${st.lineHeight};` : "") +
+      `}` +
+      (st.firstLineIndent ? `.markdown-body p{text-indent:1.25em;}` : ``) +
+      (st.accent
+        ? `.markdown-body a{color:${st.accent};}.markdown-body a:hover{text-decoration-color:${st.accent};}`
+        : ``)
+    : "";
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -277,6 +304,7 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
 <style>
 :root{color-scheme:${opts.theme};}
 ${themeCss(opts.theme)}
+${styleCss}
 ${katexCss}
 ${marginCss}
 </style>

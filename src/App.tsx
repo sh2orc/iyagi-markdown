@@ -19,7 +19,6 @@ import {
 } from "./api";
 import { AppStore, resolveTheme, type ExportKind, type Tab } from "./app/store";
 import { setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
-import { buildDocxManifest, buildExportHtml } from "./export/html";
 import { collectHeadings, resolveLink } from "./links";
 import { makeT, type Lang } from "./i18n";
 import { TabBar } from "./components/TabBar";
@@ -59,6 +58,28 @@ export interface PdfExportOptions {
   scale: number;
 }
 
+/** 이 창의 역할 — "main"(전체 UI·세션 소유) 또는 "doc-*"(단일 문서 보조 창). */
+function windowLabel(): string {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return "main";
+  try {
+    const meta = (
+      window as unknown as {
+        __TAURI_INTERNALS__: { metadata?: { currentWindow?: { label?: string } } };
+      }
+    ).__TAURI_INTERNALS__;
+    return meta.metadata?.currentWindow?.label ?? "main";
+  } catch {
+    return "main";
+  }
+}
+
+/** 보조 창이면 ?file= 경로. */
+function fileParam(): string | null {
+  if (typeof window === "undefined") return null;
+  const m = /[?&]file=([^&]+)/.exec(window.location.search);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 export function App(): JSX.Element {
   const store = useMemo(() => new AppStore(ioAdapter), []);
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -94,11 +115,18 @@ export function App(): JSX.Element {
       } catch {
         /* 브라우저 개발 — 기본값 */
       }
-      try {
-        const session = await api.getSession();
-        if (session && !disposed) await store.restoreSession(session);
-      } catch {
-        /* 무시 */
+      // 보조 창(doc-*)은 세션을 복원하지 않고 지정 파일만 — main이 세션을 소유.
+      const isAux = windowLabel() !== "main";
+      const file = fileParam();
+      if (isAux && file) {
+        await store.openPath(file);
+      } else {
+        try {
+          const session = await api.getSession();
+          if (session && !disposed) await store.restoreSession(session);
+        } catch {
+          /* 무시 */
+        }
       }
       try {
         const pending = await api.takePendingFiles();
@@ -186,6 +214,9 @@ export function App(): JSX.Element {
       if (!out) return;
       store.setBusy(t.exportPreparing);
       try {
+        // markdown-it(±footnote)은 내보내기에서만 쓴다 — 동적 로드로 메인
+        // 청크에서 빼 시작 로딩을 줄인다.
+        const { buildDocxManifest, buildExportHtml } = await import("./export/html");
         const baseDir = tab.path
           ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/"
           : store.state.workspace ?? "";
@@ -194,6 +225,7 @@ export function App(): JSX.Element {
             title: tab.path ? tab.title : name,
             baseDir,
             theme: store.state.theme,
+            style: exportStyleOf(tab),
             readBytes: readBytesForExport,
           });
           await api.writeExportFile(out, html);
@@ -205,6 +237,7 @@ export function App(): JSX.Element {
             forPdf: true,
             marginMm: opts.marginMm,
             scale: opts.scale,
+            style: exportStyleOf(tab),
             readBytes: readBytesForExport,
           });
           await api.exportPdf(html, opts, out);
@@ -244,6 +277,7 @@ export function App(): JSX.Element {
   // — 메뉴/단축키 동작 —
   const handleMenu = useCallback(
     (id: string) => {
+      if (windowLabel() !== "main") return; // 보조 창은 메인이 메뉴를 소유
       if (id.startsWith("recent:")) {
         void store.openPath(id.slice("recent:".length));
         return;
@@ -387,7 +421,7 @@ export function App(): JSX.Element {
         });
         if (!disposed) unlistens.push(u);
       });
-      // 창 닫기 요청 — 더티 확인 후 세션 저장하고 닫는다.
+      // 창 닫기 요청 — 더티 확인 후 세션 저장하고 닫는다(보조 창은 저장 없이).
       void webviewWindowApi().then(async (win) => {
         const u = await win.onCloseRequested(async (event) => {
           event.preventDefault();
@@ -397,7 +431,9 @@ export function App(): JSX.Element {
             setCloseAsk(null);
             if (!ok) return;
           }
-          await api.saveSession(store.buildSession()).catch(() => {});
+          if (windowLabel() === "main") {
+            await api.saveSession(store.buildSession()).catch(() => {});
+          }
           await win.destroy();
         });
         if (!disposed) unlistens.push(u);
@@ -568,6 +604,24 @@ export function App(): JSX.Element {
       {!isInApp() && state.ready && <div className="browser-note">{t.notInApp}</div>}
     </div>
   );
+}
+
+/** 탭의 문서 스타일 → 내보내기 옵션(라이브 프리뷰와 동일 값). */
+function exportStyleOf(tab: { docStyle: { font: "system" | "serif" | "round" | "mono"; fontSize: number; lineHeight: number; firstLineIndent: boolean; accent: string | null } | null }): {
+  font: "system" | "serif" | "round" | "mono";
+  fontSize: number;
+  lineHeight: number;
+  firstLineIndent: boolean;
+  accent: string | null;
+} {
+  const ds = tab.docStyle;
+  return {
+    font: ds?.font ?? "system",
+    fontSize: ds?.fontSize ?? 0,
+    lineHeight: ds?.lineHeight ?? 0,
+    firstLineIndent: ds?.firstLineIndent ?? false,
+    accent: ds?.accent ?? null,
+  };
 }
 
 function zoomBy(store: AppStore, dir: 1 | -1): void {
