@@ -1864,6 +1864,65 @@ body.resizing .toc {
   margin-bottom: 4px;
 }
 
+.link-preview-rich {
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 320px;
+  max-height: 200px;
+  overflow: hidden;
+}
+
+.link-preview-rich h1,
+.link-preview-rich h2,
+.link-preview-rich h3,
+.link-preview-rich h4 {
+  font-size: 13px;
+  font-weight: 650;
+  margin: 0.5em 0 0.25em;
+  color: var(--md-fg);
+}
+
+.link-preview-rich h1:first-child,
+.link-preview-rich h2:first-child {
+  margin-top: 0;
+}
+
+.link-preview-rich p {
+  margin: 0.4em 0;
+}
+
+.link-preview-rich code {
+  font-family: var(--md-code-font);
+  font-size: 0.88em;
+  background: rgba(0, 0, 0, 0.05);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+
+.link-preview-rich pre {
+  margin: 0.4em 0;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.link-preview-rich ul,
+.link-preview-rich ol {
+  margin: 0.4em 0;
+  padding-left: 1.3em;
+}
+
+.link-preview-rich table {
+  border-collapse: collapse;
+}
+
+.link-preview-rich td,
+.link-preview-rich th {
+  border: 1px solid var(--md-border);
+  padding: 2px 6px;
+}
+
 .link-preview-body {
   font-size: 12px;
   line-height: 1.55;

@@ -58,13 +58,54 @@ export function cleanMarkers(text: string): string {
     .trim();
 }
 
+// — v2: 렌더 미리보기(마크다운-it 지연 공유 — cm의 서식 복사와 같은 청크) —
+
+let mdIt: import("markdown-it").MarkdownIt | null = null;
+let mdItPromise: Promise<void> | null = null;
+
+function ensureRenderer(): Promise<void> {
+  mdItPromise ??= import("markdown-it").then((MarkdownIt) => {
+    const md = new MarkdownIt.default({ html: false, linkify: true, breaks: false });
+    // 이미지는 팝오버에서 무겁다 — 대체 텍스트로.
+    md.renderer.rules.image = (tokens, idx) => tokens[idx].children?.[0]?.content ?? "";
+    mdIt = md;
+  });
+  return mdItPromise;
+}
+
+/** 렌더 입력 — 문단 경계에서 잘라 렌더 비용 상한. 순수 함수. */
+export function previewRenderInput(markdown: string, maxChars = 4000): string {
+  const body = stripFrontMatter(markdown).trim();
+  if (body.length <= maxChars) return body;
+  const cut = body.slice(0, maxChars);
+  const at = cut.lastIndexOf("\n\n");
+  return (at > maxChars / 2 ? cut.slice(0, at) : cut) + "\n\n…";
+}
+
+/** 렌더된 미리보기 HTML(html:false 렌더러 — 원시 HTML 차단로 안전). */
+export async function previewHtmlOf(markdown: string): Promise<string | null> {
+  try {
+    await ensureRenderer();
+    return mdIt ? mdIt.render(previewRenderInput(markdown)) : null;
+  } catch {
+    return null;
+  }
+}
+
 // — 캐시(재호버 즉시) —
 
-const previewCache = new Map<string, { title: string; body: string }>();
+const previewCache = new Map<string, PreviewEntry>();
 const PREVIEW_CACHE_MAX = 30;
 
+export interface PreviewEntry {
+  title: string;
+  body: string;
+  /** v2 렌드 HTML(실패 시 null — 텍스트 폴백). */
+  html: string | null;
+}
+
 /** 캐시 조회(LRU 갱신). 없으면 null. */
-export function cachedLinkPreview(path: string): { title: string; body: string } | null {
+export function cachedLinkPreview(path: string): PreviewEntry | null {
   const hit = previewCache.get(path);
   if (hit) {
     previewCache.delete(path);
@@ -73,7 +114,7 @@ export function cachedLinkPreview(path: string): { title: string; body: string }
   return hit ?? null;
 }
 
-export function rememberLinkPreview(path: string, p: { title: string; body: string }): void {
+export function rememberLinkPreview(path: string, p: PreviewEntry): void {
   previewCache.set(path, p);
   while (previewCache.size > PREVIEW_CACHE_MAX) {
     const oldest = previewCache.keys().next().value;
@@ -92,22 +133,30 @@ export function invalidateLinkPreviews(path?: string): void {
 let popover: HTMLDivElement | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function showLinkPreview(x: number, y: number, title: string, body: string): void {
+export function showLinkPreview(x: number, y: number, title: string, body: string, html?: string | null): void {
   hideLinkPreview();
-  if (!title && !body) return;
+  if (!title && !body && !html) return;
   popover = document.createElement("div");
   popover.className = "link-preview";
-  if (title) {
-    const h = document.createElement("div");
-    h.className = "link-preview-title";
-    h.textContent = title;
-    popover.append(h);
-  }
-  if (body) {
-    const b = document.createElement("div");
-    b.className = "link-preview-body";
-    b.textContent = body;
-    popover.append(b);
+  if (html) {
+    // html:false 렌더러 출력 — 원시 HTML이 차단된 안전한 마크다운 렌더 결과.
+    const rich = document.createElement("div");
+    rich.className = "link-preview-rich";
+    rich.innerHTML = html;
+    popover.append(rich);
+  } else {
+    if (title) {
+      const h = document.createElement("div");
+      h.className = "link-preview-title";
+      h.textContent = title;
+      popover.append(h);
+    }
+    if (body) {
+      const b = document.createElement("div");
+      b.className = "link-preview-body";
+      b.textContent = body;
+      popover.append(b);
+    }
   }
   document.body.append(popover);
   const r = popover.getBoundingClientRect();

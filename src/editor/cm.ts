@@ -27,6 +27,7 @@ import { frontMatterSyntax } from "./frontmatter";
 import { wikiLinkSyntax } from "./wiki";
 import {
   cachedLinkPreview,
+  previewHtmlOf,
   previewTextOf,
   rememberLinkPreview,
   scheduleHideLinkPreview,
@@ -193,15 +194,17 @@ function baseExtensions(): Extension[] {
             if (!el.isConnected) return;
             const cached = cachedLinkPreview(path);
             if (cached) {
-              showLinkPreview(x, y, cached.title, cached.body);
+              showLinkPreview(x, y, cached.title, cached.body, cached.html);
               return;
             }
             void import("../api").then(async (a) => {
               try {
                 const doc = await a.api.readDocument(path);
                 const p = previewTextOf(doc.text);
-                rememberLinkPreview(path, p);
-                showLinkPreview(x, y, p.title, p.body);
+                // v2: 렌더 우선(마크다운-it 지연 공유 청크) — 실패 시 텍스트 폴백.
+                const html = await previewHtmlOf(doc.text);
+                rememberLinkPreview(path, { ...p, html });
+                showLinkPreview(x, y, p.title, p.body, html);
               } catch {
                 /* 열 수 없는 문서 — 조용히 */
               }

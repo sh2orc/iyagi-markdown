@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   cachedLinkPreview,
+  previewRenderInput,
   cleanMarkers,
   invalidateLinkPreviews,
   previewTextOf,
@@ -63,16 +64,31 @@ describe("cleanMarkers", () => {
 
 describe("미리보기 캐시", () => {
   it("LRU — 재조회로 갱신, 최대 30에서 가장 오래된 것 제거, 무효화", () => {
-    rememberLinkPreview("/a", { title: "A", body: "a" });
-    rememberLinkPreview("/b", { title: "B", body: "b" });
+    rememberLinkPreview("/a", { title: "A", body: "a", html: null });
+    rememberLinkPreview("/b", { title: "B", body: "b", html: null });
     expect(cachedLinkPreview("/a")?.title).toBe("A"); // LRU 순서 갱신
-    for (let i = 0; i < 29; i++) rememberLinkPreview(`/x${i}`, { title: `X${i}`, body: "" });
+    for (let i = 0; i < 29; i++) rememberLinkPreview(`/x${i}`, { title: `X${i}`, body: "", html: null });
     expect(cachedLinkPreview("/b")).toBeNull(); // 갱신 안 한 b가 밀려남
     expect(cachedLinkPreview("/a")?.title).toBe("A"); // a는 살아남
     invalidateLinkPreviews("/a");
     expect(cachedLinkPreview("/a")).toBeNull();
-    rememberLinkPreview("/z", { title: "Z", body: "" });
+    rememberLinkPreview("/z", { title: "Z", body: "", html: null });
     invalidateLinkPreviews();
     expect(cachedLinkPreview("/z")).toBeNull();
+  });
+});
+
+describe("previewRenderInput(v2 렌더 입력)", () => {
+  it("문단 경계에서 자르고 말줄임 표시", () => {
+    const paras = Array.from({ length: 200 }, (_, i) => `문단${i} ${"가".repeat(30)}`).join("\n\n");
+    const out = previewRenderInput(paras, 400);
+    expect(out.length).toBeLessThanOrEqual(402);
+    expect(out.endsWith("…")).toBe(true);
+    expect(out).not.toContain("문단199");
+  });
+
+  it("짧으면 그대로, 프론트매터 제외", () => {
+    expect(previewRenderInput("# T\n\n본문\n")).toBe("# T\n\n본문");
+    expect(previewRenderInput("---\nx: 1\n---\n\n본문\n")).toBe("본문");
   });
 });
