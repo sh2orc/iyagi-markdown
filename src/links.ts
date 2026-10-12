@@ -125,3 +125,17 @@ export function collectHeadings(text: string): Heading[] {
   }
   return out;
 }
+
+/** 제목들에서 마크다운 목차를 만든다 — 들여쓰기는 단계별 2칸, 앵커는
+ *  collectHeadings의 GitHub식 슬러그(중복 -1 접미 포함). 프론트매터는
+ *  미리 뗀 텍스트를 넘길 것(호출자 책임). 순수 함수. */
+export function tocMarkdown(headings: Heading[]): string {
+  if (headings.length === 0) return "";
+  // 최상위 단계를 목록 뿌리로(문서가 h2부터 시작하면 h2가 루트).
+  const root = Math.min(...headings.map((h) => h.level));
+  const lines = headings.map((h) => {
+    const indent = "  ".repeat(Math.max(0, h.level - root));
+    return `${indent}- [${h.text}](#${h.slug})`;
+  });
+  return lines.join("\n");
+}

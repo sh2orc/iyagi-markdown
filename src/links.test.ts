@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { collectHeadings, lexicallyClean, percentDecode, resolveLink, slugifyHeading } from "./links";
+import { collectHeadings, lexicallyClean, percentDecode, resolveLink, slugifyHeading, tocMarkdown } from "./links";
 
 const base = "/Users/x/docs";
 
@@ -109,5 +109,20 @@ describe("percentDecode·lexicallyClean", () => {
   it("경로 정리", () => {
     expect(lexicallyClean("/a/./b/../c")).toBe("/a/c");
     expect(lexicallyClean("a/b/../../c")).toBe("c");
+  });
+});
+
+describe("tocMarkdown", () => {
+  it("단계별 들여쓰기·슬러그 앵커 목차", () => {
+    const hs = collectHeadings("# 개요\n\n## 설치\n\n### macOS\n");
+    expect(tocMarkdown(hs)).toBe(
+      "- [개요](#개요)\n  - [설치](#설치)\n    - [macOS](#macos)",
+    );
+  });
+
+  it("h2 뿌리 문서·중복 슬러그·빈 목차", () => {
+    const hs = collectHeadings("## 가\n\n## 가\n");
+    expect(tocMarkdown(hs)).toBe("- [가](#가)\n- [가](#가-1)");
+    expect(tocMarkdown([])).toBe("");
   });
 });
