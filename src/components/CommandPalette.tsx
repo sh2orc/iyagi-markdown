@@ -339,7 +339,11 @@ export function CommandPalette({
           }}
         />
         <div className="palette-list" ref={listRef}>
-          {rows.length === 0 && <div className="palette-empty">{t.paletteNoMatch}</div>}
+          {rows.length === 0 && (
+            <div className="palette-empty">
+              {query.trimStart().startsWith("@") ? t.paletteNoHeadings : t.paletteNoMatch}
+            </div>
+          )}
           {rows.map((r, i) => {
             if (r.kind === "header") {
               return (
