@@ -213,8 +213,7 @@ describe("백링크 배지 (탭 전환 디바운스·캐시)", () => {
 });
 
 describe("큰 문서 증분 통계(수동 QA '5MB 문서'의 자동화 근사)", () => {
-  it("150k 자 문서에서 20회 편집 후 words/chars가 전체 재계산과 일치", async () => {
-    this.timeout(120_000); // jsdom에서 150k 자 편집은 느리다.
+  it("150k 자 문서에서 20회 편집 후 words/chars가 전체 재계산과 일치", { timeout: 120_000 }, async () => {
     // 500k 자 — 문단 6천 개. jsdom에서 1~2초 내.
     const paras = Array.from({ length: 1500 }, (_, i) => `문단 ${i} — 새 단어 몇 개와 code와 **강조**가 섞인 비교적 긴 문장입니다. `.repeat(2));
     const big = paras.join("\n\n");
