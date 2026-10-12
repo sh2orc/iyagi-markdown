@@ -245,7 +245,7 @@ export function pdfPageChrome(
       n.textContent = i + suffix;
       wrap.appendChild(n);
     }` : ""}
-    ${showHead ? `if (headHost) {
+    ${showHead ? `if (headHost && i > 1) { // 표지(1쪽)엔 본문 H1이 있어 머리글 생략
       var h = document.createElement('div');
       h.className = 'pdf-head-data';
       h.style.left = left; h.style.width = width;

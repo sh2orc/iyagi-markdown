@@ -196,7 +196,9 @@ fn sect_pr(page_numbers: bool, has_header: bool) -> String {
         ""
     };
     let header = if has_header {
-        "<w:headerReference w:type=\"default\" r:id=\"rIdHeader\"/>"
+        // 표지 관례: 1쪽은 빈 머리글(titlePg) — 본문 H1 제목과 중복하지 않게.
+        "<w:headerReference w:type=\"default\" r:id=\"rIdHeader\"/>\
+<w:headerReference w:type=\"first\" r:id=\"rIdHeaderFirst\"/><w:titlePg/>"
     } else {
         ""
     };
@@ -204,6 +206,17 @@ fn sect_pr(page_numbers: bool, has_header: bool) -> String {
         "<w:sectPr>{header}{footer}<w:pgSz w:w=\"11906\" w:h=\"16838\"/>\
 <w:pgMar w:top=\"1418\" w:right=\"1418\" w:bottom=\"1418\" w:left=\"1418\"/></w:sectPr>"
     )
+}
+
+/// 첫 페이지(표지) 머리글 — 비어 있음(titlePg가 쓰게 하는 짝).
+fn header_first_xml() -> String {
+    concat!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>",
+        "<w:hdr xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">",
+        "<w:p/>",
+        "</w:hdr>"
+    )
+    .to_string()
 }
 
 /// 머리글 — 가운데 문서 제목(9pt 회색, PDF 머리글과 같은 톤).
@@ -1072,6 +1085,7 @@ fn write_docx_zip(
     }
     if let Some(ht) = header_title {
         add(&mut zip, "word/header1.xml", &header_xml(ht))?;
+        add(&mut zip, "word/headerFirst.xml", &header_first_xml())?;
     }
     add(
         &mut zip,
@@ -1135,7 +1149,8 @@ fn content_types(ctx: &Ctx, page_numbers: bool, has_header: bool) -> String {
             ""
         },
         header_ct = if has_header {
-            "<Override PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/>"
+            "<Override PartName=\"/word/header1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/>\
+<Override PartName=\"/word/headerFirst.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml\"/>"
         } else {
             ""
         },
@@ -1189,7 +1204,8 @@ fn document_rels(ctx: &Ctx, page_numbers: bool, has_header: bool) -> String {
     if has_header {
         let _ = write!(
             s,
-            "<Relationship Id=\"rIdHeader\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/header\" Target=\"header1.xml\"/>"
+            "<Relationship Id=\"rIdHeader\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/header\" Target=\"header1.xml\"/>\
+<Relationship Id=\"rIdHeaderFirst\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/header\" Target=\"headerFirst.xml\"/>"
         );
     }
     if !ctx.footnotes.is_empty() {
@@ -1783,15 +1799,18 @@ mod tests {
                 }
             };
             let hdr = zip.by_name("word/header1.xml").is_ok();
+            let hdr_first = zip.by_name("word/headerFirst.xml").is_ok();
             let doc = entry(&mut zip, "word/document.xml");
             let rels = entry(&mut zip, "word/_rels/document.xml.rels");
             let ct = entry(&mut zip, "[Content_Types].xml");
             let _ = std::fs::remove_file(&out);
-            (doc, hdr, rels, ct)
+            (doc, hdr, hdr_first, rels, ct)
         };
         // 켬 — 파트·참조·관계·콘텐츠타입.
-        let (doc, hdr, rels, ct) = build(Some("보고서 <초안>"), "hdr2");
+        let (doc, hdr, hdr_first, rels, ct) = build(Some("보고서 <초안>"), "hdr2");
         assert!(hdr);
+        assert!(hdr_first); // 표지용 빈 머리글
+        assert!(doc.contains("<w:titlePg/>")); // 1쪽 다르게
         assert!(doc.contains("<w:headerReference w:type=\"default\" r:id=\"rIdHeader\"/>"));
         let hpos = doc.find("headerReference").unwrap();
         let pg = doc.find("<w:pgSz").unwrap();
@@ -1799,7 +1818,7 @@ mod tests {
         assert!(rels.contains("Id=\"rIdHeader\"") && rels.contains("Target=\"header1.xml\""));
         assert!(ct.contains("/word/header1.xml"));
         // 끔 — 파트 없음·참조 없음.
-        let (doc2, hdr2, rels2, ct2) = build(None, "hdr-off");
+        let (doc2, hdr2, _, rels2, ct2) = build(None, "hdr-off");
         assert!(!hdr2);
         assert!(!doc2.contains("headerReference"));
         assert!(!rels2.contains("rIdHeader"));

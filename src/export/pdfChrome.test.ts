@@ -35,6 +35,11 @@ describe("pdfPageChrome", () => {
     expect(pdfPageChrome(false, "")).toEqual({ css: "", body: "", script: "" });
   });
 
+  it("머리글은 표지(1쪽)에 심지 않는다", () => {
+    const c = pdfPageChrome(true, "제목");
+    expect(c.script).toContain("headHost && i > 1");
+  });
+
   it("제목의 </script>는 태그 탈출이 막힌다", () => {
     const c = pdfPageChrome(true, "a</script>b");
     expect(c.script).not.toContain("a</script>b");
