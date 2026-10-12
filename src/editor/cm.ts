@@ -13,11 +13,13 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { foldGutter, foldKeymap, foldService, indentUnit } from "@codemirror/language";
 
-/** 제목 접기 — 헤딩 줄에서 같거나 낮은 단계의 다음 제목 전까지.
- *  lang-markdown은 블록(표·코드)만 접어준다(제목·목록은 범위 계산이 필요해
- *  제외됨) — 여기서 제목 범위를 채운다. */
-const headingFoldService = foldService.of((state, from, to) => {
-  void to;
+/** 제목 접기 범위 — 헤딩 줄에서 같거나 낮은 단계의 다음 제목 전까지.
+ *  순수 함수(테스트 대상). lang-markdown은 블록(표·코드)만 접어준다
+ *  (제목·목록은 범위 계산이 필요해 제외됨) — 여기서 제목 범위를 채운다. */
+export function headingFoldOf(
+  state: EditorState,
+  from: number,
+): { from: number; to: number } | null {
   const line = state.doc.lineAt(from);
   if (from !== line.from) return null;
   const m = /^(#{1,6})\s/.exec(line.text);
@@ -31,6 +33,11 @@ const headingFoldService = foldService.of((state, from, to) => {
     end = l.to;
   }
   return end > line.to ? { from: line.to, to: end } : null;
+}
+
+const headingFoldService = foldService.of((state, from, to) => {
+  void to;
+  return headingFoldOf(state, from);
 });
 
 import {

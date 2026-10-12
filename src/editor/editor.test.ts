@@ -13,7 +13,7 @@ import { languages } from "@codemirror/language-data";
 import { mathSyntax } from "./mathSyntax";
 import { parseTable } from "./widgets";
 import { computeMatches, updateMatchesForChanges } from "../search/searchCm";
-import { createDocState } from "./cm";
+import { createDocState, headingFoldOf } from "./cm";
 
 const parse = (doc: string) => {
   const state = EditorState.create({
@@ -289,5 +289,26 @@ describe("각주 정의 여러 줄", () => {
     const names = nodeNames(doc);
     expect(names).toContain("FootnoteDef");
     expect(names).toContain("ATXHeading1");
+  });
+});
+
+describe("제목 접기 (foldService)", () => {
+  it("헤딩은 다음 같거나 낮은 단계 제목 전까지 접힌다", () => {
+    const doc = "# A\n\n본문\n\n## B1\n\n내용\n\n## B2\n\n끝\n";
+    const state = EditorState.create({
+      doc,
+      extensions: [markdown({ base: markdownLanguage, extensions: [GFM, mathSyntax], codeLanguages: languages, addKeymap: false })],
+    });
+    ensureSyntaxTree(state, doc.length + 100, 1000);
+    // foldService는 언어 데이터로 등록되므로 실제 등록 경로(cm) 대신
+    // 순수 범위 계산만 검증한다 — cm.headingFoldOf 헬퍼로 노출.
+    // h1은 다음 h1까지 — 없으면 문서 끝. from은 제목 줄 끝.
+    expect(headingFoldOf(state, 0)).toEqual({ from: 3, to: doc.trimEnd().length + 1 });
+    // h2는 다음 같은 단계(h2) 전까지.
+    expect(headingFoldOf(state, doc.indexOf("## B1"))).toEqual({
+      from: doc.indexOf("## B1") + 5,
+      to: doc.indexOf("## B2") - 1,
+    });
+    expect(headingFoldOf(state, doc.indexOf("본문"))).toBeNull(); // 제목 아님
   });
 });
