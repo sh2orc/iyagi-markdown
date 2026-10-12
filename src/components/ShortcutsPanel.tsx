@@ -67,6 +67,7 @@ const GROUPS = (t: Translate): Array<{ title: string; items: [string, string][] 
     title: t.scMousePalette,
     items: [
       ["⌘⇧P + @", t.helpSymbolMode],
+      ["c", t.brokenKeyCreate],
       ["거터 ▾", t.helpFold],
       ["호버", t.helpWikiHover],
       ["⌘⇧P", `${t.speakStart} · ${t.speakStop}`],

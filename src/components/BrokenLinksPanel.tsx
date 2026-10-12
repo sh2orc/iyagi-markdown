@@ -1,7 +1,7 @@
 // 끊긴 링크 패널 — 현재 문서의 [[이름]] 중 워크스페이스에 없는 것들
 // (Obsidian "broken links"). 클릭하면 해당 줄로.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { AppStore } from "../app/store";
 import { brokenWikiLinks } from "../editor/brokenLinks";
@@ -21,6 +21,16 @@ interface Props {
 export function BrokenLinksPanel({ store, t, onClose, onGoto, onCreate }: Props): JSX.Element {
   const tab = store.active;
   const [sel, setSel] = useState(0);
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    // 오버레이 자체 포커스 — 키보드 탐색(백링크 패널과 같은 규칙).
+    listRef.current?.parentElement?.focus();
+  }, []);
+
+  useEffect(() => {
+    setSel(0);
+  }, [tab?.path]);
 
   const broken = useMemo(() => {
     if (!tab) return [];
@@ -37,14 +47,54 @@ export function BrokenLinksPanel({ store, t, onClose, onGoto, onCreate }: Props)
     setSel(0);
   }, [tab?.path]);
 
+  const step = (from: number, delta: number): number => {
+    let i = from;
+    for (;;) {
+      const next = i + delta;
+      if (next < 0 || next >= broken.length) return i;
+      i = next;
+    }
+  };
+
   return (
-    <div className="overlay palette-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="overlay palette-overlay"
+      role="dialog"
+      aria-modal="true"
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSel((v) => step(v, 1));
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSel((v) => step(v, -1));
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          const b = broken[sel];
+          if (b) {
+            onClose();
+            onGoto(b.from);
+          }
+        } else if (e.key.toLowerCase() === "c") {
+          const b = broken[sel];
+          if (b) {
+            e.preventDefault();
+            onCreate(b.name);
+          }
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        }
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div className="palette wssearch">
         <div className="palette-input palette-input-static">
           {t.brokenLinksTitle}
           {broken.length > 0 && <span className="wssearch-count">{broken.length}</span>}
         </div>
-        <div className="palette-list">
+        <div className="palette-list" ref={listRef}>
           {broken.length === 0 && <div className="palette-empty">{t.brokenLinksNone}</div>}
           {broken.map((b, i) => (
             <button
