@@ -378,9 +378,11 @@ export function CommandPalette({
                 </button>
               );
             }
+            const openTab = store.state.tabs.some((t) => t.path === r.f.path);
             return (
               <button key={`f-${r.f.path}`} className={`${cls} palette-file`} onMouseEnter={() => setSel(i)} onClick={() => runIdx(i)}>
                 <span className="palette-file-name">{r.f.name}</span>
+                {openTab && <span className="palette-open-dot" title={t.alreadyOpen}>●</span>}
                 {r.f.rel && <span className="palette-file-path">{r.f.rel}</span>}
               </button>
             );

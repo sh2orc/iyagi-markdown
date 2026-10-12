@@ -1647,6 +1647,12 @@ body.resizing .toc {
   flex: none;
 }
 
+.palette-open-dot {
+  flex: none;
+  color: var(--md-accent);
+  font-size: 9px;
+}
+
 .palette-file-path {
   flex: 1;
   min-width: 0;
@@ -1657,7 +1663,13 @@ body.resizing .toc {
   color: var(--md-fg-dim);
 }
 
-.palette-item.is-sel .palette-file-path {
+.palette-item.is-sel .palette-open-dot {
+  flex: none;
+  color: var(--md-accent);
+  font-size: 9px;
+}
+
+.palette-file-path {
   color: rgba(255, 255, 255, 0.75);
 }
 
