@@ -37,7 +37,7 @@ describe("toXhtml / epubChapterInputs", () => {
   });
 
   it("챕터 입력 조립(파일 이름·XHTML화)", () => {
-    const inputs = epubChapterInputs([{ title: "T", body: "<p>x</p><br>" }]);
+    const inputs = epubChapterInputs([{ title: "T", body: "<p>x</p><br>", sections: [] }]);
     expect(inputs[0].file).toBe("chapter1.xhtml");
     expect(inputs[0].body).toContain("<br/>");
   });

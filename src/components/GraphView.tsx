@@ -12,6 +12,8 @@ interface Props {
   t: Translate;
   onClose: () => void;
   onOpen: (path: string) => void;
+  /** Rust wiki_edges 결과(from 경로 → to 키). 없으면 빈 그래프. */
+  wikiLinks?: Array<{ from: string; to: string }>;
 }
 
 interface GraphNode {
@@ -31,7 +33,7 @@ interface GraphEdge {
 
 /** 그래프 데이터 — 위키링크 인덱스(스토어)에서.
  *  간선: 문서 A가 [[B]]를 참조하면 A→B 간선. */
-function buildGraph(store: AppStore): { nodes: GraphNode[]; edges: GraphEdge[] } {
+function buildGraph(store: AppStore, wikiLinks?: Array<{ from: string; to: string }>): { nodes: GraphNode[]; edges: GraphEdge[] } {
   const tree = store.state.tree;
   const edges: GraphEdge[] = [];
   const nodeSet = new Set<string>();
@@ -59,17 +61,26 @@ function buildGraph(store: AppStore): { nodes: GraphNode[]; edges: GraphEdge[] }
     arr.push(n);
     byStem.set(stem, arr);
   }
-  // 각 문서가 참조하는 대상 — 위키링크는 wikiIndex가 아니라 문서 내용에서 나온다.
-  // 스토어가 링크 정보를 유지하지 않으므로 간단 추정: wikiIndex 역방향은
-  // 백링크 패널이 계산한 것을 재사용할 수 있지만 여기서는 tree만으로
-  // 폴더 구조 기반 근사: 같은 폴더의 파일들을 연결된 것으로 간주.
-  // TODO: 문서 내용에서 [[링크]]를 추출해 정확한 간선 계산.
+  // 실제 위키링크 간선 — Rust wiki_edges가 문서 내용에서 [[키]]를 추출.
+  // 키를 경로로 해석: stem 또는 상대경로 매칭.
   const fileList = [...nodeSet];
-  const dirOf = (p: string): string => p.substring(0, p.lastIndexOf("/"));
-  for (let i = 0; i < fileList.length; i++) {
-    for (let j = i + 1; j < fileList.length; j++) {
-      if (dirOf(fileList[i]) === dirOf(fileList[j])) {
-        edges.push({ from: fileList[i], to: fileList[j] });
+  const keyToPaths = new Map<string, string[]>();
+  for (const p of fileList) {
+    const name = nameOf.get(p) ?? "";
+    const stem = name.replace(/\.(md|markdown)$/i, "");
+    for (const key of [stem, name]) {
+      const arr = keyToPaths.get(key) ?? [];
+      arr.push(p);
+      keyToPaths.set(key, arr);
+    }
+  }
+  if (wikiLinks) {
+    for (const e of wikiLinks) {
+      const targets = keyToPaths.get(e.to) ?? [];
+      for (const t of targets) {
+        if (e.from !== t && nodeSet.has(e.from) && nodeSet.has(t)) {
+          edges.push({ from: e.from, to: t });
+        }
       }
     }
   }
@@ -150,10 +161,10 @@ function layout(nodes: GraphNode[], edges: GraphEdge[], iterations = 4): void {
   }
 }
 
-export function GraphView({ store, t, onClose, onOpen }: Props): JSX.Element | null {
+export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.Element | null {
   const [selected, setSelected] = useState<string | null>(null);
   const { nodes, edges } = useMemo(() => {
-    const g = buildGraph(store);
+    const g = buildGraph(store, wikiLinks);
     if (g.nodes.length > 2) layout(g.nodes, g.edges);
     return g;
   }, [store, store.state.tree]);

@@ -7,6 +7,7 @@ export interface EpubChapterInput {
   title: string;
   body: string;
   file: string;
+  sections: Array<{ anchor: string; title: string }>;
 }
 
 /** HTML5 조각을 XHTML로 — 빈 요소 자가 폐쇄(markdown-it 출력 정규화). */
@@ -20,32 +21,50 @@ function h1Title(chunk: string): string {
   return m[1].replace(/<[^>]+>/g, "").trim();
 }
 
+/** 챕터 안 h2 섹션 — (앵커 id, 제목). 순수 함수. */
+export function h2Sections(chunk: string): Array<{ anchor: string; title: string }> {
+  const out: Array<{ anchor: string; title: string }> = [];
+  for (const m of chunk.matchAll(/<h2([^>]*)>([\s\S]*?)<\/h2>/gi)) {
+    const idm = /id="([^"]+)"/.exec(m[1]);
+    if (!idm) continue;
+    out.push({ anchor: idm[1], title: m[2].replace(/<[^>]+>/g, "").trim() });
+  }
+  return out;
+}
+
 /** 렌더된 본문을 <h1>마다 챕터로. 첫 h1 앞 내용은 서문 챕터(있을 때만).
- *  h1이 없으면 한 챕터. */
-export function splitEpubChapters(bodyHtml: string): Array<{ title: string; body: string }> {
+ *  h1이 없으면 한 챕터. sections는 챕터 안 h2(EPUB 목차 depth용). */
+export function splitEpubChapters(
+  bodyHtml: string,
+): Array<{ title: string; body: string; sections: Array<{ anchor: string; title: string }> }> {
   const parts = bodyHtml.split(/(?=<h1[\s>])/i);
-  const out: Array<{ title: string; body: string }> = [];
+  const out: Array<{ title: string; body: string; sections: Array<{ anchor: string; title: string }> }> = [];
   for (const part of parts) {
     if (!part.trim()) continue;
     const title = h1Title(part);
-    out.push(title ? { title, body: part.trim() } : { title: "", body: part.trim() });
+    const body = part.trim();
+    out.push({ title, body, sections: h2Sections(body) });
   }
-  if (out.length === 0) return [{ title: "", body: bodyHtml }];
+  if (out.length === 0) return [{ title: "", body: bodyHtml, sections: [] }];
   // 서문(제목 없는 앞 덩어리)이 하나뿐이고 본문이 없으면 단일 챕터로.
   if (out.length === 1 && !out[0].title) return out;
   // 빈 제목 챕터에 이름 부여.
   return out.map((c, i) => ({
     title: c.title || `Section ${i + 1}`,
     body: c.body,
+    sections: c.sections,
   }));
 }
 
 /** 챕터 배열을 EpubChapterInput(file 이름 포함)으로. */
-export function epubChapterInputs(chapters: Array<{ title: string; body: string }>): EpubChapterInput[] {
+export function epubChapterInputs(
+  chapters: Array<{ title: string; body: string; sections: Array<{ anchor: string; title: string }> }>,
+): EpubChapterInput[] {
   return chapters.map((c, i) => ({
     title: c.title,
     body: toXhtml(c.body),
     file: `chapter${i + 1}.xhtml`,
+    sections: c.sections,
   }));
 }
 

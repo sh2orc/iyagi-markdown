@@ -505,3 +505,87 @@ pub fn find_orphan_assets(root: &Path) -> std::io::Result<Vec<OrphanAsset>> {
     orphans.sort_by(|a, b| b.size.cmp(&a.size));
     Ok(orphans)
 }
+
+/// 위키링크 간선 — 출발 문서 → 대상 키.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WikiEdge {
+    pub from: String,
+    pub to: String,
+}
+
+/// 워크스페이스의 모든 .md에서 [[링크]]를 추출해 간선 목록으로.
+/// 대상 해석은 프런트가 wiki 인덱스로 수행(이름→경로).
+pub fn extract_wiki_edges(root: &Path) -> std::io::Result<Vec<WikiEdge>> {
+    let mut files = Vec::new();
+    collect_files(root, 0, 12, &mut files);
+    let mut edges = Vec::new();
+    for path in files {
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let from = path.to_string_lossy().into_owned();
+        for line in content.lines() {
+            let t = line.trim_start();
+            if t.starts_with("```") || t.starts_with("~~~") {
+                continue; // 대략적 펜스 스킵(정확한 추적은 과함).
+            }
+            for m in content_wiki_links(line) {
+                edges.push(WikiEdge {
+                    from: from.clone(),
+                    to: m,
+                });
+            }
+        }
+    }
+    Ok(edges)
+}
+
+/// 한 줄에서 [[키]] 패턴 추출 — 중첩 괄호 안은 건너뛴다(대상 키만).
+fn content_wiki_links(line: &str) -> Vec<String> {
+    let bytes = line.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b'[' && bytes[i + 1] == b'[' {
+            if let Some(close) = find_wiki_close(line, i + 2) {
+                let inner = &line[i + 2..close];
+                // |표시 분리(표시 텍스트 제거), #앵커 분리.
+                let target = inner.split('|').next().unwrap_or(inner);
+                let target = target.split('#').next().unwrap_or(target).trim();
+                if !target.is_empty()
+                    && !target.contains(char::is_whitespace)
+                    && !target.contains(']')
+                {
+                    out.push(target.to_string());
+                }
+                i = close + 1;
+            } else {
+                i += 2;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+fn find_wiki_close(line: &str, from: usize) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut depth = 0;
+    for i in from..bytes.len() {
+        if bytes[i] == b'[' {
+            depth += 1;
+        } else if bytes[i] == b']' {
+            if depth == 0 {
+                if i + 1 < bytes.len() && bytes[i + 1] == b']' {
+                    return Some(i);
+                }
+            } else {
+                depth -= 1;
+            }
+        }
+    }
+    None
+}

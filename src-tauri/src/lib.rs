@@ -66,6 +66,7 @@ pub fn run() {
             commands::export_epub,
             commands::replace_workspace,
             commands::find_orphan_images,
+            commands::wiki_edges,
             commands::delete_orphan_images,
             commands::get_settings,
             commands::set_settings,

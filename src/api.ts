@@ -200,6 +200,8 @@ export const api = {
   revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),
   openInNewWindow: (path: string) => invoke<void>("open_in_new_window", { path }),
   saveClipboardImage: (dir: string) => invoke<string>("save_clipboard_image", { dir }),
+  wikiEdges: (root: string) =>
+    invoke<Array<{ from: string; to: string }>>("wiki_edges", { root }),
   findOrphanImages: (root: string) =>
     invoke<Array<{ path: string; size: number }>>("find_orphan_images", { root }),
   deleteOrphanImages: (paths: string[]) =>

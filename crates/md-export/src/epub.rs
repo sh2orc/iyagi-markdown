@@ -14,6 +14,16 @@ pub struct EpubChapter {
     /// 챕터 본문 XHTML(<body> 안쪽 — 이미 이스케이프/정규화된 것).
     pub body: String,
     pub file: String,
+    /// 챕터 안 h2 섹션(앵커, 제목) — EPUB 목차 depth용.
+    #[serde(default)]
+    pub sections: Vec<EpubSection>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpubSection {
+    pub anchor: String,
+    pub title: String,
 }
 
 pub struct EpubOptions {
@@ -179,7 +189,27 @@ pub fn export_epub(opts: &EpubOptions, out: &Path) -> Result<(), String> {
     let nav_items: String = opts
         .chapters
         .iter()
-        .map(|c| format!("<li><a href=\"{}\">{}</a></li>", c.file, esc(&c.title)))
+        .map(|c| {
+            let head = format!("<li><a href=\"{}\">{}</a>", c.file, esc(&c.title));
+            if c.sections.is_empty() {
+                format!("{head}</li>")
+            } else {
+                let subs: String = c
+                    .sections
+                    .iter()
+                    .map(|sec| {
+                        format!(
+                            "<li><a href=\"{}#{}\">{}</a></li>",
+                            c.file,
+                            esc(&sec.anchor),
+                            esc(&sec.title)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("{head}<ol>\n{subs}\n</ol></li>")
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n");
     let nav_items = format!("{cover_nav_first}{nav_items}");
@@ -253,11 +283,16 @@ mod tests {
                     title: "첫 장".into(),
                     body: "<h1>첫 장</h1><p>내용 <mark>강조</mark></p>".into(),
                     file: "chapter1.xhtml".into(),
+                    sections: vec![EpubSection {
+                        anchor: "s1".into(),
+                        title: "하위 절".into(),
+                    }],
                 },
                 EpubChapter {
                     title: "둘째 장 <태그>".into(),
                     body: "<p>둘째</p>".into(),
                     file: "chapter2.xhtml".into(),
+                    sections: vec![],
                 },
             ],
         }
@@ -290,6 +325,8 @@ mod tests {
         // nav: 제목 이스케이프 확인.
         let nav = read_entry(&out, "OEBPS/nav.xhtml");
         assert!(nav.contains("둘째 장 &lt;태그&gt;"));
+        // h2 중첩 목차.
+        assert!(nav.contains("<a href=\"chapter1.xhtml#s1\">하위 절</a>"));
         // 챕터 문서: XHTML 선언·스타일 참조·본문.
         let ch1 = read_entry(&out, "OEBPS/chapter1.xhtml");
         assert!(ch1.contains("<!DOCTYPE html>"));

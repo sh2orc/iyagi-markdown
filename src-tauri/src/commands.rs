@@ -462,6 +462,16 @@ pub async fn replace_workspace(
     .map_err(err)?
 }
 
+/// 워크스페이스 위키링크 간선(출발 경로 → 대상 키).
+#[tauri::command]
+pub async fn wiki_edges(root: String) -> Result<Vec<md_core::search::WikiEdge>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        md_core::search::extract_wiki_edges(std::path::Path::new(&root)).map_err(err)
+    })
+    .await
+    .map_err(err)?
+}
+
 /// 워크스페이스의 고아 이미지(참조 없는 assets/ 파일) 목록.
 #[tauri::command]
 pub async fn find_orphan_images(

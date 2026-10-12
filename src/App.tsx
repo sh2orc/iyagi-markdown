@@ -117,6 +117,7 @@ export function App(): JSX.Element {
   const [wsSearchOpen, setWsSearchOpen] = useState(false);
   const [wsSearchQuery, setWsSearchQuery] = useState("");
   const [graphOpen, setGraphOpen] = useState(false);
+  const [wikiLinks, setWikiLinks] = useState<Array<{ from: string; to: string }>>([]);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [backlinksOpen, setBacklinksOpen] = useState(false);
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
@@ -712,6 +713,15 @@ export function App(): JSX.Element {
     };
   }, [state.tree]);
 
+  // 그래프 뷰 — 위키링크 간선 로드(Rust wiki_edges).
+  useEffect(() => {
+    if (!graphOpen || !store.state.workspace) return;
+    void api
+      .wikiEdges(store.state.workspace)
+      .then((edges) => setWikiLinks(edges))
+      .catch(() => setWikiLinks([]));
+  }, [graphOpen, store.state.workspace]);
+
   // — CSS 변수로 테마·글꼴 반영 —
   useEffect(() => {
     const root = document.documentElement;
@@ -893,6 +903,7 @@ export function App(): JSX.Element {
         <GraphView
           store={store}
           t={t}
+          wikiLinks={wikiLinks}
           onClose={() => setGraphOpen(false)}
           onOpen={(path) => {
             setGraphOpen(false);
