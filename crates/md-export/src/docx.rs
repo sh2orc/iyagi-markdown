@@ -45,9 +45,24 @@ struct Ctx<'a> {
     /// 각주 정의(순서 = id). 라벨 → id(1부터).
     footnotes: Vec<String>,
     footnote_ids: std::collections::HashMap<String, usize>,
+    /// 북마크 슬러그 중복 카운터(GitHub식 -1 접미 — 프런트 tocMarkdown과 같은 규칙).
+    slug_seen: std::collections::HashMap<String, usize>,
 }
 
 impl<'a> Ctx<'a> {
+    /// GitHub식 슬러그 + 문서 내 중복 -1 접미(프런트 links.ts와 같은 규칙).
+    fn bookmark_slug(&mut self, text: &str) -> String {
+        let base = md_core::links::slug_heading(text);
+        let n = self.slug_seen.entry(base.clone()).or_insert(0);
+        *n += 1;
+        let dedup = *n;
+        if dedup == 1 {
+            base
+        } else {
+            format!("{base}-{}", dedup - 1)
+        }
+    }
+
     fn add_media(&mut self, bytes: Vec<u8>, ext: &str) -> String {
         let name = format!("media/image{}.{}", self.media.len() + 1, ext);
         self.media.push((name.clone(), bytes));
@@ -99,6 +114,7 @@ pub fn export_docx(
         next_doc_id: 100,
         footnotes: Vec::new(),
         footnote_ids: std::collections::HashMap::new(),
+        slug_seen: std::collections::HashMap::new(),
     };
     // 추출한 각주 정의를 Ctx에 등록 — 각각 마크다운으로 파싱해 인라인 서식
     // (굵게·링크·수식)까지 각주 안에 유지.
@@ -153,9 +169,21 @@ fn block<'a>(
         NodeValue::Heading(h) => {
             let runs = inline_children(node, ctx, list_level)?;
             let level = h.level.clamp(1, 6);
+            // 북마크(내부 앵커 링크 목적지) — 슬러그는 프런트와 같은 GitHub식.
+            let text: String = node
+                .children()
+                .filter_map(|c| match &c.data.borrow().value {
+                    NodeValue::Text(t) => Some(t.to_string()),
+                    _ => None,
+                })
+                .collect();
+            let slug = ctx.bookmark_slug(&text);
+            let bm = format!(
+                "<w:bookmarkStart w:id=\"B{slug}\" w:name=\"{slug}\"/><w:bookmarkEnd w:id=\"B{slug}\"/>"
+            );
             let _ = writeln!(
                 out,
-                "<w:p><w:pPr><w:pStyle w:val=\"Heading{level}\"/></w:pPr>{runs}</w:p>"
+                "<w:p><w:pPr><w:pStyle w:val=\"Heading{level}\"/></w:pPr>{bm}{runs}</w:p>"
             );
         }
         NodeValue::BlockQuote | NodeValue::MultilineBlockQuote(_) => {
@@ -719,7 +747,6 @@ fn inline<'a>(
             }
         }
         NodeValue::Link(link) => {
-            let id = ctx.add_hyperlink(&link.url);
             let mut runs = String::new();
             let s = RunStyle {
                 italic: false,
@@ -728,6 +755,14 @@ fn inline<'a>(
             for c in node.children() {
                 inline(c, ctx, &mut runs, &s, _level)?;
             }
+            // 내부 앵커(#슬러그)는 문서 내 북마크로 — 외부 URL만 관계를 쓴다.
+            if let Some(anchor) = link.url.strip_prefix('#') {
+                if !anchor.is_empty() {
+                    let _ = write!(out, "<w:hyperlink w:anchor=\"{anchor}\">{runs}</w:hyperlink>");
+                    return Ok(());
+                }
+            }
+            let id = ctx.add_hyperlink(&link.url);
             let _ = write!(out, "<w:hyperlink r:id=\"rIdH{id}\">{runs}</w:hyperlink>");
         }
         NodeValue::Image(link) => {
@@ -1222,11 +1257,39 @@ mod tests {
             next_doc_id: 100,
             footnotes: vec!["DEF".into()],
             footnote_ids: [("a".to_string(), 1usize)].into_iter().collect(),
+            slug_seen: std::collections::HashMap::new(),
         };
         let body = "x\u{E000}a\u{E000}y";
         let out = resolve_footnote_refs(body, &ctx);
         assert!(out.contains("<w:footnoteReference w:id=\"1\"/>"));
         assert!(!out.contains("\u{E000}"));
+    }
+
+    #[test]
+    fn anchor_links_and_heading_bookmarks() {
+        let md = "# 개요\n\n[설치로](#설치) 이동.\n\n## 설치\n\n## 설치\n";
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let out = tmp("anchor");
+        export_docx(md, &math, &diagrams, &images, &out, None).unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let cursor = std::io::Cursor::new(&bytes);
+        let mut zip = zip::ZipArchive::new(cursor).unwrap();
+        let read = |zip: &mut zip::ZipArchive<std::io::Cursor<&Vec<u8>>>, name: &str| {
+            let mut s = String::new();
+            use std::io::Read;
+            zip.by_name(name).unwrap().read_to_string(&mut s).unwrap();
+            s
+        };
+        let doc = read(&mut zip, "word/document.xml");
+        // 북마크: 첫 설치는 이름 그대로, 둘째는 -1(GitHub식 — 프런트 toc와 동일).
+        assert!(doc.contains(r#"<w:bookmarkStart w:id="B설치" w:name="설치"/>"#));
+        assert!(doc.contains(r#"w:name="설치-1""#));
+        // 내부 링크는 관계가 아니라 anchor 속성으로.
+        assert!(doc.contains(r#"<w:hyperlink w:anchor="설치">"#));
+        assert!(!doc.contains("rIdH"));
+        let _ = std::fs::remove_file(&out);
     }
 
     #[test]
