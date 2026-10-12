@@ -239,7 +239,8 @@ export function CommandPalette({
         kind: "cmd" as const,
         c: {
           id: `head-${r.h.pos}`,
-          label: `${"  ".repeat(Math.max(0, r.h.level - 1))}${"#".repeat(r.h.level)} ${r.h.text}`,
+          // 줄 번호 접두 — 동명 제목 구분(wssearch-lineno 관례).
+          label: `L${store.active?.state.doc.lineAt(Math.min(r.h.pos, store.active.state.doc.length)).number ?? 0} ${"  ".repeat(Math.max(0, r.h.level - 1))}${"#".repeat(r.h.level)} ${r.h.text}`,
           run: () => {
             const view = store.view;
             if (!view) return;
