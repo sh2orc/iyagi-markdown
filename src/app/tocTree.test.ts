@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ancestorSlugs, filterHeadings, tocTree, visibleNodes } from "./tocTree";
+import { ancestorSlugs, filterHeadings, headingPath, tocTree, visibleNodes } from "./tocTree";
 import type { Heading } from "../links";
 
 const H = (level: number, text: string, i: number): Heading => ({
@@ -76,5 +76,28 @@ describe("filterHeadings", () => {
 
   it("매치 없음은 빈 배열", () => {
     expect(filterHeadings(hs, "없는것")).toEqual([]);
+  });
+});
+
+describe("headingPath", () => {
+  const hs = [
+    H(1, "개요", 0),   // pos 0
+    H(2, "배경", 1),   // pos 10
+    H(3, "실험", 2),   // pos 20
+    H(1, "결론", 3),   // pos 30
+  ];
+
+  it("깊은 위치 — 조상 체인 전체", () => {
+    expect(headingPath(hs, 25).map((h) => h.text)).toEqual(["개요", "배경", "실험"]);
+  });
+
+  it("형제로 이동하면 이전 분기는 사라진다", () => {
+    expect(headingPath(hs, 35).map((h) => h.text)).toEqual(["결론"]);
+  });
+
+  it("첫 제목 앞·빈 문서는 빈 경로", () => {
+    // pos가 정확히 제목 위치면 포함(제목 줄에 커서)
+    expect(headingPath(hs, 0).map((h) => h.text)).toEqual(["개요"]);
+    expect(headingPath([], 5)).toEqual([]);
   });
 });

@@ -1,6 +1,11 @@
 // 상태 줄 — 모드 전환·커서 위치·단어 수·설정 진입.
 
+import { useEffect, useState } from "react";
+
 import { countWords, type AppStore } from "../app/store";
+import { collectHeadings, type Heading } from "../links";
+import { headingPath } from "../app/tocTree";
+import { smoothScrollIntoView } from "../editor/cm";
 import type { Translate } from "../i18n";
 
 interface Props {
@@ -15,6 +20,21 @@ interface Props {
 export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, onOpenBacklinks }: Props): JSX.Element {
   const state = store.getSnapshot();
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
+  // 브레드크럼 — 커서가 속한 제목 경로. 편집이 멈춘 뒤 재계산(타이핑마다
+  // 전체 재스캔이 되지 않게 — 목차 패널과 같은 디바운스).
+  const [crumbs, setCrumbs] = useState<Heading[]>([]);
+  const doc = tab?.state.doc;
+  const cursor = tab?.state.selection.main.head ?? 0;
+  useEffect(() => {
+    if (!doc) {
+      setCrumbs([]);
+      return;
+    }
+    const id = setTimeout(() => {
+      setCrumbs(headingPath(collectHeadings(doc.toString()), cursor));
+    }, 150);
+    return () => clearTimeout(id);
+  }, [doc, cursor]);
   // 통계는 스토어가 증분 유지한다 — 여기서 문서를 다시 훑지 않는다.
   const dirty = tab?.dirty ?? false;
   const words = tab?.words ?? 0;
@@ -52,6 +72,23 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, 
         >
           {t.modeSource}
         </button>
+        {crumbs.length > 0 && (
+          <span className="status-crumbs" title={crumbs.map((c) => c.text).join(" › ")}>
+            {crumbs.map((c, i) => (
+              <button
+                key={`${c.slug}-${i}`}
+                className="status-crumb"
+                onClick={() => {
+                  const view = store.view;
+                  if (!view) return;
+                  smoothScrollIntoView(view, Math.min(c.pos, view.state.doc.length));
+                }}
+              >
+                {c.text}
+              </button>
+            ))}
+          </span>
+        )}
       </div>
       <div className="statusbar-right">
         {tab && (

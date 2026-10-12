@@ -2296,3 +2296,20 @@ body.resizing .toc {
   font-size: 10px; font-weight: 600; color: var(--md-fg-dim);
   background: var(--md-code-bg); border-radius: 99px; padding: 0 6px; line-height: 16px;
 }
+
+/* — 상태 줄 브레드크럼(현재 제목 경로 — 목차와 연결) — */
+.status-crumbs {
+  display: flex; align-items: center; gap: 0;
+  min-width: 0; margin-left: 12px; overflow: hidden;
+  border-left: 1px solid var(--md-border); padding-left: 12px;
+}
+.status-crumb {
+  border: none; background: none; padding: 1px 2px; cursor: pointer;
+  font-size: 11.5px; color: var(--md-fg-dim); white-space: nowrap;
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis;
+}
+.status-crumb:hover { color: var(--md-accent); text-decoration: underline; }
+.status-crumb + .status-crumb::before {
+  content: "›"; margin-right: 4px; color: var(--md-border-strong); text-decoration: none;
+}
+.status-crumb:last-child { color: var(--md-fg); }

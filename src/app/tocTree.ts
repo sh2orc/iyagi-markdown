@@ -75,3 +75,14 @@ export function filterHeadings(headings: Heading[], q: string): Heading[] | null
   if (!query) return null;
   return headings.filter((h) => h.text.toLowerCase().includes(query));
 }
+
+/** 위치의 제목 경로(조상 체인) — 상태 줄 브레드크럼. 스택으로 수준 유지. */
+export function headingPath(headings: Heading[], pos: number): Heading[] {
+  const stack: Heading[] = [];
+  for (const h of headings) {
+    if (h.pos > pos) break;
+    while (stack.length > 0 && stack[stack.length - 1]!.level >= h.level) stack.pop();
+    stack.push(h);
+  }
+  return stack;
+}
