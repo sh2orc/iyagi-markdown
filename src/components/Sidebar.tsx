@@ -172,15 +172,17 @@ const TreeNodeRow = memo(function TreeNodeRow({
 }: RowProps): JSX.Element {
   if (node.kind === "dir") {
     const open = !collapsed.has(node.path);
+    // 접힘 배지 — 안에 있는 문서 수(재귀). 목차 패널과 같은 관례.
+    const fileCount = countFiles(node);
     return (
-      <div>
+      <div className={depth === 0 ? "" : "tree-children"}>
         <button
           className="tree-row tree-dir"
-          style={{ paddingLeft: 8 + depth * 14 }}
           onClick={() => onToggle(node.path)}
         >
           <span className={`tree-arrow ${open ? "tree-arrow-open" : ""}`}>▸</span>
           <span className="tree-name">{node.name}</span>
+          {!open && fileCount > 0 && <span className="tree-fold-badge">{fileCount}</span>}
         </button>
         {open &&
           node.children?.map((c) => (
@@ -201,7 +203,6 @@ const TreeNodeRow = memo(function TreeNodeRow({
   return (
     <button
       className={`tree-row tree-file ${active ? "is-active" : ""}`}
-      style={{ paddingLeft: 8 + depth * 14 + 14 }}
       title={node.path}
       onClick={() => void store.openPath(node.path)}
     >
@@ -209,3 +210,9 @@ const TreeNodeRow = memo(function TreeNodeRow({
     </button>
   );
 });
+
+/** 폴더 안 문서 수(재귀) — 접힘 배지용. */
+function countFiles(node: TreeNode): number {
+  if (node.kind === "file") return 1;
+  return (node.children ?? []).reduce((acc, c) => acc + countFiles(c), 0);
+}

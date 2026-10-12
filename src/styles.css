@@ -2281,3 +2281,18 @@ body.resizing .toc {
 
 .toc-bookmark-item { gap: 8px; }
 .toc-bm-line { flex: none; font-size: 10px; color: var(--md-fg-dim); opacity: 0.8; min-width: 20px; text-align: right; }
+
+/* — 사이드바 트리 v2 — 깊이 가이드·접힘 배지·활성 바(목차와 같은 언어) — */
+.tree-children {
+  margin-left: 11px;
+  border-left: 1px solid rgba(127, 127, 127, 0.15);
+}
+.tree-row.tree-dir { padding-left: 4px; }
+.tree-row.tree-file { padding-left: 18px; border-left: 2px solid transparent; }
+.tree-row.tree-file.is-active { border-left-color: var(--md-accent); }
+.tree-fold-badge {
+  margin-left: auto;
+  flex: none;
+  font-size: 10px; font-weight: 600; color: var(--md-fg-dim);
+  background: var(--md-code-bg); border-radius: 99px; padding: 0 6px; line-height: 16px;
+}
