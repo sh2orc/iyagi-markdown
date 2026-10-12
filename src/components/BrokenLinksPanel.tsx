@@ -14,9 +14,11 @@ interface Props {
   t: Translate;
   onClose: () => void;
   onGoto: (from: number) => void;
+  /** 끊긴 이름으로 새 문서 생성(워크스페이스 루트) 후 연다. */
+  onCreate: (name: string) => void;
 }
 
-export function BrokenLinksPanel({ store, t, onClose, onGoto }: Props): JSX.Element {
+export function BrokenLinksPanel({ store, t, onClose, onGoto, onCreate }: Props): JSX.Element {
   const tab = store.active;
   const [sel, setSel] = useState(0);
 
@@ -57,6 +59,16 @@ export function BrokenLinksPanel({ store, t, onClose, onGoto }: Props): JSX.Elem
               <span className="wssearch-lineno">{b.line}</span>
               <span className="wssearch-text">
                 [[<mark className="wssearch-mark">{b.name}</mark>]]
+              </span>
+              <span
+                className="broken-create"
+                title={t.brokenCreate}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCreate(b.name);
+                }}
+              >
+                ＋
               </span>
             </button>
           ))}

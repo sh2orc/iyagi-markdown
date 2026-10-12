@@ -1022,6 +1022,13 @@ export function App(): JSX.Element {
           store={store}
           t={t}
           onClose={() => setBrokenOpen(false)}
+          onCreate={(name) => {
+            const root = store.state.workspace;
+            if (!root) return;
+            void store.createNote(`${root}/${name}.md`).then((ok) => {
+              if (ok) store.toast(t.brokenCreated);
+            });
+          }}
           onGoto={(from) => {
             const view = editorView.current;
             if (!view) return;

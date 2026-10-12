@@ -1743,6 +1743,15 @@ body.resizing .toc {
 
 /* 버전 기록 패널 */
 
+.broken-create {
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  color: var(--md-accent);
+  cursor: pointer;
+  font-weight: 650;
+}
+
 .versions-modal {
   width: min(760px, 94vw);
 }

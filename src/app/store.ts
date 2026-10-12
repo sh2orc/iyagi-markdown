@@ -736,6 +736,19 @@ export class AppStore {
     this.markSpeaking(false);
   }
 
+  /** 새 문서 생성(빈 파일) 후 연다 — 끊긴 링크 등에서 즉시 만들기. */
+  async createNote(path: string): Promise<boolean> {
+    try {
+      await this.io.writeDocument(path, "", { hadBom: false, crlf: false });
+      void this.refreshTree();
+      await this.openPath(path);
+      return true;
+    } catch (e) {
+      this.toast(e instanceof Error ? e.message : String(e), "error");
+      return false;
+    }
+  }
+
   /** 읽는 중 표시 — 시작 시 켜고 2초 폴링으로 자연 종료를 감지한다. */
   speaking = false;
   private speakingTimer: ReturnType<typeof setInterval> | null = null;
