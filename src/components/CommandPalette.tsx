@@ -10,6 +10,9 @@ import type { AppStore } from "../app/store";
 import { flattenFiles, scoreFile, subsequence, type FileEntry } from "../app/quickOpen";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
+import { collectHeadings } from "../links";
+import { stripFrontMatter } from "../editor/frontmatter";
+import { smoothScrollIntoView } from "../editor/cm";
 import { foldAll, unfoldAll } from "@codemirror/language";
 import { DOC_TEMPLATES } from "../app/templates";
 
@@ -210,6 +213,32 @@ export function CommandPalette({
   }, [store, t, onOpenStats, onOpenStyle, onOpenShortcuts, onOpenPrint, onOpenExport]);
 
   const rows = useMemo<Row[]>(() => {
+    const raw = query;
+    // @심볼 모드 — 현재 문서의 제목 퍼지 점프(VS Code @ 내비게이션).
+    if (raw.startsWith("@")) {
+      const q = raw.slice(1).trim();
+      const doc = store.active?.state.doc.toString() ?? "";
+      const heads = collectHeadings(stripFrontMatter(doc));
+      const hits = heads
+        .map((h) => ({ h, s: q ? subsequence(q, h.text) : 1 }))
+        .filter((r) => r.s > 0)
+        .sort((a, b) => b.s - a.s)
+        .slice(0, 40);
+      return hits.map((r) => ({
+        kind: "cmd" as const,
+        c: {
+          id: `head-${r.h.pos}`,
+          label: `${"  ".repeat(Math.max(0, r.h.level - 1))}${"#".repeat(r.h.level)} ${r.h.text}`,
+          run: () => {
+            const view = store.view;
+            if (!view) return;
+            const pos = Math.min(r.h.pos, view.state.doc.length);
+            view.dispatch({ selection: { anchor: pos } });
+            smoothScrollIntoView(view, pos);
+          },
+        },
+      }));
+    }
     const q = query.trim();
     const out: Row[] = [];
     if (!q) {
