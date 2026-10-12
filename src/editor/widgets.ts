@@ -9,6 +9,7 @@ import { convertFileSrc, isInApp } from "../api";
 import { renderMathInto } from "../plugins/katex";
 import { renderMermaid } from "../plugins/mermaid";
 import { parseFrontMatter } from "./frontmatter";
+import { phrases } from "../app/phrases";
 
 // — 수식 —
 
@@ -76,7 +77,7 @@ export class DiagramWidget extends WidgetType {
         code.textContent = this.code;
         const msg = document.createElement("div");
         msg.className = "md-diagram-error-msg";
-        msg.textContent = error ?? "render failed";
+        msg.textContent = error ?? phrases.diagramError;
         wrap.append(msg, code);
       }
       // 높이가 확정되는 비동기 채움 뒤 재측정(뷰포트 계산이 갱신되게).
@@ -135,14 +136,14 @@ export class ImageWidget extends WidgetType {
     if (this.#broken) {
       wrap.classList.add("md-image-missing");
       wrap.textContent = this.alt || this.src;
-      wrap.title = this.alt;
+      wrap.title = phrases.imgMissing;
       return wrap;
     }
     const remote = /^https?:\/\//i.test(this.src);
     if (remote && !this.opts.remoteImages) {
       wrap.classList.add("md-image-blocked");
       wrap.textContent = `🚫 ${this.alt || this.src}`;
-      wrap.title = this.src;
+      wrap.title = phrases.imgLoadBlocked;
       wrap.addEventListener("mousedown", (e) => {
         // 클릭 시 이 이미지만 허용 목록에 올린 뒤 다시 그린다 — 상태는 전역 설정이
         // 아니라 이 위젯 인스턴스에만 적용된다(§4-6: 클릭 시 해당 이미지만 로드).
