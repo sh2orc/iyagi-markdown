@@ -113,6 +113,8 @@ export function CommandPalette({
       { id: "export-pdf", label: `${t.exportTitle} — ${t.exportPdf}`, run: () => onOpenExport("pdf") },
       { id: "export-docx", label: `${t.exportTitle} — ${t.exportDocx}`, run: () => onOpenExport("docx") },
       { id: "bookmark", label: `${t.ctxAddBookmark} / ${t.ctxRemoveBookmark}`, run: () => store.toggleBookmark() },
+      { id: "tw-toggle", label: `${t.scView}: ${t.setTypewriter}`, run: () => store.toggleTypewriter() },
+      { id: "focus-toggle", label: `${t.scView}: ${t.setFocusMode}`, run: () => store.toggleFocusMode() },
       { id: "newtab", label: `${t.newTab} ⌘N`, run: () => store.newTab() },
       { id: "closetab", label: `${t.closeTab} ⌘W`, run: () => {
         const tab = store.active;

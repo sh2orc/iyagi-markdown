@@ -58,6 +58,7 @@ const ioAdapter = {
   bookmarkList: (path: string) => api.bookmarkList(path),
   bookmarkAdd: (path: string, lineNo: number) => api.bookmarkAdd(path, lineNo),
   bookmarkRemove: (path: string, lineNo: number) => api.bookmarkRemove(path, lineNo),
+  setSettings: (settings: Parameters<typeof api.setSettings>[0]) => api.setSettings(settings),
 };
 
 export interface PdfExportOptions {

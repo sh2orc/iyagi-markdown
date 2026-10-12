@@ -27,6 +27,7 @@ import { isInApp } from "../api";
 import { relPath } from "../paths";
 import * as fmt from "./format";
 import { resetSearch, searchHighlight } from "../search/searchCm";
+import { writingComp, writingConf, writingExtension } from "./writing";
 
 export type ViewMode = "edit" | "read" | "source";
 
@@ -285,6 +286,8 @@ function modeValues(mode: ViewMode): Extension[] {
     editableComp.of(editable),
     behaviorComp.of(behavior),
     previewEnabledComp.of(preview),
+    // 자리만 잡는다 — 상태 생성 직후 applyConfig가 실제 설정으로 바꾼다.
+    writingComp.of(writingExtension({ typewriter: false, focus: false, active: mode !== "read" })),
   ];
 }
 
@@ -353,6 +356,7 @@ export function switchMode(view: EditorView, mode: ViewMode): void {
     mode === "read"
       ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
       : [EditorState.readOnly.of(false), EditorView.editable.of(true)];
+  const writing = view.state.facet(writingConf);
   view.dispatch({
     effects: [
       editableComp.reconfigure(editable),
@@ -361,6 +365,8 @@ export function switchMode(view: EditorView, mode: ViewMode): void {
       // 모드 전환 자체는 doc/선택/뷰포트를 바꾸지 않는다 — 설정 이펙트로 재빌드를
       // 트리거한다(예: 읽기→편집 전환 시 커서 줄 원문 노출이 즉시 반영되게).
       setPreviewConfig.of(currentPreviewConfig(view)),
+      // 집필 기능의 활성 비트만 뒤집는다(타이프라이터·포커스 설정은 유지).
+      writingComp.reconfigure(writingExtension({ ...writing, active: mode !== "read" })),
     ],
   });
   resetSearch(view);

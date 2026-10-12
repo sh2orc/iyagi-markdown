@@ -55,6 +55,12 @@ pub struct Settings {
     /// 초안 자동 저장 — 입력이 멈춘 뒤 원자적으로 저장한다(Word 자동 저장).
     #[serde(default)]
     pub autosave: bool,
+    /// 타이프라이터 스크롤(입력 시 커서 줄 세로 중앙).
+    #[serde(default)]
+    pub typewriter: bool,
+    /// 포커스 모드(커서 블록 외 흐림).
+    #[serde(default)]
+    pub focus_mode: bool,
 }
 
 fn default_font_size() -> f64 {

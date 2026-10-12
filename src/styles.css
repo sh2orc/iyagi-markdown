@@ -1687,6 +1687,12 @@ body.resizing .toc {
   color: rgba(255, 255, 255, 0.75);
 }
 
+/* 포커스 모드 — 커서 문단 외 흐림(editor/writing.ts 마크) */
+
+.cm-focus-dim {
+  opacity: 0.42;
+}
+
 /* 이미지 확대 뷰어 */
 
 .imgviewer {

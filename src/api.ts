@@ -37,6 +37,10 @@ export interface Settings {
   showImages: boolean;
   logLevel: string;
   autosave: boolean;
+  /** 타이프라이터 스크롤 — 입력 줄을 화면 가운데 유지(Typora·iA). */
+  typewriter: boolean;
+  /** 포커스 모드 — 커서 문단 외 흐림. */
+  focusMode: boolean;
 }
 
 export interface SessionTab {

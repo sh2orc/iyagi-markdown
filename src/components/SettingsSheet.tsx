@@ -113,6 +113,22 @@ export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element |
             {t.setAutosave}
             <span className="settings-hint">{t.setAutosaveHint}</span>
           </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={s.typewriter}
+              onChange={(e) => set({ typewriter: e.target.checked })}
+            />
+            {t.setTypewriter}
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={s.focusMode}
+              onChange={(e) => set({ focusMode: e.target.checked })}
+            />
+            {t.setFocusMode}
+          </label>
         </div>
         <div className="modal-actions">
           <button className="btn btn-primary" onClick={onClose}>

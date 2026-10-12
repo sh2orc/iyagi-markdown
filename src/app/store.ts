@@ -19,6 +19,7 @@ import type {
 } from "../api";
 import { applyDocStyle, DEFAULT_DOC_STYLE as DEFAULT_DOC_STYLE_T } from "./docStyle";
 import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, type ViewMode } from "../editor/cm";
+import { applyWriting } from "../editor/writing";
 import { dirname } from "../paths";
 
 export interface Tab {
@@ -95,6 +96,7 @@ export interface StoreIO {
   bookmarkList?(path: string): Promise<number[]>;
   bookmarkAdd?(path: string, lineNo: number): Promise<void>;
   bookmarkRemove?(path: string, lineNo: number): Promise<void>;
+  setSettings?(settings: Settings): Promise<void>;
 }
 
 let nextTabId = 1;
@@ -584,6 +586,21 @@ export class AppStore {
     this.emit();
   }
 
+  /** 설정 패치 — 화면 즉시 반영 + 디스크 저장(팔레트 토글용). */
+  private patchSettings(patch: Partial<Settings>): void {
+    const next = { ...this.state.settings, ...patch };
+    this.setSettings(next);
+    void this.io.setSettings?.(next);
+  }
+
+  toggleTypewriter(): void {
+    this.patchSettings({ typewriter: !this.state.settings.typewriter });
+  }
+
+  toggleFocusMode(): void {
+    this.patchSettings({ focusMode: !this.state.settings.focusMode });
+  }
+
   setTheme(theme: "light" | "dark"): void {
     this.state.theme = theme;
     this.applyConfig();
@@ -602,6 +619,11 @@ export class AppStore {
       imageWidths: tab?.docStyle?.imageWidths ?? {},
       bookmarks: tab?.bookmarks ?? [],
       tableWidths: tab?.docStyle?.tableWidths ?? {},
+    });
+    applyWriting(this.view, {
+      typewriter: this.state.settings.typewriter,
+      focus: this.state.settings.focusMode,
+      active: (tab?.mode ?? this.state.settings.defaultMode) !== "read",
     });
     this.applyDocStyleVars();
   }
@@ -907,6 +929,8 @@ export function defaultSettings(): Settings {
     showImages: true,
     logLevel: "info",
     autosave: false,
+    typewriter: false,
+    focusMode: false,
   };
 }
 
