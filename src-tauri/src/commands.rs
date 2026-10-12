@@ -156,6 +156,53 @@ pub async fn export_epub(
     .map_err(|e| e.to_string())?
 }
 
+// — 소리내어 읽기(macOS say, 시스템 목소리 — 의존 0) —
+
+static SPEAKER: std::sync::Mutex<Option<std::process::Child>> = std::sync::Mutex::new(None);
+
+/// 텍스트를 시스템 목소리로 읽는다. 진행 중이면 먼저 끊는다. 실패는 조용히
+/// (say 없는 환경) — 반환값은 시작 성공 여부.
+#[tauri::command]
+pub fn speak_start(text: String, rate: u32) -> bool {
+    {
+        let mut g = SPEAKER.lock().unwrap();
+        if let Some(mut child) = g.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    match std::process::Command::new("say")
+        .arg("-r")
+        .arg(rate.to_string())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(mut child) => {
+            if let Some(stdin) = child.stdin.as_mut() {
+                use std::io::Write;
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            // stdin을 닫아야 say가 끝을 안다.
+            drop(child.stdin.take());
+            *SPEAKER.lock().unwrap() = Some(child);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// 읽기 중지.
+#[tauri::command]
+pub fn speak_stop() {
+    let mut g = SPEAKER.lock().unwrap();
+    if let Some(mut child) = g.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
 /// 백링크 — 현재 문서를 [[이름]]으로 참조하는 문서들(전체 검색과 같은 풀).
 #[tauri::command]
 pub async fn backlinks(

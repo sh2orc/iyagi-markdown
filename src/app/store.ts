@@ -105,6 +105,8 @@ export interface StoreIO {
   bookmarkRemove?(path: string, lineNo: number): Promise<void>;
   setSettings?(settings: Settings): Promise<void>;
   backlinks?(root: string, path: string): Promise<unknown[]>;
+  speakStart?(text: string, rate: number): Promise<boolean>;
+  speakStop?(): Promise<void>;
 }
 
 let nextTabId = 1;
@@ -702,6 +704,27 @@ export class AppStore {
 
   toggleFocusMode(): void {
     this.patchSettings({ focusMode: !this.state.settings.focusMode });
+  }
+
+  /** 소리내어 읽기 — 선택이 있으면 그 텍스트, 아니면 본문 전체(프론트매터
+   *  제외). rate는 분당 단어 근사(기본 175 — say 기본값 근처). */
+  speakActive(rate = 175): void {
+    const tab = this.active;
+    if (!tab || !this.view) return;
+    const sel = this.view.state.selection.main;
+    const text = !sel.empty
+      ? this.view.state.doc.sliceString(sel.from, sel.to)
+      : stripFrontMatter(this.view.state.doc.toString());
+    if (!text.trim()) return;
+    void this.io.speakStart?.(text, rate).then((started) => {
+      if (started) {
+        this.toast(sel.empty ? phrases.speakStartedDoc : phrases.speakStartedSel);
+      }
+    });
+  }
+
+  speakStop(): void {
+    void this.io.speakStop?.();
   }
 
   toggleSentenceFocus(): void {

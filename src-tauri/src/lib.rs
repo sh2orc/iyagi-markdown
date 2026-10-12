@@ -62,6 +62,8 @@ pub fn run() {
             commands::snapshot_list,
             commands::snapshot_read,
             commands::backlinks,
+            commands::speak_start,
+            commands::speak_stop,
             commands::import_image,
             commands::export_epub,
             commands::replace_workspace,

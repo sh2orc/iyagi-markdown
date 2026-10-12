@@ -9,6 +9,8 @@ export interface WidgetPhrases {
   imgLoadBlocked: string;
   linkOpen: string;
   saveFailed: string;
+  speakStartedDoc: string;
+  speakStartedSel: string;
 }
 
 const DEFAULTS: WidgetPhrases = {
@@ -18,6 +20,8 @@ const DEFAULTS: WidgetPhrases = {
   imgLoadBlocked: "Remote image blocked — click to load",
   linkOpen: "Open link",
   saveFailed: "Could not save the file",
+  speakStartedDoc: "Reading the document aloud",
+  speakStartedSel: "Reading the selection aloud",
 };
 
 export const phrases: WidgetPhrases = { ...DEFAULTS };

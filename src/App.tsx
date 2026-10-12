@@ -72,6 +72,8 @@ const ioAdapter = {
   bookmarkRemove: (path: string, lineNo: number) => api.bookmarkRemove(path, lineNo),
   setSettings: (settings: Parameters<typeof api.setSettings>[0]) => api.setSettings(settings),
   backlinks: (root: string, path: string) => api.backlinks(root, path),
+  speakStart: (text: string, rate: number) => api.speakStart(text, rate),
+  speakStop: () => api.speakStop(),
 };
 
 export interface PdfExportOptions {
@@ -167,6 +169,8 @@ export function App(): JSX.Element {
       imgLoadBlocked: t.imgLoadBlocked,
       linkOpen: t.linkOpen,
       saveFailed: t.saveFailed,
+      speakStartedDoc: t.speakStartedDoc,
+      speakStartedSel: t.speakStartedSel,
     });
     let disposed = false;
     initBridge();

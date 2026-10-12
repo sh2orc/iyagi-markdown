@@ -173,6 +173,8 @@ export const api = {
   snapshotList: (path: string) => invoke<SnapshotInfo[]>("snapshot_list", { path }),
   backlinks: (root: string, path: string) =>
     invoke<SearchHit[]>("backlinks", { root, path }),
+  speakStart: (text: string, rate: number) => invoke<boolean>("speak_start", { text, rate }),
+  speakStop: () => invoke<void>("speak_stop"),
   snapshotRead: (path: string, ts: number) => invoke<string>("snapshot_read", { path, ts }),
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (settings: Settings) => invoke<void>("set_settings", { settings }),
