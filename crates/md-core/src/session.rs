@@ -51,6 +51,9 @@ pub struct SessionState {
     /// 창 위치·크기(화면 좌표). 없으면 기본 위치.
     #[serde(default)]
     pub window: Option<WindowRect>,
+    /// 보조 창(새 창으로 열기)의 마지막 위치·크기.
+    #[serde(default)]
+    pub aux_window: Option<WindowRect>,
 }
 
 fn default_true() -> bool {
@@ -83,6 +86,7 @@ impl Default for SessionState {
             sidebar_width: default_sidebar_width(),
             toc_open: false,
             window: None,
+            aux_window: None,
         }
     }
 }

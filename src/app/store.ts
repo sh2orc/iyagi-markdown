@@ -753,6 +753,7 @@ export class AppStore {
       sidebarWidth: this.state.sidebarWidth,
       tocOpen: this.state.tocOpen,
       window: this.windowRect,
+      auxWindow: this.auxWindowRect ?? null,
     };
   }
 
@@ -761,6 +762,13 @@ export class AppStore {
 
   setWindowRect(rect: NonNullable<SessionState["window"]>): void {
     this.windowRect = rect;
+  }
+
+  /** 보조 창(새 창으로 열기) 위치 — 세션에 남겨 다음 보조 창이 같은 자리에. */
+  auxWindowRect: SessionState["auxWindow"] = null;
+
+  setAuxWindowRect(rect: NonNullable<SessionState["auxWindow"]>): void {
+    this.auxWindowRect = rect;
   }
 
   scheduleSessionSave(): void {

@@ -320,13 +320,17 @@ pub fn open_in_new_window(
         .and_then(|p| std::path::Path::new(p).file_name())
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "IYAGI Markdown".to_string());
-    WebviewWindowBuilder::new(&app, &label, url)
+    let mut builder = WebviewWindowBuilder::new(&app, &label, url)
         .title(&title)
         .inner_size(900.0, 700.0)
-        .min_inner_size(480.0, 360.0)
-        .build()
-        .map(|_| ())
-        .map_err(err)
+        .min_inner_size(480.0, 360.0);
+    // 직전 보조 창 위치·크기가 세션에 있으면 재사용(창 관례 — 같은 자리에).
+    if let Some(session) = app.try_state::<crate::state::AppState>().and_then(|st| st.session.clone()) {
+        if let Some(rect) = session.aux_window {
+            builder = builder.position(rect.x, rect.y).inner_size(rect.width, rect.height);
+        }
+    }
+    builder.build().map(|_| ()).map_err(err)
 }
 
 /// 경로 trivial 인코딩(쿼리 파라미터용).

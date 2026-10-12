@@ -62,6 +62,7 @@ export interface SessionState {
   sidebarWidth: number;
   tocOpen: boolean;
   window: WindowRect | null;
+  auxWindow?: WindowRect | null;
 }
 
 export interface RecentEntry {

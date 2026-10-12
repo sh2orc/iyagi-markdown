@@ -553,6 +553,22 @@ export function App(): JSX.Element {
           }
           if (windowLabel() === "main") {
             await api.saveSession(store.buildSession()).catch(() => {});
+          } else {
+            // 보조 창: 자기 위치를 세션에 남기고 닫힌다(저장은 메인이 소유).
+            try {
+              const pos = await win.outerPosition();
+              const size = await win.innerSize();
+              const scale = await win.scaleFactor();
+              store.setAuxWindowRect({
+                x: pos.x / scale,
+                y: pos.y / scale,
+                width: size.width / scale,
+                height: size.height / scale,
+              });
+              await api.saveSession(store.buildSession()).catch(() => {});
+            } catch {
+              /* 위치 기록 실패는 닫기에 영향 없음 */
+            }
           }
           await win.destroy();
         });
