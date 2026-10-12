@@ -43,6 +43,8 @@ export interface Settings {
   focusMode: boolean;
   /** 문장 단위 포커스(iA Writer) — focusMode가 켜일 때만. */
   focusSentence: boolean;
+  /** TTS 읽기 속도(기준 175). */
+  ttsRate: number;
 }
 
 export interface SessionTab {

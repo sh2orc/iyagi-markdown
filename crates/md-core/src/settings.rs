@@ -61,9 +61,16 @@ pub struct Settings {
     /// 포커스 모드(커서 블록 외 흐림).
     #[serde(default)]
     pub focus_mode: bool,
-    /// 문장 단위 포커스(iA Writer) — 포커스 모드가 켜일 때만 의미.
+    /// 문장 단위 포커스(iA Writer) — 포커스 모드가 켜질 때만 의미.
     #[serde(default)]
     pub focus_sentence: bool,
+    /// 소리내어 읽기 속도(say -r, 분당 단어 근사).
+    #[serde(default = "default_tts_rate")]
+    pub tts_rate: u32,
+}
+
+fn default_tts_rate() -> u32 {
+    175
 }
 
 fn default_font_size() -> f64 {

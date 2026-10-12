@@ -708,7 +708,7 @@ export class AppStore {
 
   /** 소리내어 읽기 — 선택이 있으면 그 텍스트, 아니면 본문 전체(프론트매터
    *  제외). rate는 분당 단어 근사(기본 175 — say 기본값 근처). */
-  speakActive(rate = 175): void {
+  speakActive(rateOverride?: number): void {
     const tab = this.active;
     if (!tab || !this.view) return;
     const sel = this.view.state.selection.main;
@@ -716,6 +716,7 @@ export class AppStore {
       ? this.view.state.doc.sliceString(sel.from, sel.to)
       : stripFrontMatter(this.view.state.doc.toString());
     if (!text.trim()) return;
+    const rate = rateOverride ?? this.state.settings.ttsRate;
     void this.io.speakStart?.(text, rate).then((started) => {
       if (started) {
         this.toast(sel.empty ? phrases.speakStartedDoc : phrases.speakStartedSel);
@@ -825,13 +826,16 @@ export class AppStore {
     smoothScrollIntoView(this.view, l.from);
   }
 
-  /** 표 표시 폭 저장(표 시작 줄 → 열 px 배열) — 원문 불변 사이드카. */
-  setTableWidths(lineNo: number, widths: number[]): void {
+  /** 표 표시 폭 저장 — 헤더 내용 키로(줄 이동에 불변), 구 줄 번호 키는 제거.
+   *  원문 불변 사이드카. */
+  setTableWidths(lineNo: number, key: string, widths: number[]): void {
     const tab = this.active;
     if (!tab) return;
+    const prev = { ...(tab.docStyle?.tableWidths ?? {}) };
+    delete prev[String(lineNo)]; // 구 키 정리(같은 표를 다시 저장할 때)
     const style: DocStyle = {
       ...(tab.docStyle ?? DEFAULT_DOC_STYLE_T),
-      tableWidths: { ...(tab.docStyle?.tableWidths ?? {}), [String(lineNo)]: widths },
+      tableWidths: { ...prev, [key]: widths },
     };
     this.setDocStyle(style);
   }
@@ -1135,6 +1139,7 @@ export function defaultSettings(): Settings {
     typewriter: false,
     focusMode: false,
     focusSentence: false,
+    ttsRate: 175,
   };
 }
 

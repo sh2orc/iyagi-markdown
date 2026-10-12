@@ -115,6 +115,18 @@ export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element |
           </label>
           <label className="settings-check">
             <input
+              type="range"
+              min={120}
+              max={260}
+              step={5}
+              value={s.ttsRate}
+              onChange={(e) => set({ ttsRate: Number(e.target.value) })}
+            />
+            {t.setTtsRate}
+            <span className="settings-hint">{s.ttsRate} wpm</span>
+          </label>
+          <label className="settings-check">
+            <input
               type="checkbox"
               checked={s.typewriter}
               onChange={(e) => set({ typewriter: e.target.checked })}

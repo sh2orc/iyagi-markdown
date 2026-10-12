@@ -159,6 +159,39 @@ export function App(): JSX.Element {
     if (editorHost.current) editorHost.current.inert = modalOpen;
   }, [modalOpen]);
 
+  // 모달 포커스 트랩 — Tab이 배경 UI로 새는 것을 막고 오버레이 안에서 순환.
+  useEffect(() => {
+    if (!modalOpen) return;
+    const onTab = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      // 가장 나중에 뜬 오버레이(현재 대화상자) 안의 포커스 가능 요소들.
+      const overlays = Array.from(document.querySelectorAll<HTMLElement>(".overlay"));
+      const top = overlays.filter((o) => o.offsetParent !== null).pop();
+      if (!top) return;
+      const focusables = Array.from(
+        top.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select, textarea, a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.offsetParent !== null);
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (!top.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onTab, true);
+    return () => window.removeEventListener("keydown", onTab, true);
+  }, [modalOpen]);
+
   // — 초기화 —
   useEffect(() => {
     store.phrases = { bigDocSource: t.bigDocSource };
@@ -255,7 +288,7 @@ export function App(): JSX.Element {
   useEffect(() => {
     setImageResizeHandler((src, pct) => store.setImageWidth(src, pct));
     setImageViewerHandler((src, alt) => setViewer({ src, alt }));
-    setTableWidthsSaveHandler((lineNo, widths) => store.setTableWidths(lineNo, widths));
+    setTableWidthsSaveHandler((lineNo, key, widths) => store.setTableWidths(lineNo, key, widths));
     setTagClickHandler((tag) => {
       setWsSearchQuery(tag);
       setWsSearchOpen(true);
@@ -401,6 +434,7 @@ export function App(): JSX.Element {
           : store.state.workspace ?? "";
         // 사이드카 이미지 폭(%) — 편집기 드래그 값과 동일하게 4경로 모두 반영.
         const imageWidths = tab.docStyle?.imageWidths ?? {};
+        const tableWidths = tab.docStyle?.tableWidths ?? {};
         if (kind === "html") {
           const html = await buildExportHtml(text, {
             title: tab.path ? tab.title : name,
@@ -408,6 +442,7 @@ export function App(): JSX.Element {
             theme: store.state.theme,
             style: exportStyleOf(tab),
             imageWidths,
+            tableWidths,
             readBytes: readBytesForExport,
             wikiResolve,
           });
@@ -422,6 +457,7 @@ export function App(): JSX.Element {
             scale: opts.scale,
             style: exportStyleOf(tab),
             imageWidths,
+            tableWidths,
             readBytes: readBytesForExport,
             wikiResolve,
           });
@@ -435,9 +471,11 @@ export function App(): JSX.Element {
             baseDir,
             theme: store.state.theme,
           });
-          const { applyImageWidths } = await import("./export/html");
+          const { applyImageWidths, applyTableWidths } = await import("./export/html");
           // 전체를 한 번 렌더한 HTML을 <h1> 경계로 챕터 분할(각주는 마지막 챕터에).
-          const chapters = epubChapterInputs(splitEpubChapters(applyImageWidths(body, imageWidths)));
+          const chapters = epubChapterInputs(
+            splitEpubChapters(applyTableWidths(applyImageWidths(body, imageWidths), tableWidths)),
+          );
           // 표지 — 문서의 첫 로컬 이미지(없으면 생략).
           const coverPath = firstLocalImage(text, baseDir);
           await api.exportEpub(
@@ -463,6 +501,7 @@ export function App(): JSX.Element {
             pageNumbers: exportPageNumbers,
           };
           manifest.imageWidths = imageWidths;
+          manifest.tableWidths = tableWidths;
           await api.exportDocx(text, manifest, out, baseDir);
         }
         store.setBusy(null);
