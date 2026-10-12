@@ -26,6 +26,13 @@ export interface WritingConf {
 
 export const writingComp = new Compartment();
 
+/** 맞춤법 검사 컴파트먼트 — contentAttributes(spellcheck) 재구성. */
+export const spellcheckComp = new Compartment();
+
+export function spellcheckExtension(): Extension {
+  return EditorView.contentAttributes.of({ spellcheck: "true" });
+}
+
 export const writingConf = Facet.define<WritingConf, WritingConf>({
   combine: (vals) =>
     vals[vals.length - 1] ?? { typewriter: false, focus: false, sentence: false, active: true },

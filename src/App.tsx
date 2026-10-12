@@ -129,7 +129,7 @@ export function App(): JSX.Element {
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
   const [exportPageNumbers, setExportPageNumbers] = useState(true);
-  const [exportPdfHeader, setExportPdfHeader] = useState(true);
+  const [exportHeader, setExportHeader] = useState(true);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -467,7 +467,7 @@ export function App(): JSX.Element {
             style: exportStyleOf(tab),
             imageWidths,
             tableWidths,
-            pdfHeader: exportPdfHeader ? docTitle : null,
+            pdfHeader: exportHeader ? docTitle : null,
             readBytes: readBytesForExport,
             wikiResolve,
           });
@@ -518,6 +518,7 @@ export function App(): JSX.Element {
           if (metaTitle) manifest.title = metaTitle;
           if (metaAuthor) manifest.author = metaAuthor;
           if (fm?.toc) manifest.toc = true;
+          if (exportHeader) manifest.headerTitle = docTitle;
           await api.exportDocx(text, manifest, out, baseDir);
         }
         store.setBusy(null);
@@ -948,8 +949,8 @@ export function App(): JSX.Element {
           t={t}
           pageNumbers={exportPageNumbers}
           onTogglePageNumbers={setExportPageNumbers}
-          pdfHeader={exportPdfHeader}
-          onTogglePdfHeader={setExportPdfHeader}
+          pdfHeader={exportHeader}
+          onTogglePdfHeader={setExportHeader}
           onRun={(kind, opts) => {
             store.setExportKind(null);
             void runExport(kind, opts);

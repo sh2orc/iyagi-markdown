@@ -49,6 +49,8 @@ export interface Settings {
   smartPunctuation: boolean;
   /** 읽기 목소리(빈 값 = 시스템 기본). */
   ttsVoice: string;
+  /** 네이티브 맞춤법 검사. */
+  spellcheck: boolean;
 }
 
 export interface SessionTab {
@@ -115,6 +117,8 @@ export interface DocxManifest {
   author?: string;
   /** 네이티브 목차(TOC 필드). */
   toc?: boolean;
+  /** 머리글 문서 제목(Some이면 매 페이지 상단). */
+  headerTitle?: string;
 }
 
 /** 문서별 스타일(SQLite 사이드카 — .md 원문은 불변). */

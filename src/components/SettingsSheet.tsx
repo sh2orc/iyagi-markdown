@@ -156,6 +156,15 @@ export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element |
           <label className="settings-check">
             <input
               type="checkbox"
+              checked={s.spellcheck}
+              onChange={(e) => set({ spellcheck: e.target.checked })}
+            />
+            {t.setSpellcheck}
+            <span className="settings-hint">{t.setSpellcheckHint}</span>
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
               checked={s.smartPunctuation}
               onChange={(e) => set({ smartPunctuation: e.target.checked })}
             />

@@ -70,6 +70,9 @@ pub struct Settings {
     /// 읽기 목소리(say -v 이름, 빈 값 = 시스템 기본).
     #[serde(default)]
     pub tts_voice: String,
+    /// 네이티브 맞춤법 검사(contenteditable spellcheck — 시스템 적색 물결).
+    #[serde(default)]
+    pub spellcheck: bool,
 }
 
 fn default_tts_rate() -> u32 {

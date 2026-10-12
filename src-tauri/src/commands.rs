@@ -462,6 +462,9 @@ pub struct DocxManifest {
     /// 네이티브 목차(TOC 필드) 삽입 — 프런트매터 toc: true.
     #[serde(default)]
     pub toc: bool,
+    /// 머리글 문서 제목(Some이면 매 페이지 상단).
+    #[serde(default)]
+    pub header_title: Option<String>,
     /// 문서별 기본 서체(라이브 프리뷰 스타일 반영).
     pub style: Option<DocxStyleSpec>,
 }
@@ -523,6 +526,7 @@ pub fn export_docx(
             title: manifest.title.as_deref(),
             author: manifest.author.as_deref(),
             toc: manifest.toc,
+            header_title: manifest.header_title.as_deref(),
         },
         Path::new(&out_path),
     )

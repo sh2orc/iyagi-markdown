@@ -19,7 +19,7 @@ import type {
 } from "../api";
 import { applyDocStyle, DEFAULT_DOC_STYLE as DEFAULT_DOC_STYLE_T } from "./docStyle";
 import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, type ViewMode } from "../editor/cm";
-import { applyWriting } from "../editor/writing";
+import { applyWriting, spellcheckComp } from "../editor/writing";
 import { applySmartPunct } from "../editor/smartPunct";
 import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
 import { phrases } from "./phrases";
@@ -781,9 +781,13 @@ export class AppStore {
     applyWriting(this.view, {
       typewriter: this.state.settings.typewriter,
       focus: this.state.settings.focusMode,
-      // 문장 포커스 — 설정 키가 아직 없어 기본값(함께 임계). 추가되면 연결.
-      sentence: false,
+      sentence: this.state.settings.focusSentence,
       active: (tab?.mode ?? this.state.settings.defaultMode) !== "read",
+    });
+    this.view.dispatch({
+      effects: spellcheckComp.reconfigure(
+        this.state.settings.spellcheck ? spellcheckExtension() : [],
+      ),
     });
     this.applyDocStyleVars();
   }
@@ -1178,6 +1182,7 @@ export function defaultSettings(): Settings {
     focusSentence: false,
     ttsRate: 175,
     ttsVoice: "",
+    spellcheck: false,
   };
 }
 

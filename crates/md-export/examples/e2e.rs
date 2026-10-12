@@ -44,6 +44,7 @@ $$x^2 + \frac{1}{2}$$
             title: Some("예제 문서"),
             author: Some("iyagi"),
             toc: true,
+            header_title: Some("예제 문서"),
         },
         std::path::Path::new("/tmp/iyagi-e2e.docx"),
     )
