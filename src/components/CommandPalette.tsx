@@ -19,6 +19,30 @@ interface Cmd {
   run: () => void;
 }
 
+// — 최근 명령(VS Code 방식 — 빈 쿼리에서 최근 순, 세션 간 유지) —
+
+const RECENT_KEY = "iyagi.recentCommands";
+const RECENT_MAX = 8;
+
+function loadRecent(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    const arr = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(arr) ? arr.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecent(id: string): void {
+  const next = [id, ...loadRecent().filter((x) => x !== id)].slice(0, RECENT_MAX);
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  } catch {
+    /* 프라이빗 모드 등 — 세션만 */
+  }
+}
+
 type Row =
   | { kind: "header"; label: string }
   | { kind: "cmd"; c: Cmd }
@@ -182,7 +206,20 @@ export function CommandPalette({
     const q = query.trim();
     const out: Row[] = [];
     if (!q) {
-      for (const c of commands) out.push({ kind: "cmd", c });
+      // 최근에 쓴 명령 우선(VS Code 방식) — 나머지는 기존 순서 유지.
+      const recent = loadRecent();
+      const byId = new Map(commands.map((c) => [c.id, c] as const));
+      const seen = new Set<string>();
+      for (const id of recent) {
+        const c = byId.get(id);
+        if (c) {
+          out.push({ kind: "cmd", c });
+          seen.add(id);
+        }
+      }
+      for (const c of commands) {
+        if (!seen.has(c.id)) out.push({ kind: "cmd", c });
+      }
       if (files && files.length > 0) {
         out.push({ kind: "header", label: t.paletteRecentFiles });
         for (const f of files.slice(0, 8)) out.push({ kind: "file", f });
@@ -232,8 +269,12 @@ export function CommandPalette({
     const r = rows[i];
     if (!r || r.kind === "header") return;
     onClose();
-    if (r.kind === "cmd") r.c.run();
-    else void store.openPath(r.f.path);
+    if (r.kind === "cmd") {
+      rememberRecent(r.c.id);
+      r.c.run();
+    } else {
+      void store.openPath(r.f.path);
+    }
   };
 
   return (
