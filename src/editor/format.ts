@@ -365,3 +365,39 @@ function columnAtForAlign(view: EditorView, lineNo: number): number {
   }
   return Math.max(0, col - 1);
 }
+
+/** Enter 시 목록 자동 계속 — 커서 줄이 목록 항목이면 다음 줄에 마커를 잇는다.
+ *  내용이 비어 있으면 목록을 종료한다(마커 제거 — Word·모든 마크다운 에디터 표준).
+ *  원하는 경우에만 삽입되는 사용자 입력 보조(§4-1: 모두 텍스트 편집). */
+export function continueListOnEnter(view: EditorView): boolean {
+  const state = view.state;
+  const sel = state.selection.main;
+  if (!sel.empty) return false;
+  const line = state.doc.lineAt(sel.head);
+  // 커서가 줄 끝(또는 내용 뒤)에 있을 때만 — 중간 편집 중엔 방해하지 않는다.
+  if (sel.head !== line.to) return false;
+  const m = /^(\s*)([-*+]|\d+([.)]))\s+(\[[ xX]\]\s+)?(.*)$/.exec(line.text);
+  if (!m) return false;
+  const [, indent, marker, , task, content] = m;
+  // 빈 항목 → 목록 종료: 마커를 지우고 일반 줄로.
+  if (!content.trim()) {
+    if (sel.head === line.to && line.from > 0) {
+      view.dispatch({
+        changes: { from: line.from, to: line.to, insert: "" },
+        selection: { anchor: line.from },
+        userEvent: "input.listExit",
+      });
+      return true;
+    }
+    return false;
+  }
+  // 번호 목록은 증가, 불릿은 그대로. 작업 항목 표시도 잇는다(미완료로).
+  const nextMarker = /\d/.test(marker) ? `${Number(marker.replace(/[^\d]/g, "")) + 1}${marker.slice(-1)}` : marker;
+  const insert = `\n${indent}${nextMarker} ${task ? "[ ] " : ""}`;
+  view.dispatch({
+    changes: { from: line.to, insert },
+    selection: { anchor: line.to + insert.length },
+    userEvent: "input.listContinue",
+  });
+  return true;
+}

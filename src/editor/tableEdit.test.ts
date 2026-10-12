@@ -109,3 +109,55 @@ describe("표 정렬(6차)", () => {
     document.body.innerHTML = "";
   });
 });
+
+// 목록 자동 계속(14차) — Enter 흐름.
+import { continueListOnEnter } from "./format";
+
+describe("목록 자동 계속(Enter)", () => {
+  it("불릿 — 내용 있으면 다음 항목 생성", () => {
+    const view = viewWith("- 하나\n", 4); // 줄 끝
+    continueListOnEnter(view);
+    expect(view.state.doc.toString()).toBe("- 하나\n- \n");
+    expect(view.state.selection.main.head).toBe(7); // 마커 뒤(커서 즉시 입력 위치)
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("번호 — 증가한 번호로 잇는다", () => {
+    const view = viewWith("2. 둘\n", 4);
+    continueListOnEnter(view);
+    expect(view.state.doc.toString()).toBe("2. 둘\n3. \n");
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("빈 항목 — 목록 종료(마커 제거)", () => {
+    const view = viewWith("- 하나\n- ", 7);
+    continueListOnEnter(view);
+    expect(view.state.doc.toString()).toBe("- 하나\n");
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("작업 항목 — 미완료 체크박스로 잇는다", () => {
+    const view = viewWith("- [x] 끝난 일\n", 10);
+    continueListOnEnter(view);
+    expect(view.state.doc.toString()).toBe("- [x] 끝난 일\n- [ ] \n");
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("들여쓰기 유지·중간 커서·일반 문단은 방해 없음", () => {
+    const view = viewWith("  - 항목\n", 6);
+    continueListOnEnter(view);
+    expect(view.state.doc.toString()).toBe("  - 항목\n  - \n");
+    view.destroy();
+    const mid = viewWith("- 항목\n", 2); // 중간
+    expect(continueListOnEnter(mid)).toBe(false);
+    mid.destroy();
+    const plain = viewWith("일반 문단\n", 4);
+    expect(continueListOnEnter(plain)).toBe(false);
+    plain.destroy();
+    document.body.innerHTML = "";
+  });
+});

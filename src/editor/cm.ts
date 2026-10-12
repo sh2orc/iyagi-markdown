@@ -93,6 +93,8 @@ function baseExtensions(): Extension[] {
       { key: "Mod-i", run: (v) => fmt.toggleItalic(v), preventDefault: true },
       { key: "Mod-Shift-x", run: (v) => fmt.toggleStrikethrough(v), preventDefault: true },
       { key: "Mod-Shift-k", run: (v) => fmt.toggleInlineCode(v), preventDefault: true },
+      // 목록 자동 계속 — 항목 끝에서 Enter면 다음 마커를 잇는다(빈 항목은 종료).
+      { key: "Enter", run: (v) => fmt.continueListOnEnter(v) },
       // 강제 줄바꿈(Word Shift+Enter) — 마크다운 관례의 두 공백 + 개행.
       {
         key: "Shift-Enter",

@@ -7,6 +7,7 @@ import { EditorView } from "@codemirror/view";
 
 import { AppStore, countWords, type StoreIO } from "./store";
 import { setViewListener } from "../editor/cm";
+import { previewConfigField } from "../editor/livePreview";
 
 function fakeIo(): StoreIO {
   return {
@@ -131,6 +132,22 @@ describe("AppStore 탭 전환", () => {
     await nextFrame();
     expect(view.state.doc.toString().startsWith("A")).toBe(true);
     expect(one.dirty).toBe(true);
+    view.destroy();
+    setViewListener(null);
+  });
+});
+
+describe("책갈피 토글", () => {
+  it("토글하면 프리뷰 설정(config)의 bookmarks가 즉시 갱신된다(줄 배지 렌더)", async () => {
+    const store = new AppStore(fakeIo());
+    const view = mount(store);
+    await openTab(store, "/tmp/mark.md");
+    view.dispatch({ selection: { anchor: 3 } }); // 1~2번 줄 아무 데나
+    store.toggleBookmark();
+    const cfg = view.state.field(previewConfigField, false);
+    expect(cfg?.bookmarks).toEqual([view.state.doc.lineAt(3).number]);
+    store.toggleBookmark(); // 다시 토글 — 제거
+    expect(view.state.field(previewConfigField, false)?.bookmarks).toEqual([]);
     view.destroy();
     setViewListener(null);
   });

@@ -234,7 +234,10 @@ export class AppStore {
     if (path) {
       void this.io.bookmarkList?.(path).then((lines) => {
         tab.bookmarks = lines;
-        if (this.state.activeId === tab.id) this.emit();
+        if (this.state.activeId === tab.id) {
+          this.applyConfig(); // 줄 배지 렌더 반영
+          this.emit();
+        }
       });
     }
     // 문서별 스타일 사이드카 로드(SQLite).
@@ -618,6 +621,8 @@ export class AppStore {
     const line = this.view.state.doc.lineAt(this.view.state.selection.main.head).number;
     const has = tab.bookmarks.includes(line);
     tab.bookmarks = has ? tab.bookmarks.filter((l) => l !== line) : [...tab.bookmarks, line].sort((a, b) => a - b);
+    // 에디터 설정(config)에 반영해야 줄 배지가 바로 다시 그려진다.
+    this.applyConfig();
     this.emit();
     void (has ? this.io.bookmarkRemove?.(tab.path, line) : this.io.bookmarkAdd?.(tab.path, line));
   }

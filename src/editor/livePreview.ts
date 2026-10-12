@@ -94,6 +94,11 @@ function previewConfigEquals(a: PreviewConfig | undefined, b: PreviewConfig): bo
   for (const k of ka) {
     if (a.imageWidths[k] !== b.imageWidths[k]) return false;
   }
+  // 책갈피 — 배열 내용이 다르면 다른 설정이다(줄 번호 오름차순 정렬 전제).
+  if (a.bookmarks.length !== b.bookmarks.length) return false;
+  for (let i = 0; i < a.bookmarks.length; i++) {
+    if (a.bookmarks[i] !== b.bookmarks[i]) return false;
+  }
   return true;
 }
 
