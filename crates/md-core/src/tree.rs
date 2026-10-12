@@ -54,6 +54,12 @@ pub fn is_markdown_name(name: &str) -> bool {
     lower.ends_with(".md") || lower.ends_with(".markdown")
 }
 
+/// 디렉터리 건너뛰기 규칙 — 트리 스캔과 전체 검색이 같은 파일 세계를 보게
+/// 한다(규칙이 갈라지면 사이드바에 있는 파일이 검색에 없는 일이 생긴다).
+pub fn should_skip_dir_name(name: &str) -> bool {
+    name.starts_with('.') || name.starts_with("__") || IGNORED_DIRS.contains(&name)
+}
+
 /// `root` 아래의 마크다운 트리를 만든다. 심볼릭 링크 디렉터리는 따라가지
 /// 않는다(순환 방지 — metadata가 아닌 symlink_metadata로 판별).
 /// 깊이 제한(기본 12)도 같은 이유다.
@@ -73,8 +79,7 @@ fn scan_dir(dir: &Path, depth: u32, max_depth: u32) -> std::io::Result<Vec<TreeN
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if name.starts_with('.') || name.starts_with("__") || IGNORED_DIRS.contains(&name.as_str())
-        {
+        if should_skip_dir_name(&name) {
             continue;
         }
         let ft = match entry.file_type() {

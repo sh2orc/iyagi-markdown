@@ -17,6 +17,7 @@ pub mod i18n;
 pub mod io;
 pub mod links;
 pub mod recent;
+pub mod search;
 pub mod session;
 pub mod settings;
 pub mod tree;

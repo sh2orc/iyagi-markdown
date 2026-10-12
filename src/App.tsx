@@ -40,6 +40,7 @@ import { ShortcutsPanel } from "./components/ShortcutsPanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { ImageViewer } from "./components/ImageViewer";
+import { DiffPanel } from "./components/DiffPanel";
 import * as fmt from "./editor/format";
 
 const ioAdapter = {
@@ -101,6 +102,7 @@ export function App(): JSX.Element {
   const [statsOpen, setStatsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
+  const [diffOpen, setDiffOpen] = useState(false);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -119,6 +121,7 @@ export function App(): JSX.Element {
     shortcutsOpen ||
     statsOpen ||
     paletteOpen ||
+    diffOpen ||
     state.exportKind ||
     state.busy ||
     state.tabs.some((x) => x.conflict === "conflict" || x.conflict === "removed")
@@ -728,6 +731,7 @@ export function App(): JSX.Element {
           onOpenStyle={() => setStyleOpen(true)}
           onOpenPrint={() => setPrintOpen(true)}
           onOpenExport={(kind) => store.setExportKind(kind)}
+          onOpenDiff={() => setDiffOpen(true)}
         />
       )}
       {shortcutsOpen && <ShortcutsPanel t={t} onClose={() => setShortcutsOpen(false)} />}
@@ -744,6 +748,7 @@ export function App(): JSX.Element {
         />
       )}
       <ContextMenu store={store} t={t} />
+      {diffOpen && <DiffPanel store={store} t={t} onClose={() => setDiffOpen(false)} />}
       {viewer && <ImageViewer src={viewer.src} alt={viewer.alt} t={t} onClose={() => setViewer(null)} />}
       <div className="toasts">
         {state.toasts.map((toast) => (
