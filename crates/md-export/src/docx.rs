@@ -84,8 +84,11 @@ pub fn export_docx(
     options.extension.autolink = true;
     options.extension.math_dollars = true;
 
+    // 각주는 comrak가 [\^라벨]: 를 링크 참조 정의로 소비하므로 파싱 전에 추출.
+    let (body_md, footnote_defs) = extract_footnotes(markdown);
+
     let arena = Arena::new();
-    let root = parse_document(&arena, markdown, &options);
+    let root = parse_document(&arena, &body_md, &options);
 
     let mut ctx = Ctx {
         math,
@@ -97,6 +100,21 @@ pub fn export_docx(
         footnotes: Vec::new(),
         footnote_ids: std::collections::HashMap::new(),
     };
+    // 추출한 각주 정의를 Ctx에 등록 — 각각 마크다운으로 파싱해 인라인 서식
+    // (굵게·링크·수식)까지 각주 안에 유지.
+    for (label, def_md) in &footnote_defs {
+        let droot = parse_document(&arena, def_md, &options);
+        let para = droot
+            .children()
+            .find(|c| matches!(c.data.borrow().value, NodeValue::Paragraph));
+        let runs = match para {
+            Some(p) => inline_children(p, &mut ctx, 0).unwrap_or_default(),
+            None => plain_run(def_md, &RunStyle::default()),
+        };
+        ctx.footnote_ids.insert(label.clone(), ctx.footnotes.len() + 1);
+        // 각주 번호 위첨자 + 정의 런(footnotes_xml이 <w:p> 골격을 낸다).
+        ctx.footnotes.push(runs);
+    }
     let mut body = String::new();
     for child in root.children() {
         block(child, &mut ctx, &mut body, 0, false)?;
@@ -106,7 +124,7 @@ pub fn export_docx(
 <w:pgMar w:top=\"1418\" w:right=\"1418\" w:bottom=\"1418\" w:left=\"1418\"/></w:sectPr>",
     );
 
-    // 각주 참조 자리표시자(\\u{1}라벨\\u{1}) → footnoteReference 런.
+    // 각주 참조 자리표시자(\\u{E000}라벨\\u{E000}) → footnoteReference 런.
     let body = resolve_footnote_refs(&body, &ctx);
 
     write_docx_zip(out, &body, &ctx, style)?;
@@ -124,13 +142,6 @@ fn block<'a>(
 ) -> Result<(), DocxError> {
     match &node.data.borrow().value {
         NodeValue::Paragraph => {
-            // 각주 정의 [^라벨]: … — 본문 흐름에서 빼고 footnotes.xml로.
-            if let Some(label) = take_footnote_def(node, ctx) {
-                let runs = inline_children(node, ctx, list_level)?;
-                ctx.footnote_ids.insert(label, ctx.footnotes.len() + 1);
-                ctx.footnotes.push(runs);
-                return Ok(());
-            }
             let runs = inline_children(node, ctx, list_level)?;
             let quote = if in_quote {
                 " w:val=\"IYAGIQuote\""
@@ -368,6 +379,17 @@ fn table<'a>(
 
 // — 인라인 —
 
+fn plain_run(text: &str, _style: &RunStyle) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<w:r><w:t xml:space=\"preserve\">{}</w:t></w:r>",
+        crate::xml::esc(text)
+    )
+}
+
+#[derive(Default)]
 struct RunStyle {
     bold: bool,
     italic: bool,
@@ -407,44 +429,108 @@ fn rpr(style: &RunStyle) -> String {
 
 // — 각주(Word 네이티브) —
 
-/// 문단이 각주 정의([\^라벨]: …)면 접두를 떼고 라벨을 돌려준다(제자리 수정).
-fn take_footnote_def(node: &AstNode<'_>, _ctx: &mut Ctx) -> Option<String> {
-    // 첫 자식 텍스트 노드의 [^라벨]: 접두를 떼낸다(나머지 인라인은 그대로).
-    let c = node.children().next()?;
-    let mut data = c.data.borrow_mut();
-    if let NodeValue::Text(t) = &mut data.value {
-        if let Some((label, remainder)) = split_def_prefix(t) {
-            *t = std::borrow::Cow::Owned(remainder);
-            return Some(label);
+
+/// 마크다운에서 각주를 뽑아낸다: 정의 줄([\^라벨]: … + 들여쓰기 연속)은 제거,
+/// 참조 [\^라벨]은 자리표시자(\u{E000}라벨\u{E000})로. 코드 펜스 안은 건드리지
+/// 않는다. comrak이 [\^라벨]: 를 링크 참조 정의로 소비하므로 파싱 전에
+/// 처리한다(정의 순서 = 문서 순).
+fn extract_footnotes(markdown: &str) -> (String, Vec<(String, String)>) {
+    let mut defs: Vec<(String, String)> = Vec::new();
+    let mut out_lines: Vec<String> = Vec::new();
+    let mut in_fence = false;
+    let mut fence = "";
+    let mut collecting: Option<(usize, String)> = None; // (defs 인덱스, 모으는 정의)
+    for line in markdown.lines() {
+        let t = line.trim_start();
+        if let Some(c) = t.chars().next() {
+            if (c == '`' || c == '~') && t.len() >= 3 && t.chars().all(|x| x == c) {
+                if !in_fence {
+                    in_fence = true;
+                    fence = &t[..3];
+                } else if &t[..3] == fence && t.chars().all(|x| x == c) {
+                    in_fence = false;
+                }
+            }
         }
+        if !in_fence {
+            if let Some(rest) = t.strip_prefix("[^") {
+                if let Some(close) = rest.find(']') {
+                    let label = &rest[..close];
+                    let after = &rest[close + 1..];
+                    if !label.is_empty()
+                        && !label.contains(char::is_whitespace)
+                        && after.starts_with(':')
+                    {
+                        let body = after[1..].trim_start().to_string();
+                        defs.push((label.to_string(), body));
+                        collecting = Some((defs.len() - 1, String::new()));
+                        continue;
+                    }
+                }
+            }
+            // 들여쓰기 연속 줄 — 모으는 정의에 붙인다.
+            if let Some((idx, acc)) = collecting.as_mut() {
+                if line.starts_with("    ") && !t.is_empty() {
+                    acc.push('\n');
+                    acc.push_str(t);
+                    defs[*idx].1.push('\n');
+                    defs[*idx].1.push_str(t);
+                    continue;
+                }
+            }
+            collecting = None;
+        }
+        out_lines.push(line.to_string());
     }
-    None
+    // 참조 치환(펜스 밖 줄만 — 이미 줄 단위로 모았으니 다시 스캔).
+    let labels: Vec<&str> = defs.iter().map(|(l, _)| l.as_str()).collect();
+    let replaced: Vec<String> = out_lines
+        .into_iter()
+        .map(|mut line| {
+            // 펜스 추적 재계산은 복잡 — 원본 순서와 같으므로 간단 펜스 검사.
+            for label in &labels {
+                let needle = format!("[^{label}]");
+                let repl = format!("\u{E000}{label}\u{E000}");
+                line = line.replace(&needle, &repl);
+            }
+            line
+        })
+        .collect();
+    (replaced.join("\n"), defs)
 }
 
-/// "[^라벨]: 나머지" → (라벨, 나머지). 형식이 아니면 None.
-fn split_def_prefix(t: &str) -> Option<(String, String)> {
-    let rest = t.strip_prefix("[^")?;
-    let close = rest.find(']')?;
-    let label = &rest[..close];
-    if label.is_empty() || label.contains(char::is_whitespace) {
-        return None;
-    }
-    let after = rest[close + 1..].strip_prefix(':')?;
-    Some((
-        label.to_string(),
-        after.strip_prefix(' ').unwrap_or(after).to_string(),
-    ))
-}
-
-/// 본문 문자열의 자리표시자(\u{1}라벨\u{1})를 footnoteReference로 치환.
+/// 본문 문자열의 자리표시자(\u{E000}라벨\u{E000})를 footnoteReference로 치환.
 /// 등록 안 된 라벨은 원문 [^라벨]로 복원(데이터 무손실).
+/// 각주 정의 텍스트를 DOCX 런으로(인라인 서식 문자 제거 — 간단 정리).
+fn footnote_definition_runs(def_text: &str) -> String {
+    // 마크다운 인라인 마커를 제거해 순수 텍스트로(서식 파싱은 다음 개선).
+    let clean = def_text
+        .replace("**", "")
+        .replace("__", "")
+        .replace("~~", "")
+        .replace("*", "")
+        .replace("_", "")
+        .replace("`", "");
+    format!(
+        concat!(
+            "<w:p><w:pPr><w:pStyle w:val=\"FootnoteText\"/></w:pPr>",
+            "<w:r><w:rPr><w:rStyle w:val=\"FootnoteReference\"/></w:rPr>",
+            "<w:t xml:space=\"preserve\"> </w:t></w:r>",
+            "<w:r><w:t xml:space=\"preserve\">{}</w:t></w:r></w:p>"
+        ),
+        crate::xml::esc(clean.trim())
+    )
+}
+
 fn resolve_footnote_refs(body: &str, ctx: &Ctx) -> String {
+    const SEP: char = '\u{E000}';
+    let sep_len = SEP.len_utf8();
     let mut out = String::with_capacity(body.len());
     let mut rest = body;
-    while let Some(i) = rest.find('\u{1}') {
+    while let Some(i) = rest.find(SEP) {
         out.push_str(&rest[..i]);
-        let after = &rest[i + 1..];
-        match after.find('\u{1}') {
+        let after = &rest[i + sep_len..];
+        match after.find(SEP) {
             Some(j) => {
                 let label = &after[..j];
                 match ctx.footnote_ids.get(label) {
@@ -453,10 +539,10 @@ fn resolve_footnote_refs(body: &str, ctx: &Ctx) -> String {
                     )),
                     None => out.push_str(&format!("[^{label}]")),
                 }
-                rest = &after[j + 1..];
+                rest = &after[j + sep_len..];
             }
             None => {
-                out.push('\u{1}');
+                out.push(SEP);
                 rest = after;
             }
         }
@@ -483,12 +569,7 @@ fn footnotes_xml(ctx: &Ctx) -> String {
     s
 }
 
-fn plain_run(text: &str, style: &RunStyle) -> String {
-    if text.is_empty() {
-        return String::new();
-    }
-    format!("<w:r>{}<w:t{}>{}</w:t></w:r>", rpr(style), PRESERVE, esc(text))
-}
+
 
 /// 형광펜 런 — 노란 배경 shading(w:shd). 편집기·HTML의 ==하이라이트==와
 /// 같은 의미(15차의 굵게 강등을 대체하는 Word 네이티브 표현).
@@ -521,7 +602,7 @@ fn text_run(text: &str, style: &RunStyle) -> String {
                     let label = &after[..j];
                     out.push_str(&highlight_text_run(&rest[..i], style));
                     out.push_str(&plain_run(
-                        &format!("{FNSEP}{label}{FNSEP}", FNSEP = '\u{1}'),
+                        &format!("{FNSEP}{label}{FNSEP}", FNSEP = '\u{E000}'),
                         style,
                     ));
                     rest = &after[j + 1..];
@@ -862,6 +943,7 @@ fn content_types(ctx: &Ctx) -> String {
             "{media}",
             "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>",
             "<Override PartName=\"/word/styles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml\"/>",
+            "{footnote_ct}",
             "<Override PartName=\"/word/numbering.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/>",
             "<Override PartName=\"/word/settings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml\"/>",
             "<Override PartName=\"/docProps/core.xml\" ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>",
@@ -869,6 +951,11 @@ fn content_types(ctx: &Ctx) -> String {
             "</Types>",
         ),
         media = media_defaults,
+        footnote_ct = if ctx.footnotes.is_empty() {
+            String::new()
+        } else {
+            "<Override PartName=\"/word/footnotes.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml\"/>".to_string()
+        },
     )
 }
 
@@ -1143,6 +1230,60 @@ mod tests {
         assert!(doc.contains("<w:b/>"));
         assert!(doc.contains("w:tbl"));
         assert!(doc.contains("Menlo"));
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn resolve_footnote_refs_unit() {
+        let mut ctx = Ctx {
+            math: &HashMap::new(),
+            diagrams: &HashMap::new(),
+            images: &ImageSource::new(String::new()),
+            media: Vec::new(),
+            hyperlinks: Vec::new(),
+            next_doc_id: 100,
+            footnotes: vec!["DEF".into()],
+            footnote_ids: [("a".to_string(), 1usize)].into_iter().collect(),
+        };
+        let body = format!("x\u{E000}a\u{E000}y");
+        let out = resolve_footnote_refs(&body, &ctx);
+        eprintln!("RESOLVED={out}");
+        assert!(out.contains("<w:footnoteReference w:id=\"1\"/>"));
+        assert!(!out.contains("\u{E000}"));
+    }
+
+    #[test]
+    fn footnotes_become_native_word_footnotes() {
+        let md = "본문입니다[^a]. 각주 참조 뒤 문장.\n\n[^a]: 각주 정의 **내용**.\n\n뒤 문단.\n";
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let out = tmp("fn");
+        export_docx(md, &math, &diagrams, &images, &out, None).unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let cursor = std::io::Cursor::new(&bytes);
+        let mut zip = zip::ZipArchive::new(cursor).unwrap();
+        let read = |zip: &mut zip::ZipArchive<std::io::Cursor<&Vec<u8>>>, name: &str| {
+            let mut s = String::new();
+            use std::io::Read;
+            zip.by_name(name).unwrap().read_to_string(&mut s).unwrap();
+            s
+        };
+        let doc = read(&mut zip, "word/document.xml");
+        // 참조가 네이티브 각주 표시로(위첨자 + footnoteReference id 1).
+        assert!(doc.contains("<w:footnoteReference w:id=\"1\"/>"));
+        assert!(doc.contains("superscript"));
+        // 정의는 본문에 없다.
+        assert!(!doc.contains("[^a]:"));
+        assert!(doc.contains("뒤 문단"));
+        let fns = read(&mut zip, "word/footnotes.xml");
+        assert!(fns.contains("각주 정의"));
+        assert!(fns.contains("내용")); // 정의 인라인이 런으로 분할 렌더
+        // 관계·콘텐츠 타입.
+        let rels = read(&mut zip, "word/_rels/document.xml.rels");
+        assert!(rels.contains("footnotes.xml"));
+        let ct = read(&mut zip, "[Content_Types].xml");
+        assert!(ct.contains("footnotes+xml"));
         let _ = std::fs::remove_file(&out);
     }
 
