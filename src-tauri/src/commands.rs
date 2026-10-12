@@ -134,6 +134,7 @@ pub async fn export_epub(
     language: String,
     css: String,
     cover_path: Option<String>,
+    base_dir: String,
     out_path: String,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -146,6 +147,7 @@ pub async fn export_epub(
             language,
             css,
             cover_path,
+            base_dir,
             chapters,
         };
         md_export::epub::export_epub(&opts, std::path::Path::new(&out_path))

@@ -99,6 +99,7 @@ pub enum Msg {
     WorkspaceSearch,
     Versions,
     Backlinks,
+    BrokenLinks,
     ExportEpub,
     Yes,
 }
@@ -143,6 +144,7 @@ impl Msg {
             Msg::Versions => "Restore Version…",
             Msg::ExportEpub => "E-book (EPUB)…",
             Msg::Backlinks => "Backlinks",
+            Msg::BrokenLinks => "Broken Links…",
             Msg::View => "View",
             Msg::ModeEdit => "Editing Mode",
             Msg::ModeRead => "Reading Mode",
@@ -201,6 +203,7 @@ impl Msg {
             Msg::Versions => "이전 버전 복원…",
             Msg::ExportEpub => "전자책(EPUB)…",
             Msg::Backlinks => "백링크",
+            Msg::BrokenLinks => "끊긴 링크…",
             Msg::View => "보기",
             Msg::ModeEdit => "편집 모드",
             Msg::ModeRead => "읽기 모드",

@@ -21,16 +21,20 @@ impl ImageSource {
         }
     }
 
+    /// 경로(절대 또는 base_dir 상대)를 어휘적으로 정규화한 절대경로.
+    /// "a.png"와 "./a.png"·"sub/../a.png"가 같은 파일로 모이는 기준.
+    pub fn resolve(&self, path: &str) -> PathBuf {
+        let p = PathBuf::from(path);
+        if p.is_absolute() {
+            lexical_clean(&p)
+        } else {
+            lexical_clean(&self.base_dir.join(path.replace('\\', "/")))
+        }
+    }
+
     /// 경로(절대 또는 base_dir 상대)의 바이트. 없으면 None.
     pub fn read(&self, path: &str) -> Option<Vec<u8>> {
-        let p = PathBuf::from(path);
-        let p = if p.is_absolute() {
-            p
-        } else {
-            let joined = self.base_dir.join(path.replace('\\', "/"));
-            lexical_clean(&joined)
-        };
-        std::fs::read(p).ok()
+        std::fs::read(self.resolve(path)).ok()
     }
 }
 

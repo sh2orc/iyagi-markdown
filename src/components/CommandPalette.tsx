@@ -34,6 +34,7 @@ interface Props {
   onOpenWsSearch?: () => void;
   onOpenVersions?: () => void;
   onOpenBacklinks?: () => void;
+  onOpenBrokenLinks?: () => void;
   onOpenShortcuts: () => void;
   onOpenStats: () => void;
   onOpenStyle: () => void;
@@ -56,6 +57,7 @@ export function CommandPalette({
   onOpenWsSearch,
   onOpenVersions,
   onOpenBacklinks,
+  onOpenBrokenLinks,
 }: Props): JSX.Element {
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
@@ -127,6 +129,7 @@ export function CommandPalette({
       { id: "wssearch", label: `${t.wsSearchTitle} ⇧⌘F`, run: () => onOpenWsSearch?.() },
       { id: "versions", label: `${t.scFile}: ${t.versionsTitle}`, run: () => onOpenVersions?.() },
       { id: "backlinks", label: `${t.scView}: ${t.backlinksTitle}`, run: () => onOpenBacklinks?.() },
+      { id: "broken-links", label: `${t.scEdit}: ${t.brokenLinksTitle}`, run: () => onOpenBrokenLinks?.() },
       { id: "print", label: `${t.printPreviewTitle} ⌘P`, run: onOpenPrint },
       { id: "export-html", label: `${t.exportTitle} — ${t.exportHtml}`, run: () => onOpenExport("html") },
       { id: "export-pdf", label: `${t.exportTitle} — ${t.exportPdf}`, run: () => onOpenExport("pdf") },

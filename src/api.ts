@@ -193,8 +193,9 @@ export const api = {
     language: string,
     css: string,
     coverPath: string | null,
+    baseDir: string,
     outPath: string,
-  ) => invoke<void>("export_epub", { chapters, title, language, css, coverPath, outPath }),
+  ) => invoke<void>("export_epub", { chapters, title, language, css, coverPath, baseDir, outPath }),
   writeExportFile: (path: string, contents: string) =>
     invoke<void>("write_export_file", { path, contents }),
   revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),

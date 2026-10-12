@@ -35,6 +35,102 @@ pub struct EpubOptions {
     pub css: String,
     /// 표지 이미지 파일 경로(문서의 첫 이미지를 프런트가 고른다). 없으면 생략.
     pub cover_path: Option<String>,
+    /// 챕터 본문 이미지 상대경로 해석 기준(문서 폴더).
+    pub base_dir: String,
+}
+
+/// url이 스킴(http:·data:·mailto: …)을 가지는지 — 첫 '/' 세그먼트 안의 ':'.
+fn has_scheme(url: &str) -> bool {
+    url.split('/').next().unwrap_or("").contains(':')
+}
+
+/// %XX 퍼센트 디코딩(이미지 경로 정규화용 최소 구현).
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(b.len());
+    let hex = |c: u8| -> Option<u8> {
+        match c {
+            b'0'..=b'9' => Some(c - b'0'),
+            b'a'..=b'f' => Some(c - b'a' + 10),
+            b'A'..=b'F' => Some(c - b'A' + 10),
+            _ => None,
+        }
+    };
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            if let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2])) {
+                out.push((h << 4) | l);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// 챕터 본문의 로컬 이미지 src를 zip 내부 images/ 경로로 재작성한 본문 반환.
+/// 읽은 파일은 files에 (href, media-type, bytes)로 쌓는다 — 같은 경로는 한 번만.
+/// 원격(data:·http:·mailto:)·앵커는 그대로 두고, 읽기 실패 경로도 원본 유지.
+fn embed_body_images(
+    body: &str,
+    base_dir: &str,
+    seen: &mut std::collections::HashMap<String, String>,
+    files: &mut Vec<(String, String, Vec<u8>)>,
+) -> String {
+    let src = crate::ImageSource::new(base_dir.to_string());
+    let mut out = String::with_capacity(body.len());
+    let mut rest = body;
+    while let Some(at) = rest.find("src=\"") {
+        let start = at + 5;
+        let Some(rel) = rest[start..].find('"') else { break };
+        let end = start + rel;
+        out.push_str(&rest[..start]);
+        let url = &rest[start..end];
+        let tail = &rest[end..];
+        let local = !has_scheme(url) && !url.starts_with('#');
+        let decoded = percent_decode(&url.replace('\\', "/"));
+        // 중복 판정은 어휘 정규화된 절대경로 — "assets/a.png"와 "./assets/a.png"가 같은 파일로.
+        let resolved = if local {
+            Some(src.resolve(&decoded).to_string_lossy().into_owned())
+        } else {
+            None
+        };
+        let rewritten = if !local {
+            None
+        } else if let Some(href) = resolved.as_ref().and_then(|r| seen.get(r)) {
+            Some(href.clone())
+        } else {
+            let ext = std::path::Path::new(&decoded)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase())
+                .unwrap_or_else(|| "png".into());
+            let media = match ext.as_str() {
+                "jpg" | "jpeg" => "image/jpeg",
+                "gif" => "image/gif",
+                "svg" => "image/svg+xml",
+                "webp" => "image/webp",
+                "bmp" => "image/bmp",
+                _ => "image/png",
+            };
+            src.read(&decoded).map(|bytes| {
+                let href = format!("images/img{}.{ext}", files.len() + 1);
+                seen.insert(resolved.unwrap_or_default(), href.clone());
+                files.push((href.clone(), media.to_string(), bytes));
+                href
+            })
+        };
+        match rewritten {
+            Some(href) => out.push_str(&href),
+            None => out.push_str(url),
+        }
+        rest = tail;
+    }
+    out.push_str(rest);
+    out
 }
 
 fn esc(s: &str) -> String {
@@ -220,9 +316,20 @@ pub fn export_epub(opts: &EpubOptions, out: &Path) -> Result<(), String> {
     );
     add(&mut zip, "OEBPS/nav.xhtml", &nav)?;
 
-    // 챕터들.
-    for c in &opts.chapters {
-        add(&mut zip, &format!("OEBPS/{}", c.file), &xhtml_doc(&c.title, &opts.language, &c.body))?;
+    // 챕터들 — 본문 로컬 이미지를 zip 안 images/ 로 임베드(중복 제거).
+    let mut img_seen: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut img_files: Vec<(String, String, Vec<u8>)> = Vec::new();
+    let bodies: Vec<String> = opts
+        .chapters
+        .iter()
+        .map(|c| embed_body_images(&c.body, &opts.base_dir, &mut img_seen, &mut img_files))
+        .collect();
+    for (c, body) in opts.chapters.iter().zip(&bodies) {
+        add(&mut zip, &format!("OEBPS/{}", c.file), &xhtml_doc(&c.title, &opts.language, body))?;
+    }
+    for (href, _media, bytes) in &img_files {
+        zip.start_file(format!("OEBPS/{href}"), deflated).map_err(|e| e.to_string())?;
+        zip.write_all(bytes).map_err(|e| e.to_string())?;
     }
     add(&mut zip, "OEBPS/style.css", &opts.css)?;
 
@@ -238,6 +345,13 @@ pub fn export_epub(opts: &EpubOptions, out: &Path) -> Result<(), String> {
             c.file
         ));
         spine.push_str(&format!("\n<itemref idref=\"ch{}\"/>", i + 1));
+    }
+    // 임베드된 본문 이미지 — 매니페스트에 각각 등록(EPUB 유효성 요건).
+    for (i, (href, media, _)) in img_files.iter().enumerate() {
+        manifest.push_str(&format!(
+            "\n<item id=\"img{}\" href=\"{href}\" media-type=\"{media}\"/>",
+            i + 1
+        ));
     }
     let opf = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\" unique-identifier=\"pub-id\"><metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:identifier id=\"pub-id\">urn:uuid:{uuid}</dc:identifier><dc:title>{}</dc:title><dc:creator>{}</dc:creator><dc:language>{}</dc:language><meta property=\"dcterms:modified\">{modified}</meta></metadata><manifest>{manifest}</manifest><spine>{spine}</spine></package>",
@@ -278,6 +392,7 @@ mod tests {
             language: "ko".into(),
             css: "body{font-family:sans-serif}".into(),
             cover_path: None,
+            base_dir: String::new(),
             chapters: vec![
                 EpubChapter {
                     title: "첫 장".into(),
@@ -376,5 +491,67 @@ mod tests {
         let mut o = opts();
         o.chapters.clear();
         assert!(export_epub(&o, &tmp("empty")).is_err());
+    }
+
+    #[test]
+    fn body_images_embedded_deduped_and_manifested() {
+        // 1x1 PNG 두 종 — 서로 다른 바이트.
+        let png: Vec<u8> = vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1F, 0x15, 0xC4, 0x89, 0, 0, 0, 0x0A, 0x49,
+            0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0, 1, 0, 0, 5, 0, 1, 0x0D, 0x0A, 0x2D, 0xB4, 0,
+            0, 0, 0, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        let jpg = b"\xFF\xD8\xFF\xE0 fake jpg".to_vec();
+        let dir = std::env::temp_dir().join(format!("md-export-epub-img-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::write(dir.join("assets/pic.png"), &png).unwrap();
+        std::fs::write(dir.join("assets/photo.jpg"), &jpg).unwrap();
+
+        let mut o = opts();
+        o.base_dir = dir.to_string_lossy().into_owned();
+        // 같은 파일의 다른 표기 2회(중복 제거 확인) + 원격/데이터(그대로) + 없는 경로.
+        o.chapters[0].body = "<p><img src=\"assets/pic.png\" alt=\"a\"/><img src=\"./assets/pic.png\" alt=\"b\"/></p>".into();
+        o.chapters[1].body = "<p><img src=\"https://x/y.png\"/><img src=\"data:image/png;base64,AAAA\"/><img src=\"assets/photo.jpg\"/><img src=\"assets/none.png\"/></p>".into();
+        let out = tmp("images");
+        export_epub(&o, &out).unwrap();
+
+        let bytes = std::fs::read(&out).unwrap();
+        let cursor = std::io::Cursor::new(&bytes);
+        let mut zip = zip::ZipArchive::new(cursor).unwrap();
+        // 두 파일만 — pic.png는 ../ 경로와 함께 한 번으로.
+        assert!(zip.by_name("OEBPS/images/img1.png").is_ok());
+        assert!(zip.by_name("OEBPS/images/img2.jpg").is_ok());
+        assert!(zip.by_name("OEBPS/images/img3.png").is_err());
+        let ch1 = read_entry(&out, "OEBPS/chapter1.xhtml");
+        assert!(ch1.contains("src=\"images/img1.png\""));
+        assert_eq!(ch1.matches("images/img1.png").count(), 2);
+        let ch2 = read_entry(&out, "OEBPS/chapter2.xhtml");
+        // 원격·데이터 URI는 재작성 없음.
+        assert!(ch2.contains("src=\"https://x/y.png\""));
+        assert!(ch2.contains("src=\"data:image/png;base64,AAAA\""));
+        assert!(ch2.contains("src=\"images/img2.jpg\""));
+        // 읽기 실패 경로는 원본 유지.
+        assert!(ch2.contains("src=\"assets/none.png\""));
+        // 매니페스트 등록.
+        let opf = read_entry(&out, "OEBPS/content.opf");
+        assert!(opf.contains("<item id=\"img1\" href=\"images/img1.png\" media-type=\"image/png\"/>"));
+        assert!(opf.contains("<item id=\"img2\" href=\"images/img2.jpg\" media-type=\"image/jpeg\"/>"));
+
+        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn percent_decoding_and_scheme_detection() {
+        assert_eq!(percent_decode("a%20b%2Fc%zz"), "a b/c%zz");
+        assert_eq!(percent_decode("%EC%BD%94"), "코");
+        assert!(has_scheme("http://x"));
+        assert!(has_scheme("data:image/png;base64,x"));
+        assert!(has_scheme("mailto:a@b"));
+        assert!(!has_scheme("assets/pic.png"));
+        assert!(!has_scheme("pic.png"));
+        assert!(!has_scheme("#anchor"));
     }
 }

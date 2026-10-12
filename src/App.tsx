@@ -49,6 +49,7 @@ import { StatsPanel } from "./components/StatsPanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { VersionsPanel } from "./components/VersionsPanel";
 import { BacklinksPanel } from "./components/BacklinksPanel";
+import { BrokenLinksPanel } from "./components/BrokenLinksPanel";
 import { WorkspaceSearch } from "./components/WorkspaceSearch";
 import { ImageViewer } from "./components/ImageViewer";
 import { DiffPanel } from "./components/DiffPanel";
@@ -121,6 +122,7 @@ export function App(): JSX.Element {
   const [wikiLinks, setWikiLinks] = useState<Array<{ from: string; to: string }>>([]);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [backlinksOpen, setBacklinksOpen] = useState(false);
+  const [brokenOpen, setBrokenOpen] = useState(false);
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
   const [pdfPageNumbers, setPdfPageNumbers] = useState(true);
@@ -145,6 +147,7 @@ export function App(): JSX.Element {
     wsSearchOpen ||
     versionsOpen ||
     backlinksOpen ||
+    brokenOpen ||
     diffOpen ||
     state.exportKind ||
     state.busy ||
@@ -417,11 +420,12 @@ export function App(): JSX.Element {
           await api.exportPdf(html, { ...opts, pageNumbers: pdfPageNumbers }, out);
         } else if (kind === "epub") {
           // EPUB — 본문 조각을 XHTML로(빈 태그 자가 폐쇄) + 최소 가독 CSS.
+          // 이미지는 data URI로 인라인하지 않는다 — 로컬 경로를 그대로 두면
+          // Rust가 디스크에서 읽어 zip 안 images/ 로 임베드한다(DOCX와 동일).
           const { body } = await renderMarkdownBody(text, {
             title: tab.path ? tab.title : name,
             baseDir,
             theme: store.state.theme,
-            readBytes: readBytesForExport,
           });
           // 전체를 한 번 렌더한 HTML을 <h1> 경계로 챕터 분할(각주는 마지막 챕터에).
           const chapters = epubChapterInputs(splitEpubChapters(body));
@@ -433,6 +437,7 @@ export function App(): JSX.Element {
             lang === "ko" ? "ko" : "en",
             EPUB_CSS,
             coverPath,
+            baseDir,
             out,
           );
         } else {
@@ -537,6 +542,9 @@ export function App(): JSX.Element {
           break;
         case "backlinks":
           setBacklinksOpen(true);
+          break;
+        case "broken-links":
+          setBrokenOpen(true);
           break;
         case "mode-edit":
           store.setMode("edit");
@@ -907,6 +915,7 @@ export function App(): JSX.Element {
           onOpenWsSearch={() => setWsSearchOpen(true)}
           onOpenVersions={() => setVersionsOpen(true)}
           onOpenBacklinks={() => setBacklinksOpen(true)}
+          onOpenBrokenLinks={() => setBrokenOpen(true)}
         />
       )}
       {graphOpen && (
@@ -928,6 +937,19 @@ export function App(): JSX.Element {
           onClose={() => setWsSearchOpen(false)}
           onOpenHit={revealInPath}
           initialQuery={wsSearchQuery}
+        />
+      )}
+      {brokenOpen && (
+        <BrokenLinksPanel
+          store={store}
+          t={t}
+          onClose={() => setBrokenOpen(false)}
+          onGoto={(from) => {
+            const view = editorView.current;
+            if (!view) return;
+            view.dispatch({ selection: { anchor: Math.min(from, view.state.doc.length) } });
+            smoothScrollIntoView(view, Math.min(from, view.state.doc.length));
+          }}
         />
       )}
       {backlinksOpen && (
