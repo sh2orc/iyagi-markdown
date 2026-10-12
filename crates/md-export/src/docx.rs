@@ -91,6 +91,7 @@ pub fn export_docx(
     images: &ImageSource,
     out: &Path,
     style: Option<(&str, f64, f64, bool, String, String)>, // (font, pt, 행간, 들여쓰기, 강조색, 정렬)
+    page_numbers: bool,
 ) -> Result<(), DocxError> {
     let mut options = Options::default();
     options.extension.table = true;
@@ -135,16 +136,55 @@ pub fn export_docx(
     for child in root.children() {
         block(child, &mut ctx, &mut body, 0, false)?;
     }
-    body.push_str(
-        "<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/>\
-<w:pgMar w:top=\"1418\" w:right=\"1418\" w:bottom=\"1418\" w:left=\"1418\"/></w:sectPr>",
-    );
+    body.push_str(&sect_pr(page_numbers));
 
     // 각주 참조 자리표시자(\\u{E000}라벨\\u{E000}) → footnoteReference 런.
     let body = resolve_footnote_refs(&body, &ctx);
 
-    write_docx_zip(out, &body, &ctx, style)?;
+    write_docx_zip(out, &body, &ctx, style, page_numbers)?;
     Ok(())
+}
+
+/// 섹션 속성 — A4·25mm 여백. 페이지 번호면 바닥글 참조가 먼저 온다(규격 순서).
+fn sect_pr(page_numbers: bool) -> String {
+    let footer = if page_numbers {
+        "<w:footerReference w:type=\"default\" r:id=\"rIdFooter\"/>"
+    } else {
+        ""
+    };
+    format!(
+        "<w:sectPr>{footer}<w:pgSz w:w=\"11906\" w:h=\"16838\"/>\
+<w:pgMar w:top=\"1418\" w:right=\"1418\" w:bottom=\"1418\" w:left=\"1418\"/></w:sectPr>"
+    )
+}
+
+/// 바닥글 — 가운데 "현재 페이지 / 전체 페이지"(PAGE·NUMPAGES 필드, 9pt 회색).
+/// 필드 결과값(1 등)은 Word가 열 때 다시 계산한다.
+fn footer_xml() -> String {
+    const RPR: &str = "<w:rPr><w:sz w:val=\"18\"/><w:szCs w:val=\"18\"/><w:color w:val=\"808080\"/></w:rPr>";
+    let field = |instr: &str, shown: &str| {
+        format!(
+            "<w:r>{RPR}<w:fldChar w:fldCharType=\"begin\"/></w:r>\
+<w:r>{RPR}<w:instrText xml:space=\"preserve\"> {instr} </w:instrText></w:r>\
+<w:r>{RPR}<w:fldChar w:fldCharType=\"separate\"/></w:r>\
+<w:r>{RPR}<w:t>{shown}</w:t></w:r>\
+<w:r>{RPR}<w:fldChar w:fldCharType=\"end\"/></w:r>"
+        )
+    };
+    format!(
+        concat!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>",
+            "<w:ftr xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">",
+            "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>",
+            "{}",
+            "<w:r>{RPR}<w:t xml:space=\"preserve\"> / </w:t></w:r>",
+            "{}",
+            "</w:p></w:ftr>"
+        ),
+        field("PAGE", "1"),
+        field("NUMPAGES", "1"),
+        RPR = RPR,
+    )
 }
 
 // — 블록 —
@@ -892,6 +932,7 @@ fn write_docx_zip(
     body: &str,
     ctx: &Ctx,
     style: Option<(&str, f64, f64, bool, String, String)>,
+    page_numbers: bool,
 ) -> Result<(), DocxError> {
     let file = std::fs::File::create(out)?;
     let mut zip = zip::ZipWriter::new(file);
@@ -904,16 +945,19 @@ fn write_docx_zip(
     };
 
     let has_footnotes = !ctx.footnotes.is_empty();
-    add(&mut zip, "[Content_Types].xml", &content_types(ctx))?;
+    add(&mut zip, "[Content_Types].xml", &content_types(ctx, page_numbers))?;
     add(&mut zip, "_rels/.rels", RELS_ROOT)?;
     add(&mut zip, "word/document.xml", &document(body))?;
     if has_footnotes {
         add(&mut zip, "word/footnotes.xml", &footnotes_xml(ctx))?;
     }
+    if page_numbers {
+        add(&mut zip, "word/footer1.xml", &footer_xml())?;
+    }
     add(
         &mut zip,
         "word/_rels/document.xml.rels",
-        &document_rels(ctx),
+        &document_rels(ctx, page_numbers),
     )?;
     add(&mut zip, "word/styles.xml", &styles_xml(style))?;
     add(&mut zip, "word/numbering.xml", NUMBERING)?;
@@ -929,7 +973,7 @@ fn write_docx_zip(
     Ok(())
 }
 
-fn content_types(ctx: &Ctx) -> String {
+fn content_types(ctx: &Ctx, page_numbers: bool) -> String {
     let mut media_defaults = String::new();
     let mut seen = std::collections::HashSet::new();
     for (_, bytes) in &ctx.media {
@@ -959,11 +1003,17 @@ fn content_types(ctx: &Ctx) -> String {
             "{footnote_ct}",
             "<Override PartName=\"/word/numbering.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml\"/>",
             "<Override PartName=\"/word/settings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml\"/>",
+            "{footer_ct}",
             "<Override PartName=\"/docProps/core.xml\" ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>",
             "<Override PartName=\"/docProps/app.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.extended-properties+xml\"/>",
             "</Types>",
         ),
         media = media_defaults,
+        footer_ct = if page_numbers {
+            "<Override PartName=\"/word/footer1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml\"/>"
+        } else {
+            ""
+        },
         footnote_ct = if ctx.footnotes.is_empty() {
             String::new()
         } else {
@@ -997,7 +1047,7 @@ fn document(body: &str) -> String {
     )
 }
 
-fn document_rels(ctx: &Ctx) -> String {
+fn document_rels(ctx: &Ctx, page_numbers: bool) -> String {
     let mut s = String::from(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -1005,6 +1055,12 @@ fn document_rels(ctx: &Ctx) -> String {
 <Relationship Id="rIdNum" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
 <Relationship Id="rIdSettings" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>"#,
     );
+    if page_numbers {
+        let _ = write!(
+            s,
+            "<Relationship Id=\"rIdFooter\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer\" Target=\"footer1.xml\"/>"
+        );
+    }
     if !ctx.footnotes.is_empty() {
         let _ = write!(
             s,
@@ -1221,7 +1277,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("basic");
-        export_docx(md, &math, &diagrams, &images, &out, None).unwrap();
+        export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         assert!(bytes.len() > 2000);
         // zip 매직.
@@ -1272,7 +1328,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("anchor");
-        export_docx(md, &math, &diagrams, &images, &out, None).unwrap();
+        export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1299,7 +1355,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("fn");
-        export_docx(md, &math, &diagrams, &images, &out, None).unwrap();
+        export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1334,7 +1390,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("hl");
-        export_docx(md, &math, &diagrams, &images, &out, None).unwrap();
+        export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1362,7 +1418,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("math");
-        export_docx(md, &math, &diagrams, &images, &out, None).unwrap();
+        export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1392,7 +1448,7 @@ mod tests {
         let math = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("mermaid");
-        export_docx(md, &math, &diagrams, &images, &out, None).unwrap();
+        export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1433,7 +1489,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(dir.to_string_lossy().into_owned());
         let out = tmp("img");
-        export_docx(md, &math, &diagrams, &images, &out, None).unwrap();
+        export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1448,5 +1504,44 @@ mod tests {
         );
         let _ = std::fs::remove_file(&out);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn page_numbers_footer_wired() {
+        let md = "# 문서\n\n본문.\n";
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let out = tmp("footer");
+        export_docx(md, &math, &diagrams, &images, &out, None, true).unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let cursor = std::io::Cursor::new(&bytes);
+        let mut zip = zip::ZipArchive::new(cursor).unwrap();
+        use std::io::Read;
+        // 바닥글 파트 + 필드 명령.
+        let mut ftr = String::new();
+        zip.by_name("word/footer1.xml").unwrap().read_to_string(&mut ftr).unwrap();
+        assert!(ftr.contains(" PAGE "));
+        assert!(ftr.contains(" NUMPAGES "));
+        assert!(ftr.contains("<w:jc w:val=\"center\"/>"));
+        // 문서 섹션 → 바닥글 참조.
+        let mut doc = String::new();
+        zip.by_name("word/document.xml").unwrap().read_to_string(&mut doc).unwrap();
+        assert!(doc.contains("<w:footerReference w:type=\"default\" r:id=\"rIdFooter\"/>"));
+        // 관계·콘텐츠 타입.
+        let mut rels = String::new();
+        zip.by_name("word/_rels/document.xml.rels").unwrap().read_to_string(&mut rels).unwrap();
+        assert!(rels.contains("Id=\"rIdFooter\"") && rels.contains("Target=\"footer1.xml\""));
+        let mut ct = String::new();
+        zip.by_name("[Content_Types].xml").unwrap().read_to_string(&mut ct).unwrap();
+        assert!(ct.contains("/word/footer1.xml"));
+        // 끄면 아예 없다.
+        let out2 = tmp("footer-off");
+        export_docx(md, &math, &diagrams, &images, &out2, None, false).unwrap();
+        let bytes2 = std::fs::read(&out2).unwrap();
+        let z2 = zip::ZipArchive::new(std::io::Cursor::new(&bytes2)).unwrap();
+        assert!(z2.file_names().filter_map(|n| n.ok()).all(|n| n != "word/footer1.xml"));
+        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_file(&out2);
     }
 }

@@ -94,6 +94,18 @@ export function ExportSheet({ kind, t, onRun, onCancel, pageNumbers = true, onTo
             )}
           </div>
         )}
+        {kind === "docx" && onTogglePageNumbers && (
+          <div className="export-options">
+            <label className="settings-check">
+              <input
+                type="checkbox"
+                checked={pageNumbers}
+                onChange={(e) => onTogglePageNumbers(e.target.checked)}
+              />
+              {t.exportPageNumbers}
+            </label>
+          </div>
+        )}
         <p className="modal-hint">{t.exportVectorHint}</p>
         <div className="modal-actions">
           <button

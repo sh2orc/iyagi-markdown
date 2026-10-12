@@ -108,6 +108,7 @@ comrak AST → OOXML 직접 작성. Word 기본 스타일(제목·번호·표·�
 - **SVG→DrawingML**(custGeom·그룹·편집 가능 텍스트 상자·화살표).
 - **MathML→OMML**(m:nary·m:acc·m:bar 등 Presentation MathML 부분집합).
 - 표: 셀 여백·헤더 음영·정렬 지정. 래스터 폴백 없음.
+- 바닥글 페이지 번호(옵션) — PAGE/NUMPAGES 필드, 가운데 9pt 회색.
 
 ## 성능 — 실측(§1-2 달성)
 

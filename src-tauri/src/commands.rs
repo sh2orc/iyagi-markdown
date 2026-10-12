@@ -354,6 +354,9 @@ pub struct DocxStyleSpec {
     /// 문단 정렬(left|center|right|justify) — docDefaults의 jc로.
     #[serde(default)]
     pub text_align: Option<String>,
+    /// 바닥글 페이지 번호(현재 / 전체, 가운데 9pt 회색).
+    #[serde(default)]
+    pub page_numbers: bool,
 }
 
 fn default_size_pt() -> f64 {
@@ -385,6 +388,7 @@ pub fn export_docx(
             s.text_align.clone().unwrap_or_default(),
         )
     }),
+        manifest.style.as_ref().is_some_and(|s| s.page_numbers),
     )
     .map_err(err)
 }

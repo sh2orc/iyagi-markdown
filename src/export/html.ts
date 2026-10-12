@@ -474,6 +474,7 @@ export async function buildDocxManifest(
     firstLineIndent?: boolean;
     textAlign?: "left" | "center" | "right" | "justify";
     accent?: string | null;
+    pageNumbers?: boolean;
   };
 }> {
   const math: Record<string, string> = {};
