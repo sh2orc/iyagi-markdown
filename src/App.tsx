@@ -128,6 +128,7 @@ export function App(): JSX.Element {
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
   const [exportPageNumbers, setExportPageNumbers] = useState(true);
+  const [exportPdfHeader, setExportPdfHeader] = useState(true);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -465,6 +466,7 @@ export function App(): JSX.Element {
             style: exportStyleOf(tab),
             imageWidths,
             tableWidths,
+            pdfHeader: exportPdfHeader ? docTitle : null,
             readBytes: readBytesForExport,
             wikiResolve,
           });
@@ -944,6 +946,8 @@ export function App(): JSX.Element {
           t={t}
           pageNumbers={exportPageNumbers}
           onTogglePageNumbers={setExportPageNumbers}
+          pdfHeader={exportPdfHeader}
+          onTogglePdfHeader={setExportPdfHeader}
           onRun={(kind, opts) => {
             store.setExportKind(null);
             void runExport(kind, opts);

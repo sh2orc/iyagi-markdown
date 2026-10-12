@@ -35,6 +35,8 @@ export interface ExportHtmlOptions {
   scale?: number;
   /** PDF 하단 페이지 번호(N / M — WebKit 인쇄에서 매 페이지 반복). */
   pageNumbers?: boolean;
+  /** PDF 머리글(문서 제목, 매 페이지 상단 — Word 실행 머리글). 값이 있으면 켬. */
+  pdfHeader?: string | null;
   /** 사이드카 이미지 폭(%) — 마크다운 src 키. 인라인化 전 <img>에 style로. */
   imageWidths?: Record<string, number>;
   /** 사이드카 표 열 폭(px) — 헤더 내용 키. <colgroup> 비율로. */
@@ -186,6 +188,78 @@ function cleanMermaidSvg(svg: string): string {
 }
 
 // — 이미지 인라인 —
+
+
+/** PDF 페이지 장식(머리글·바닥글) 조각 — 순수 함수. WebKit createPDF는
+ *  fixed 요소를 한 번만 렌더하므로, JS가 컬럼마다 absolute 요소를 심는다.
+ *  제목은 JSON 리터럴로 넣고 </script>만 이스케이프(태그 탈출 방지). */
+export function pdfPageChrome(
+  pageNumbers: boolean,
+  headerTitle: string | null,
+): { css: string; body: string; script: string } {
+  const showNum = pageNumbers;
+  const showHead = !!headerTitle;
+  if (!showNum && !showHead) return { css: "", body: "", script: "" };
+  const css = `.pdf-pagenum {
+        position: fixed;
+        bottom: 8mm;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 9px;
+        color: #888;
+        font-family: -apple-system, sans-serif;
+      }
+      .pdf-pagenum-data, .pdf-head-data { position: absolute; top: 0; left: 0; right: 0; }`;
+  const body = `${showNum ? `<div class="pdf-pagenum" aria-hidden="true"></div>` : ""}${showHead ? `<div class="pdf-head" aria-hidden="true"></div>` : ""}`;
+  const titleLit = showHead
+    ? JSON.stringify(headerTitle).replace(/<\//g, "<\\/")
+    : "null";
+  const script = `(function() {
+  var numHost = document.querySelector('.pdf-pagenum');
+  var headHost = document.querySelector('.pdf-head');
+  if (!numHost && !headHost) return;
+  var wrap = document.querySelector('#iyagi-page-wrap');
+  if (!wrap) return;
+  var cs = getComputedStyle(wrap);
+  var gap = parseFloat(cs.columnGap) || 0;
+  var colW = parseFloat(cs.columnWidth) || 0;
+  if (!colW) return;
+  var total = Math.max(1, Math.ceil(wrap.scrollWidth / (colW + gap)));
+  var suffix = ' / ' + total;
+  if (numHost) numHost.remove();
+  if (headHost) headHost.remove();
+  wrap.style.position = 'relative';
+  var padTop = parseFloat(cs.paddingTop) || 0;
+  var headTop = Math.max(6, Math.round(padTop * 0.3));
+  var TITLE = ${titleLit};
+  for (var i = 1; i <= total; i++) {
+    var left = ((i - 1) * (colW + gap)) + 'px';
+    var width = colW + 'px';
+    ${showNum ? `if (numHost) {
+      var n = document.createElement('div');
+      n.className = 'pdf-pagenum-data';
+      n.style.left = left; n.style.width = width;
+      n.style.top = (wrap.offsetHeight - 24) + 'px';
+      n.style.textAlign = 'center'; n.style.fontSize = '9px'; n.style.color = '#888';
+      n.textContent = i + suffix;
+      wrap.appendChild(n);
+    }` : ""}
+    ${showHead ? `if (headHost) {
+      var h = document.createElement('div');
+      h.className = 'pdf-head-data';
+      h.style.left = left; h.style.width = width;
+      h.style.top = headTop + 'px';
+      h.style.textAlign = 'center'; h.style.fontSize = '9px'; h.style.color = '#888';
+      h.style.borderBottom = '.5px solid rgba(0,0,0,.14)';
+      h.style.padding = '0 8mm 3px'; h.style.boxSizing = 'border-box';
+      h.textContent = TITLE;
+      wrap.appendChild(h);
+    }` : ""}
+  }
+})();`;
+  return { css, body, script };
+}
 
 /** 사이드카 표 열 폭(px)을 렌더된 <table>의 <colgroup> %(비율)로 반영.
  *  편집기에서 드래그한 비율이 페이지 폭에 맞아 재배치된다. */
@@ -377,21 +451,11 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
     ? `body{margin:${opts.marginMm ?? 14}mm !important;}` +
       `html{font-size:${(16 * (opts.scale ?? 1)).toFixed(1)}px;}`
     : "";
-  // 페이지 번호 — 고정 위치 요소가 WebKit createPDF에서 매 "페이지"(=컬럼)에
-  // 반복 나타나지는 않으므로, JS로 컬럼 수를 세어 개별 번호 DOM을 absolute로 심는다.
-  const pageNumCss = opts.forPdf && opts.pageNumbers
-    ? `.pdf-pagenum {
-        position: fixed;
-        bottom: 8mm;
-        left: 0;
-        right: 0;
-        text-align: center;
-        font-size: 9px;
-        color: #888;
-        font-family: -apple-system, sans-serif;
-      }
-      .pdf-pagenum-data { position: absolute; top: 0; left: 0; right: 0; }`
-    : "";
+  // 페이지 장식(머리글·바닥글) — 고정 위치 요소가 WebKit createPDF에서 매
+  // "페이지"(=컬럼)에 반복 나타나지는 않으므로 JS가 컬럼마다 absolute로 심는다.
+  const chrome = opts.forPdf
+    ? pdfPageChrome(!!opts.pageNumbers, opts.pdfHeader ?? null)
+    : { css: "", body: "", script: "" };
   // 문서별 스타일 — 라이브 프리뷰의 문서 스타일 패널과 같은 값.
   const st = opts.style;
   const styleCss = st
@@ -422,44 +486,19 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
 :root{color-scheme:${opts.theme};}
 ${themeCss(opts.theme)}
 ${styleCss}
-${pageNumCss}
+${chrome.css}
 ${katexCss}
 ${marginCss}
 </style>
 </head>
 <body>
-${opts.forPdf && opts.pageNumbers ? `<div class="pdf-pagenum" aria-hidden="true"></div>` : ""}
+${chrome.body}
 ${opts.forPdf ? "" : `<header class="doc-header"><h1>${escapeHtml(opts.title)}</h1></header>`}
 <article class="markdown-body">
 ${sanitized}
 </article>
-${opts.forPdf && opts.pageNumbers ? `<script>
-(function() {
-  var d = document.querySelector('.pdf-pagenum');
-  if (!d) return;
-  var body = document.body;
-  // 콘텐츠가 실제로 흐르는 폭(고정 wrapper가 있으면 그 폭, 없으면 body 폭).
-  var wrap = document.querySelector('#iyagi-page-wrap');
-  var colW = wrap ? parseFloat(getComputedStyle(wrap).columnWidth) : 0;
-  if (!colW) return;
-  var total = Math.max(1, Math.ceil((wrap ? wrap.scrollWidth : body.scrollWidth) / (colW + parseFloat(getComputedStyle(wrap).columnGap || '0'))));
-  var text = ' / ' + total;
-  // WebKit 인쇄에서 fixed 요소는 한 번만 렌더된다 — 대신 각 컬럼 위치에 absolute 번호.
-  d.remove();
-  wrap.style.position = 'relative';
-  for (var i = 1; i <= total; i++) {
-    var el = document.createElement('div');
-    el.className = 'pdf-pagenum-data';
-    el.style.left = ((i - 1) * (colW + parseFloat(getComputedStyle(wrap).columnGap || '0'))) + 'px';
-    el.style.width = colW + 'px';
-    el.style.top = (wrap.offsetHeight - 24) + 'px';
-    el.style.textAlign = 'center';
-    el.style.fontSize = '9px';
-    el.style.color = '#888';
-    el.textContent = i + text;
-    wrap.appendChild(el);
-  }
-})();
+${chrome.script ? `<script id="iyagi-pdf-chrome" type="text/plain">
+${chrome.script}
 </script>` : ""}
 </body>
 </html>`;

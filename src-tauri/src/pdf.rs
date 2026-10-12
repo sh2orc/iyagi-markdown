@@ -164,6 +164,12 @@ fn run_on_main(html: &str, config: (i64, i64, f64, f64, i64, bool), out: &Path) 
             M = margin,
         );
         eval_js(webview, &inject)?;
+        // 페이지 장식(머리글·바닥글) — HTML 안의 데이터 아일랜드 스크립트를
+        // wrap 주입 **후에** 실행한다(로드 시점엔 wrap이 없어 조기 반환했음).
+        eval_js(
+            webview,
+            "(function(){var s=document.getElementById('iyagi-pdf-chrome');if(s&&s.textContent.trim()){(0,eval)(s.textContent);}})();",
+        )?;
         // 폰트/이미지 자리잡기를 위한 짧은 정산.
         let settle = Instant::now() + Duration::from_millis(350);
         while Instant::now() < settle {

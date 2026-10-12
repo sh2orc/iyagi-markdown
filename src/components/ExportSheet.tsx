@@ -12,6 +12,9 @@ interface Props {
   onCancel: () => void;
   pageNumbers?: boolean;
   onTogglePageNumbers?: (v: boolean) => void;
+  /** PDF 머리글(문서 제목) 표시 — pdfKind에서만 노출. */
+  pdfHeader?: boolean;
+  onTogglePdfHeader?: (v: boolean) => void;
 }
 
 export interface PdfOptions {
@@ -21,7 +24,7 @@ export interface PdfOptions {
   scale: number;
 }
 
-export function ExportSheet({ kind, t, onRun, onCancel, pageNumbers = true, onTogglePageNumbers }: Props): JSX.Element {
+export function ExportSheet({ kind, t, onRun, onCancel, pageNumbers = true, onTogglePageNumbers, pdfHeader = true, onTogglePdfHeader }: Props): JSX.Element {
   const [paper, setPaper] = useState<"a4" | "letter" | "a5">("a4");
   const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
   const [margin, setMargin] = useState(14);
@@ -90,6 +93,16 @@ export function ExportSheet({ kind, t, onRun, onCancel, pageNumbers = true, onTo
                   onChange={(e) => onTogglePageNumbers(e.target.checked)}
                 />
                 {t.exportPageNumbers}
+              </label>
+            )}
+            {onTogglePdfHeader && (
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={pdfHeader}
+                  onChange={(e) => onTogglePdfHeader(e.target.checked)}
+                />
+                {t.exportPdfHeader}
               </label>
             )}
           </div>
