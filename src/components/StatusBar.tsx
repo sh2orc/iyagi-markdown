@@ -8,9 +8,10 @@ interface Props {
   t: Translate;
   onOpenSettings: () => void;
   onOpenStyle: () => void;
+  onOpenStats: () => void;
 }
 
-export function StatusBar({ store, t, onOpenSettings, onOpenStyle }: Props): JSX.Element {
+export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats }: Props): JSX.Element {
   const state = store.getSnapshot();
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
   // 통계는 스토어가 증분 유지한다 — 여기서 문서를 다시 훑지 않는다.
@@ -57,8 +58,9 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle }: Props): JSX
               </span>
             ) : (
               <>
-                <span className="status-cell">{t.f.words(words)}</span>
-                <span className="status-cell">{t.f.chars(chars)}</span>
+                <button className="status-cell status-stat-btn" title={t.statsTitle} onClick={onOpenStats}>
+                  {t.f.words(words)} · {t.f.chars(chars)}
+                </button>
               </>
             )}
             {dirty && <span className="status-dot" title={t.dirtyTitle} />}

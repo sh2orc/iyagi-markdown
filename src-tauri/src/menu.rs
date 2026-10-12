@@ -33,6 +33,7 @@ const CUSTOM_IDS: &[&str] = &[
     "zoom-reset",
     "next-tab",
     "prev-tab",
+    "shortcuts",
 ];
 
 pub fn is_custom(id: &str) -> bool {
@@ -191,6 +192,14 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
             &mi(app, "next-tab", t(Msg::NextTab), Some("Shift+CmdOrCtrl+]"))?,
             &mi(app, "prev-tab", t(Msg::PrevTab), Some("Shift+CmdOrCtrl+["))?,
         ],
+    )?;
+
+    // — 도움말 —
+    let help_menu = Submenu::with_items(
+        app,
+        t(Msg::Help),
+        true,
+        &[&mi(app, "shortcuts", t(Msg::Shortcuts), None)?],
     )?;
 
     // — 윈도우 —

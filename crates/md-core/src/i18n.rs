@@ -94,6 +94,7 @@ pub enum Msg {
     Zoom,
     BringAllToFront,
     Help,
+    Shortcuts,
     Yes,
 }
 
@@ -149,6 +150,7 @@ impl Msg {
             Msg::Zoom => "Zoom",
             Msg::BringAllToFront => "Bring All to Front",
             Msg::Help => "Help",
+            Msg::Shortcuts => "Keyboard Shortcuts…",
             Msg::Yes => "Yes",
         };
         let ko = |m: Msg| match m {
@@ -201,6 +203,7 @@ impl Msg {
             Msg::Zoom => "확대/축소",
             Msg::BringAllToFront => "모두 앞으로 가져오기",
             Msg::Help => "도움말",
+            Msg::Shortcuts => "키보드 단축키…",
             Msg::Yes => "예",
         };
         match lang {

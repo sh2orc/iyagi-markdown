@@ -127,6 +127,23 @@ body {
   user-select: none;
 }
 
+/* 테마 전환 — 앱 크롬(배경·경계·글자)은 페이드, 본문 문법 색은 즉시 바뀐다. */
+body,
+.app,
+.tabbar,
+.toolbar,
+.statusbar,
+.searchbar,
+.modal {
+  transition: background-color 0.22s ease, color 0.22s ease, border-color 0.22s ease;
+}
+
+/* 키보드 탐색 포커스 링 — 강조색으로(마우스 클릭엔 안 나타난다). */
+:focus-visible {
+  outline: 2px solid var(--md-accent);
+  outline-offset: 1px;
+}
+
 .app {
   height: 100%;
   display: flex;
@@ -148,7 +165,11 @@ body {
   flex: none;
   min-width: 0;
   overflow: hidden;
-  transition: width 0.18s ease;
+  transition:
+    width 0.18s ease,
+    background-color 0.22s ease,
+    border-color 0.22s ease,
+    color 0.22s ease;
 }
 .sidebar:not(.is-open) {
   border-right-color: transparent;
@@ -782,7 +803,11 @@ body.resizing * {
   overflow: hidden;
   border-left: 1px solid var(--md-border);
   background: var(--md-bg-side);
-  transition: width 0.18s ease;
+  transition:
+    width 0.18s ease,
+    background-color 0.22s ease,
+    border-color 0.22s ease,
+    color 0.22s ease;
 }
 .toc.is-open {
   width: 230px;
@@ -1404,4 +1429,74 @@ body.resizing .toc {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* 단축키·통계 패널 */
+
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 22px;
+  max-height: 62vh;
+  overflow-y: auto;
+  margin: 4px 0 14px;
+}
+
+.sc-group-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--md-fg-dim);
+}
+
+.sc-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.sc-table td {
+  padding: 3px 0;
+  font-size: 12.5px;
+  vertical-align: top;
+}
+
+.sc-key {
+  width: 110px;
+  color: var(--md-fg);
+  font-family: var(--md-code-font);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.sc-key::after {
+  content: "";
+  display: inline-block;
+}
+
+.sc-label {
+  color: var(--md-fg-dim);
+}
+
+.stats-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 6px 0 14px;
+}
+
+.stats-table td {
+  padding: 7px 4px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--md-border);
+}
+
+.stats-label {
+  color: var(--md-fg-dim);
+}
+
+.stats-value {
+  text-align: right;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }

@@ -36,6 +36,8 @@ import { setImageResizeHandler } from "./editor/widgets";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { StylePanel } from "./components/StylePanel";
 import { PrintPreview } from "./components/PrintPreview";
+import { ShortcutsPanel } from "./components/ShortcutsPanel";
+import { StatsPanel } from "./components/StatsPanel";
 
 const ioAdapter = {
   readDocument: (path: string) => api.readDocument(path),
@@ -67,6 +69,8 @@ export function App(): JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [styleOpen, setStyleOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -246,6 +250,9 @@ export function App(): JSX.Element {
       switch (id) {
         case "doc-style":
           setStyleOpen(true);
+          break;
+        case "shortcuts":
+          setShortcutsOpen(true);
           break;
         case "new-tab":
           store.newTab();
@@ -502,7 +509,7 @@ export function App(): JSX.Element {
               </div>
             )}
           </div>
-          <StatusBar store={store} t={t} onOpenSettings={() => setSettingsOpen(true)} onOpenStyle={() => setStyleOpen(true)} />
+          <StatusBar store={store} t={t} onOpenSettings={() => setSettingsOpen(true)} onOpenStyle={() => setStyleOpen(true)} onOpenStats={() => setStatsOpen(true)} />
         </main>
         <TocPanel store={store} t={t} open={state.tocOpen} />
       </div>
@@ -536,6 +543,8 @@ export function App(): JSX.Element {
         t={t}
       />
       {styleOpen && <StylePanel store={store} onClose={() => setStyleOpen(false)} t={t} />}
+      {shortcutsOpen && <ShortcutsPanel t={t} onClose={() => setShortcutsOpen(false)} />}
+      {statsOpen && <StatsPanel store={store} t={t} onClose={() => setStatsOpen(false)} />}
       {printOpen && (
         <PrintPreview
           store={store}
