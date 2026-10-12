@@ -1793,6 +1793,37 @@ body.resizing .toc {
   flex-direction: column;
 }
 
+.versions-viewbar {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--md-border);
+}
+
+.versions-viewbtn {
+  border: none;
+  background: none;
+  color: var(--md-fg-dim);
+  font-family: var(--md-prose-font);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.versions-viewbtn.is-on {
+  background: var(--md-accent);
+  color: #fff;
+}
+
+.versions-diff {
+  flex: 1;
+  overflow: auto;
+  font-size: 12.5px;
+}
+
 .versions-preview pre {
   flex: 1;
   margin: 0;

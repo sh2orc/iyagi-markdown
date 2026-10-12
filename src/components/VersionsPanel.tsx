@@ -2,10 +2,11 @@
 // 되돌린다(Obsidian file recovery·Notion 버전 기록). 되돌리기는 버퍼만 바꾼다
 // — 사용자가 저장(⌘S)해야 확정된다(실수로 원문까지 즉시 덮지 않게).
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { api, isInApp, type SnapshotInfo } from "../api";
 import type { AppStore } from "../app/store";
+import { diffLines, diffSummary } from "../editor/diff";
 import type { Translate } from "../i18n";
 
 interface Props {
@@ -31,6 +32,7 @@ export function VersionsPanel({ store, t, onClose, onRestore }: Props): JSX.Elem
   const [list, setList] = useState<SnapshotInfo[] | null>(null);
   const [sel, setSel] = useState(-1);
   const [preview, setPreview] = useState<string | null>(null);
+  const [view, setView] = useState<"preview" | "diff">("diff");
 
   useEffect(() => {
     setSel(-1);
@@ -77,6 +79,14 @@ export function VersionsPanel({ store, t, onClose, onRestore }: Props): JSX.Elem
   // 목록은 새 것부터(가장 최근의 이전 상태가 위).
   const items = list ? [...list].reverse() : null;
 
+  // 변경사항: 현재 버퍼 → 이 버전. add=복원으로 얻는 줄, del=잃는 줄.
+  const currentText = store.active?.state.doc.toString() ?? null;
+  const ops = useMemo(
+    () => (view === "diff" && preview !== null && currentText !== null ? diffLines(currentText, preview) : []),
+    [view, preview, currentText],
+  );
+  const summary = useMemo(() => diffSummary(ops), [ops]);
+
   return (
     <div className="overlay modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal versions-modal">
@@ -102,8 +112,42 @@ export function VersionsPanel({ store, t, onClose, onRestore }: Props): JSX.Elem
             ))}
           </div>
           <div className="versions-preview">
+            <div className="versions-viewbar">
+              <button
+                className={`versions-viewbtn ${view === "diff" ? "is-on" : ""}`}
+                onClick={() => setView("diff")}
+              >
+                {t.versionsViewDiff}
+                {preview !== null && ops.length > 0 && (
+                  <span className="diff-summary">
+                    {" "}
+                    <span className="diff-add-c">+{summary.added}</span>{" "}
+                    <span className="diff-del-c">−{summary.removed}</span>
+                  </span>
+                )}
+              </button>
+              <button
+                className={`versions-viewbtn ${view === "preview" ? "is-on" : ""}`}
+                onClick={() => setView("preview")}
+              >
+                {t.versionsViewPreview}
+              </button>
+            </div>
             {preview === null ? (
               <div className="palette-empty">{sel < 0 ? t.versionsPick : "…"}</div>
+            ) : view === "diff" ? (
+              ops.length === 0 ? (
+                <div className="palette-empty">{t.diffSame}</div>
+              ) : (
+                <div className="versions-diff">
+                  {ops.map((op, i) => (
+                    <pre key={i} className={`diff-line diff-${op.kind}`}>
+                      <span className="diff-gutter">{op.kind === "add" ? "+" : op.kind === "del" ? "−" : " "}</span>
+                      <code>{op.text}</code>
+                    </pre>
+                  ))}
+                </div>
+              )
             ) : (
               <pre>{preview}</pre>
             )}
