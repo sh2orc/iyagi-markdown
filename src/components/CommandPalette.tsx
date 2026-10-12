@@ -30,6 +30,7 @@ interface Props {
   onOpenDiff?: () => void;
   onOpenWsSearch?: () => void;
   onOpenVersions?: () => void;
+  onOpenBacklinks?: () => void;
   onOpenShortcuts: () => void;
   onOpenStats: () => void;
   onOpenStyle: () => void;
@@ -49,6 +50,7 @@ export function CommandPalette({
   onOpenDiff,
   onOpenWsSearch,
   onOpenVersions,
+  onOpenBacklinks,
 }: Props): JSX.Element {
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
@@ -111,6 +113,7 @@ export function CommandPalette({
       ...(onOpenDiff ? [{ id: "diff", label: `${t.diffTitle}…`, run: onOpenDiff }] : []),
       { id: "wssearch", label: `${t.wsSearchTitle} ⇧⌘F`, run: () => onOpenWsSearch?.() },
       { id: "versions", label: `${t.scFile}: ${t.versionsTitle}`, run: () => onOpenVersions?.() },
+      { id: "backlinks", label: `${t.scView}: ${t.backlinksTitle}`, run: () => onOpenBacklinks?.() },
       { id: "print", label: `${t.printPreviewTitle} ⌘P`, run: onOpenPrint },
       { id: "export-html", label: `${t.exportTitle} — ${t.exportHtml}`, run: () => onOpenExport("html") },
       { id: "export-pdf", label: `${t.exportTitle} — ${t.exportPdf}`, run: () => onOpenExport("pdf") },

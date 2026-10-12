@@ -279,11 +279,16 @@ mod tests {
         .unwrap();
         fs::write(d.join("self.md"), "[[target]] 자기 참조 아님 — 다른 문서.\n").unwrap();
         let hits = find_backlinks(&d, d.join("target.md").to_str().unwrap(), 100).unwrap();
-        let lines: Vec<u32> = hits.iter().map(|h| h.line_no).collect();
         // [[folder/target]]은 루트의 target.md가 아닌 folder/target.md를 가리킨다 —
         // 백링크 아닌 것이 올바른 해석(에디터 resolveWikiLink와 같은 규칙).
-        assert_eq!(lines, vec![1, 2]);
-        assert!(hits.iter().all(|h| h.path.ends_with("a.md")));
+        let from_a: Vec<u32> = hits
+            .iter()
+            .filter(|h| h.path.ends_with("a.md"))
+            .map(|h| h.line_no)
+            .collect();
+        assert_eq!(from_a, vec![1, 2]);
+        // self.md는 이름과 달리 다른 문서 — [[target]] 참조는 백링크다.
+        assert_eq!(hits.iter().filter(|h| h.path.ends_with("self.md")).count(), 1);
         let _ = fs::remove_dir_all(&d);
     }
 

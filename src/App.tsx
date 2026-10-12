@@ -42,6 +42,7 @@ import { ShortcutsPanel } from "./components/ShortcutsPanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { VersionsPanel } from "./components/VersionsPanel";
+import { BacklinksPanel } from "./components/BacklinksPanel";
 import { WorkspaceSearch } from "./components/WorkspaceSearch";
 import { ImageViewer } from "./components/ImageViewer";
 import { DiffPanel } from "./components/DiffPanel";
@@ -108,6 +109,7 @@ export function App(): JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [wsSearchOpen, setWsSearchOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [backlinksOpen, setBacklinksOpen] = useState(false);
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
 
@@ -130,6 +132,7 @@ export function App(): JSX.Element {
     paletteOpen ||
     wsSearchOpen ||
     versionsOpen ||
+    backlinksOpen ||
     diffOpen ||
     state.exportKind ||
     state.busy ||
@@ -474,6 +477,9 @@ export function App(): JSX.Element {
         case "versions":
           setVersionsOpen(true);
           break;
+        case "backlinks":
+          setBacklinksOpen(true);
+          break;
         case "mode-edit":
           store.setMode("edit");
           break;
@@ -777,6 +783,7 @@ export function App(): JSX.Element {
           onOpenDiff={() => setDiffOpen(true)}
           onOpenWsSearch={() => setWsSearchOpen(true)}
           onOpenVersions={() => setVersionsOpen(true)}
+          onOpenBacklinks={() => setBacklinksOpen(true)}
         />
       )}
       {wsSearchOpen && (
@@ -784,6 +791,14 @@ export function App(): JSX.Element {
           store={store}
           t={t}
           onClose={() => setWsSearchOpen(false)}
+          onOpenHit={revealInPath}
+        />
+      )}
+      {backlinksOpen && (
+        <BacklinksPanel
+          store={store}
+          t={t}
+          onClose={() => setBacklinksOpen(false)}
           onOpenHit={revealInPath}
         />
       )}

@@ -126,6 +126,19 @@ pub async fn write_document(
     })
 }
 
+/// 백링크 — 현재 문서를 [[이름]]으로 참조하는 문서들(전체 검색과 같은 풀).
+#[tauri::command]
+pub async fn backlinks(
+    root: String,
+    path: String,
+) -> Result<Vec<md_core::search::SearchHit>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        md_core::search::find_backlinks(Path::new(&root), &path, 200).map_err(err)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // — 버전 기록(스냅숏 사이드카) —
 
 #[tauri::command]

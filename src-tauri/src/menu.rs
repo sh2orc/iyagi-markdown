@@ -177,6 +177,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         true,
         &[
             &mi(app, "command-palette", t(Msg::CommandPalette), Some("Shift-CmdOrCtrl-P"))?,
+            &mi(app, "backlinks", t(Msg::Backlinks), None)?,
             &PredefinedMenuItem::separator(app)?,
             &mi(app, "mode-edit", t(Msg::ModeEdit), None)?,
             &mi(app, "mode-read", t(Msg::ModeRead), Some("CmdOrCtrl+E"))?,

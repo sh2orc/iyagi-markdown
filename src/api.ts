@@ -168,6 +168,8 @@ export const api = {
       caseSensitive,
     }),
   snapshotList: (path: string) => invoke<SnapshotInfo[]>("snapshot_list", { path }),
+  backlinks: (root: string, path: string) =>
+    invoke<SearchHit[]>("backlinks", { root, path }),
   snapshotRead: (path: string, ts: number) => invoke<string>("snapshot_read", { path, ts }),
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (settings: Settings) => invoke<void>("set_settings", { settings }),

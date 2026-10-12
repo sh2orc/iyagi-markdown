@@ -9,7 +9,7 @@ import type { AppStore } from "../app/store";
 import { splitHighlights } from "../search/searchCm";
 import type { Translate } from "../i18n";
 
-interface Group {
+export interface Group {
   path: string;
   name: string;
   rel: string;
@@ -28,7 +28,7 @@ interface Props {
 }
 
 /** 같은 파일의 매치를 하나의 묶음으로 — Rust 결과는 도달 순이라 이미 연속. */
-function groupHits(hits: SearchHit[], root: string): Group[] {
+export function groupHits(hits: SearchHit[], root: string): Group[] {
   const out: Group[] = [];
   for (const h of hits) {
     const last = out[out.length - 1];
