@@ -10,7 +10,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import { languages } from "@codemirror/language-data";
 
-import { frontMatterSyntax, frontMatterLen, parseFrontMatter, stripFrontMatter } from "./frontmatter";
+import { frontMatterMeta, frontMatterSyntax, frontMatterLen, parseFrontMatter, stripFrontMatter } from "./frontmatter";
 import { mathSyntax } from "./mathSyntax";
 
 const parse = (doc: string) => {
@@ -87,5 +87,31 @@ describe("parseFrontMatter", () => {
 
   it("키 없는 줄은 빈 키로", () => {
     expect(parseFrontMatter("그냥 줄")).toEqual([["", "그냥 줄"]]);
+  });
+});
+
+describe("frontMatterMeta", () => {
+  it("title·author·date를 뽑는다(대소문자 무시·따옴표 제거)", () => {
+    const doc = `---
+title: "보고서 - 3분기"
+Author: 홍길동
+DATE: 2026-10-12
+---
+
+# 본문`;
+    const m = frontMatterMeta(doc);
+    expect(m?.title).toBe("보고서 - 3분기");
+    expect(m?.author).toBe("홍길동");
+    expect(m?.date).toBe("2026-10-12");
+  });
+
+  it("프론트매터가 없거나 메타가 비면 null", () => {
+    expect(frontMatterMeta("# 그냥 문서")).toBeNull();
+    expect(frontMatterMeta("---\nfoo: 1\n---\n본문")).toBeNull();
+  });
+
+  it("authors(복수) 키도 작가로 인식", () => {
+    const m = frontMatterMeta("---\nauthors:\n  - 김작가\n  - 이작가\n---\n");
+    expect(m?.author).toBe("김작가 · 이작가");
   });
 });

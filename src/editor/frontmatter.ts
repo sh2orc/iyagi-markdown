@@ -23,6 +23,29 @@ export function frontMatterLen(text: string): number {
   return m ? m[0].length : 0;
 }
 
+/** 내보내기용 메타 — title·author·date(있는 것만). 순수 함수. */
+export interface FrontMatterMeta {
+  title: string;
+  author: string;
+  date: string;
+}
+
+/** 프론트매터에서 title/author/date 추출(대소문자 무시). 없으면 null. */
+export function frontMatterMeta(text: string): Partial<FrontMatterMeta> | null {
+  const m = head(text).match(FM_SCAN);
+  if (!m) return null;
+  const yaml = m[0].replace(/^---\r?\n/, "").replace(/\r?\n---(?:\r?\n|$)/, "");
+  const out: Partial<FrontMatterMeta> = {};
+  for (const [k, v] of parseFrontMatter(yaml)) {
+    if (!v) continue;
+    const key = k.toLowerCase();
+    if (key === "title" && !out.title) out.title = v;
+    else if ((key === "author" || key === "authors") && !out.author) out.author = v;
+    else if (key === "date" && !out.date) out.date = v;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 /** 표시용 key·value 행 — 깊은 YAML은 다루지 않는다(간단한 스칼라·목록만).
  *  "- 항목" 줄은 앞 키의 값에 이어 붙인다. 순수 함수(테스트 대상). */
 export function parseFrontMatter(yaml: string): Array<[string, string]> {

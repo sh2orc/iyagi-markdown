@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::Path;
 
 /// 챕터 하나 — file은 "chapter1.xhtml" 같은 OEBPS 상대 이름.
-#[derive(serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpubChapter {
     pub title: String,
@@ -19,7 +19,7 @@ pub struct EpubChapter {
     pub sections: Vec<EpubSection>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EpubSection {
     pub anchor: String,

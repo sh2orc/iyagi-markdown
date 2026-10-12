@@ -41,6 +41,8 @@ $$x^2 + \frac{1}{2}$$
             style: Some(("serif", 12.0, 1.5, true, String::new(), "justify".to_string())),
             page_numbers: true,
             table_widths: &std::collections::HashMap::new(),
+            title: Some("예제 문서"),
+            author: Some("iyagi"),
         },
         std::path::Path::new("/tmp/iyagi-e2e.docx"),
     )

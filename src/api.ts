@@ -108,6 +108,9 @@ export interface DocxManifest {
   diagrams: Record<string, string>;
   /** 문서별 스타일(폰트·크기) — DOCX 기본 서체에 반영. */
   style?: { font: "system" | "serif" | "round" | "mono"; sizePt: number };
+  /** 프런트매터 메타 — core.xml(dc:title·dc:creator). */
+  title?: string;
+  author?: string;
 }
 
 /** 문서별 스타일(SQLite 사이드카 — .md 원문은 불변). */
@@ -196,16 +199,17 @@ export const api = {
   exportDocx: (markdown: string, manifest: DocxManifest, outPath: string, baseDir: string) =>
     invoke<void>("export_docx", { markdown, manifest, outPath, baseDir }),
   exportEpub: (
-    chapters: Array<{ title: string; body: string; file: string }>,
-    title: string,
-    author: string,
-    language: string,
-    css: string,
-    coverPath: string | null,
-    baseDir: string,
+    manifest: {
+      chapters: Array<{ title: string; body: string; file: string }>;
+      title: string;
+      author: string;
+      language: string;
+      css: string;
+      coverPath: string | null;
+      baseDir: string;
+    },
     outPath: string,
-  ) =>
-    invoke<void>("export_epub", { chapters, title, author, language, css, coverPath, baseDir, outPath }),
+  ) => invoke<void>("export_epub", { manifest, outPath }),
   writeExportFile: (path: string, contents: string) =>
     invoke<void>("write_export_file", { path, contents }),
   revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),

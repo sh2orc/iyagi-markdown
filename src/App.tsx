@@ -21,7 +21,7 @@ import { AppStore, resolveTheme, type ExportKind, type Tab } from "./app/store";
 import { replaceDoc, setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
 import { setPhrases } from "./app/phrases";
 import { invalidateLinkPreviews } from "./editor/linkPreview";
-import { stripFrontMatter } from "./editor/frontmatter";
+import { frontMatterMeta, stripFrontMatter } from "./editor/frontmatter";
 import { EPUB_CSS, epubChapterInputs, splitEpubChapters } from "./export/epub";
 import { relPath } from "./paths";
 import { resolveWikiLink, wikiLinksToMarkdown } from "./editor/wiki";
@@ -419,7 +419,14 @@ export function App(): JSX.Element {
         wikiResolve,
         baseDir0,
       );
-      const name = (tab.path ? tab.title : "untitled").replace(/\.(md|markdown)$/i, "");
+      // 프런트매터 메타 — 문서가 스스로 밝히는 제목·작가가 내보내기 식별자가 된다.
+      const fm = frontMatterMeta(tab.state.doc.toString());
+      const metaTitle = fm?.title ?? "";
+      const metaAuthor = fm?.author ?? "";
+      const name = (metaTitle || (tab.path ? tab.title : "untitled"))
+        .replace(/\.(md|markdown)$/i, "")
+        .replace(/[\/:*?"<>|]/g, "-"); // 파일명에 못 쓰는 글자
+      const docTitle = metaTitle || (tab.path ? tab.title : name);
       const ext = kind === "html" ? "html" : kind === "pdf" ? "pdf" : kind === "epub" ? "epub" : "docx";
       const out = await pickSave(`${name}.${ext}`, ext);
       if (!out) return;
@@ -437,7 +444,7 @@ export function App(): JSX.Element {
         const tableWidths = tab.docStyle?.tableWidths ?? {};
         if (kind === "html") {
           const html = await buildExportHtml(text, {
-            title: tab.path ? tab.title : name,
+            title: docTitle,
             baseDir,
             theme: store.state.theme,
             style: exportStyleOf(tab),
@@ -449,7 +456,7 @@ export function App(): JSX.Element {
           await api.writeExportFile(out, html);
         } else if (kind === "pdf") {
           const html = await buildExportHtml(text, {
-            title: tab.path ? tab.title : name,
+            title: docTitle,
             baseDir,
             theme: store.state.theme,
             forPdf: true,
@@ -467,7 +474,7 @@ export function App(): JSX.Element {
           // 이미지는 data URI로 인라인하지 않는다 — 로컬 경로를 그대로 두면
           // Rust가 디스크에서 읽어 zip 안 images/ 로 임베드한다(DOCX와 동일).
           const { body } = await renderMarkdownBody(text, {
-            title: tab.path ? tab.title : name,
+            title: docTitle,
             baseDir,
             theme: store.state.theme,
           });
@@ -479,12 +486,15 @@ export function App(): JSX.Element {
           // 표지 — 문서의 첫 로컬 이미지(없으면 생략).
           const coverPath = firstLocalImage(text, baseDir);
           await api.exportEpub(
-            chapters,
-            tab.path ? tab.title : name,
-            lang === "ko" ? "ko" : "en",
-            EPUB_CSS,
-            coverPath,
-            baseDir,
+            {
+              chapters,
+              title: docTitle,
+              author: metaAuthor || "IYAGI Markdown",
+              language: lang === "ko" ? "ko" : "en",
+              css: EPUB_CSS,
+              coverPath,
+              baseDir,
+            },
             out,
           );
         } else {
@@ -502,6 +512,8 @@ export function App(): JSX.Element {
           };
           manifest.imageWidths = imageWidths;
           manifest.tableWidths = tableWidths;
+          if (metaTitle) manifest.title = metaTitle;
+          if (metaAuthor) manifest.author = metaAuthor;
           await api.exportDocx(text, manifest, out, baseDir);
         }
         store.setBusy(null);

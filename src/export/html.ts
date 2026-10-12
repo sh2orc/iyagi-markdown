@@ -549,6 +549,9 @@ export async function buildDocxManifest(
   imageWidths?: Record<string, number>;
   /** 사이드카 표 열 폭(px) — 헤더 내용 키 → tblGrid 비율. */
   tableWidths?: Record<string, number[]>;
+  /** 프런트매터 메타 — core.xml(dc:title·dc:creator). */
+  title?: string;
+  author?: string;
 }> {
   const math: Record<string, string> = {};
   const diagrams: Record<string, string> = {};

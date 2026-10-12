@@ -128,32 +128,37 @@ pub async fn write_document(
 
 /// EPUB 내보내기 — 본문 XHTML·CSS는 프런트가, 조립·zip은 md-export가.
 #[tauri::command]
-pub async fn export_epub(
-    chapters: Vec<md_export::epub::EpubChapter>,
-    title: String,
-    language: String,
-    css: String,
-    cover_path: Option<String>,
-    base_dir: String,
-    out_path: String,
-) -> Result<(), String> {
+pub async fn export_epub(manifest: EpubManifest, out_path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        if chapters.is_empty() {
+        if manifest.chapters.is_empty() {
             return Err("EPUB: 챕터가 없습니다".into());
         }
         let opts = md_export::epub::EpubOptions {
-            title,
-            author: "IYAGI Markdown".into(),
-            language,
-            css,
-            cover_path,
-            base_dir,
-            chapters,
+            title: manifest.title,
+            author: manifest.author,
+            language: manifest.language,
+            css: manifest.css,
+            cover_path: manifest.cover_path,
+            base_dir: manifest.base_dir,
+            chapters: manifest.chapters,
         };
         md_export::epub::export_epub(&opts, std::path::Path::new(&out_path))
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// EPUB 내보내기 매개변수(프런트가 조립).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EpubManifest {
+    pub chapters: Vec<md_export::epub::EpubChapter>,
+    pub title: String,
+    pub author: String,
+    pub language: String,
+    pub css: String,
+    pub cover_path: Option<String>,
+    pub base_dir: String,
 }
 
 // — 소리내어 읽기(macOS say, 시스템 목소리 — 의존 0) —
@@ -428,6 +433,11 @@ pub struct DocxManifest {
     /// 문서별 표 열 폭(px) — 헤더 내용 키(사이드카 tableWidths).
     #[serde(default)]
     pub table_widths: std::collections::HashMap<String, Vec<u32>>,
+    /// 프런트매터 메타 — core.xml.
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub author: Option<String>,
     /// 문서별 기본 서체(라이브 프리뷰 스타일 반영).
     pub style: Option<DocxStyleSpec>,
 }
@@ -486,6 +496,8 @@ pub fn export_docx(
             }),
             page_numbers: manifest.style.as_ref().is_some_and(|s| s.page_numbers),
             table_widths: &manifest.table_widths,
+            title: manifest.title.as_deref(),
+            author: manifest.author.as_deref(),
         },
         Path::new(&out_path),
     )
