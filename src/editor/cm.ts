@@ -186,6 +186,7 @@ function baseExtensions(): Extension[] {
       // 서식 복사/붙여넣기(Format Painter) — ⌘⇧C는 인라인 코드라 ⌥⌘C/⌥⌘V.
       { key: "Mod-Alt-c", run: (v) => copyFormat(v), preventDefault: true },
       { key: "Mod-Alt-v", run: (v) => pasteFormat(v), preventDefault: true },
+      { key: "Mod-Alt-Shift-v", run: (v) => pasteAsPlainText(v), preventDefault: true },
       // 입력 보조 — 괄호 쌍·마커 감싸기(선택 있을 때). 개별 문자 키.
       { key: "(", run: (v) => fmt.typePair(v, "(") },
       { key: "[", run: (v) => fmt.typePair(v, "[") },
@@ -349,6 +350,17 @@ function baseExtensions(): Extension[] {
           view.dispatch({
             changes: { from: sel.from, to: sel.to, insert: `[${selected}](${text.trim()})` },
             userEvent: "input.pasteLink",
+          });
+          return true;
+        }
+        // 서식 없이 붙여넣기(대기 중이면) — HTML 변환·링크 스마트 모두 건너뛴다.
+        if (plainPasteQueued) {
+          plainPasteQueued = false;
+          event.preventDefault();
+          const sel = view.state.selection.main;
+          view.dispatch({
+            changes: { from: sel.from, to: sel.to, insert: text },
+            userEvent: "input.pastePlain",
           });
           return true;
         }
@@ -573,3 +585,25 @@ export const __testingCopy = {
   ready: () => mdItInstance !== null,
   render: (md: string) => mdItInstance?.render(md) ?? null,
 };
+
+// — 서식 없이 붙여넣기(⌥⌘⇧V) — 클립보드 읽기 실패 시 다음 붙여넣기에 적용. —
+let plainPasteQueued = false;
+
+/** 서식 없이 붙여넣기 — HTML→MD 변환 없이 텍스트 그대로. */
+export function pasteAsPlainText(view: EditorView): boolean {
+  void (async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      const sel = view.state.selection.main;
+      view.dispatch({
+        changes: { from: sel.from, to: sel.to, insert: text },
+        userEvent: "input.pastePlain",
+      });
+    } catch {
+      // 클립보드 읽기 거부 — 다음 붙여넣기 이벤트에서 평문으로.
+      plainPasteQueued = true;
+    }
+  })();
+  return true;
+}

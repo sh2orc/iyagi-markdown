@@ -8,6 +8,8 @@ export interface SearchQuery {
   text: string;
   caseSensitive: boolean;
   regexp: boolean;
+  /** 단어 단위 일치 — 가장자리가 라틴 단어 문자일 때만  경계 적용. */
+  wholeWord?: boolean;
   /** 바꿀 내용(바꾸기 모드에서만). */
   replacement: string;
 }
@@ -42,7 +44,8 @@ export const searchField = StateField.define<SearchState>({
             next.query !== null &&
             next.query.text === e.value.query.text &&
             next.query.caseSensitive === e.value.query.caseSensitive &&
-            next.query.regexp === e.value.query.regexp;
+            next.query.regexp === e.value.query.regexp &&
+            next.query.wholeWord === e.value.query.wholeWord;
           const matches = sameQuery
             ? next.matches
             : computeMatches(tr.state.doc.toString(), e.value.query);
@@ -58,7 +61,11 @@ export const searchField = StateField.define<SearchState>({
     // 주변만 다시 훑고 나머지 매치는 좌표만 옮긴다(편집 한 번이 O(문서)
     // 재스캔이 되지 않게). 정규식은 전역 상태(lookbehind 등) 때문에 전체 재스캔.
     if (tr.docChanged && next.query) {
-      const matches = next.query.regexp
+      // 단어 단위(라틴 경계)는 경계 상태가 창 밖에서도 바뀔 수 있어 전체 재스캔.
+      const fullScan =
+        next.query.regexp ||
+        (next.query.wholeWord && !!wholeWordRegexSource(next.query.text, false));
+      const matches = fullScan
         ? computeMatches(tr.state.doc.toString(), next.query)
         : updateMatchesForChanges(next.matches, tr.changes, tr.state.doc, next.query);
       next = {
@@ -135,10 +142,35 @@ export function updateMatchesForChanges(
 
 const MAX_MATCHES = 5000;
 
+/** 단어 경계 정규식 — 가장자리 글자가 라틴 단어 문자일 때만 \b(한글은
+ *  JS 정규식에서 비단어 문자라 \b가 붙으면 아예 매칭되지 않는다). */
+export function wholeWordRegexSource(text: string, alreadyRegex: boolean): string | null {
+  if (!/[A-Za-z0-9_]/.test(text.slice(0, 1)) && !/[A-Za-z0-9_]/.test(text.slice(-1))) return null;
+  const body = alreadyRegex ? text : text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (
+    (/[A-Za-z0-9_]/.test(text.slice(0, 1)) ? "\\b" : "") +
+    `(?:${body})` +
+    (/[A-Za-z0-9_]/.test(text.slice(-1)) ? "\\b" : "")
+  );
+}
+
 export function computeMatches(text: string, query: SearchQuery): SearchMatch[] {
   if (!query.text) return [];
   const out: SearchMatch[] = [];
   try {
+    if (query.wholeWord) {
+      // 단어 단위 — 경계가 필요 없으면(한글 등) 일반 경로로.
+      const src = wholeWordRegexSource(query.text, query.regexp);
+      if (src) {
+        const re = new RegExp(src, query.caseSensitive ? "g" : "gi");
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(text)) && out.length < MAX_MATCHES) {
+          out.push({ from: m.index, to: m.index + m[0].length });
+          if (m[0].length === 0) re.lastIndex++;
+        }
+        return out;
+      }
+    }
     if (query.regexp) {
       const re = new RegExp(
         query.text,

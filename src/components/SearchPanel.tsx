@@ -29,6 +29,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
   const [replacement, setReplacement] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [regexp, setRegexp] = useState(false);
+  const [wholeWord, setWholeWord] = useState(false);
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [, force] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -36,7 +37,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
   const [, closeSignal] = useState(0);
   void closeSignal;
 
-  const query: SearchQuery | null = text ? { text, caseSensitive, regexp, replacement } : null;
+  const query: SearchQuery | null = text ? { text, caseSensitive, regexp, wholeWord, replacement } : null;
 
   // 검색 적용 — 상태 필드가 매치를 계산하므로 여기서 다시 훑지 않는다(중복
   // O(문서) 스캔 제거). 입력은 짧게 디바운스해 큰 문서에서 타이핑이 끊기지
@@ -113,7 +114,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
             const v = e.target.value;
             setText(v);
             // 주의: 렌더 시점의 query는 한 글자 뒤처진 값이다 — 여기서 새로 만든다.
-            if (v) applyDebounced({ text: v, caseSensitive, regexp, replacement });
+            if (v) applyDebounced({ text: v, caseSensitive, regexp, wholeWord, replacement });
             else apply(null);
           }}
           onKeyDown={(e) => {
@@ -141,6 +142,16 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
           }}
         >
           Aa
+        </button>
+        <button
+          className={`search-toggle ${wholeWord ? "is-on" : ""}`}
+          title={t.findWholeWord}
+          onClick={() => {
+            setWholeWord(!wholeWord);
+            apply(query ? { ...query, wholeWord: !wholeWord } : null);
+          }}
+        >
+          [w]
         </button>
         <button
           className={`search-toggle ${regexp ? "is-on" : ""}`}

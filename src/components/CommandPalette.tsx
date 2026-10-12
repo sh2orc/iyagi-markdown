@@ -11,6 +11,7 @@ import { flattenFiles, scoreFile, subsequence, type FileEntry } from "../app/qui
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
 import { copyFormat, pasteFormat } from "../editor/formatPainter";
+import { pasteAsPlainText } from "../editor/cm";
 import { collectHeadings } from "../links";
 import { stripFrontMatter } from "../editor/frontmatter";
 import { smoothScrollIntoView } from "../editor/cm";
@@ -191,6 +192,7 @@ export function CommandPalette({
         { id: "highlight", label: `${t.scFormat}: ${t.tbHighlight} ⇧⌘H`, run: go(() => fmt.toggleHighlight(view)) },
         { id: "painter-copy", label: `${t.scFormat}: ${t.painterCopy} ⌥⌘C`, run: go(() => copyFormat(view)) },
         { id: "painter-paste", label: `${t.scFormat}: ${t.painterPaste} ⌥⌘V`, run: go(() => pasteFormat(view)) },
+        { id: "paste-plain", label: `${t.scEdit}: ${t.pastePlain} ⌥⌘⇧V`, run: go(() => pasteAsPlainText(view)) },
         { id: "link", label: `${t.scFormat}: ${t.tbLink}`, run: go(() => fmt.insertLink(view)) },
         { id: "h1", label: `${t.scFormat}: ${t.tbHeading} 1`, run: go(() => fmt.toggleHeading(view, 1)) },
         { id: "h2", label: `${t.scFormat}: ${t.tbHeading} 2`, run: go(() => fmt.toggleHeading(view, 2)) },
