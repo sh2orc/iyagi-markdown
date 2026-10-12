@@ -1,5 +1,7 @@
 // 단축키 도움말 패널 — 도움말 › 키보드 단축키. 앱의 모든 단축키를 분야별로.
 
+import { useEffect, useRef, useState } from "react";
+
 import type { Translate } from "../i18n";
 
 interface Props {
@@ -76,12 +78,40 @@ const GROUPS = (t: Translate): Array<{ title: string; items: [string, string][] 
 ];
 
 export function ShortcutsPanel({ t, onClose }: Props): JSX.Element {
+  // 검색 — 키·설명 모두에서 대소문자 무시 부분 일치. 빈 값은 전체.
+  const [q, setQ] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+  const query = q.trim().toLowerCase();
+  const match = (key: string, label: string): boolean =>
+    !query || key.toLowerCase().includes(query) || label.toLowerCase().includes(query);
+  const groups = GROUPS(t)
+    .map((g) => ({ ...g, items: g.items.filter(([k, l]) => match(k, l)) }))
+    .filter((g) => g.items.length > 0);
+
   return (
     <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal shortcuts-modal">
         <div className="modal-title">{t.shortcutsTitle}</div>
+        <input
+          ref={inputRef}
+          className="palette-input sc-search"
+          placeholder={t.tocFilter}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              if (q) setQ("");
+              else onClose();
+            }
+          }}
+        />
+        {groups.length === 0 && <div className="palette-empty">{t.symbolNoMatch}</div>}
         <div className="shortcuts-grid">
-          {GROUPS(t).map((g) => (
+          {groups.map((g) => (
             <section key={g.title} className="sc-group">
               <h3 className="sc-group-title">{g.title}</h3>
               <table className="sc-table">
