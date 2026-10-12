@@ -127,3 +127,10 @@ describe("ttsTextOf(TTS 정화)", () => {
     expect(ttsTextOf(md)).toBe("제목입니다\n굵게와 code 그리고 링크.\n• 항목 하나");
   });
 });
+
+describe("ttsTextOf 표 처리", () => {
+  it("표 줄은 셀 나열로, 구분 행은 생략", () => {
+    const md = "| 항목 | 값 |\n|---|---|\n| 사과 | 3개 |\n";
+    expect(ttsTextOf(md)).toBe("항목, 값\n사과, 3개");
+  });
+});

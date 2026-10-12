@@ -69,7 +69,16 @@ export function ttsTextOf(markdown: string): string {
   const noFence = body.replace(/(```|~~~)[^]*?\1/g, "");
   return noFence
     .split("\n")
-    .map((l) => cleanMarkers(l.replace(/^\s*#{1,6}\s+/, "")))
+    .map((l) => {
+      // 표 줄은 파이프 낭독 대신 셀 나열로("a, b, c"). 구분 행은 건너뛴다.
+      const t = l.trim();
+      if (t.startsWith("|") && t.endsWith("|")) {
+        const cells = t.slice(1, -1).split("|").map((c) => cleanMarkers(c.trim()));
+        if (cells.every((c) => /^:?-{2,}:?$/.test(c) || c === "")) return "";
+        return cells.filter(Boolean).join(", ");
+      }
+      return cleanMarkers(l.replace(/^\s*#{1,6}\s+/, ""));
+    })
     .filter((l) => l.trim().length > 0)
     .join("\n");
 }
