@@ -45,6 +45,8 @@ export interface Tab {
   marks: { bold: boolean; italic: boolean; strike: boolean; code: boolean; link: boolean };
   /** 선택 통계(상태줄) — 선택 중일 때만 표시. */
   selChars: number;
+  /** 작업 항목 진행률(없으면 null — 상태 줄 숨김). 디바운스 재계산. */
+  checkbox: { done: number; total: number } | null;
   /** 책갈피 줄 번호(SQLite 사이드카 — 원문 불변). */
   bookmarks: number[];
   /** 저장 안 됨 표시 — 입력마다 O(문서) 비교 대신 증분 유지(정확성: 길이가
@@ -228,6 +230,7 @@ export class AppStore {
       docStyle: null,
       marks: { bold: false, italic: false, strike: false, code: false, link: false },
       selChars: 0,
+      checkbox: checkboxOf(doc.text),
       bookmarks: [],
       dirty: false,
       // 통계는 본문만(프론트매터는 메타 — Obsidian 방식).
@@ -284,6 +287,7 @@ export class AppStore {
       docStyle: null,
       marks: { bold: false, italic: false, strike: false, code: false, link: false },
       selChars: 0,
+      checkbox: null,
       bookmarks: [],
       dirty: false,
       words: 0,
@@ -432,6 +436,19 @@ export class AppStore {
       if (doc.length !== tab.savedText.length) tab.dirty = true;
       else tab.dirty = doc.toString() !== tab.savedText;
     }
+    // 작업 항목 진행률 — O(문서) 스캔이라 입력이 멈춘 뒤에만(300ms 디바운스).
+    if (update.docChanged) {
+      if (this.checkboxTimer) clearTimeout(this.checkboxTimer);
+      const tabId = tab.id;
+      this.checkboxTimer = setTimeout(() => {
+        this.checkboxTimer = null;
+        const t2 = this.state.tabs.find((x) => x.id === tabId);
+        if (t2 && t2 === this.active) {
+          t2.checkbox = checkboxOf(this.view?.state.doc.toString() ?? "");
+          this.emit();
+        }
+      }, 300);
+    }
     // 초안 자동 저장(Word 자동 저장) — 입력이 멈춘 뒤 저장. 무수정이면 저장하지
     // 않는다(§4-2). 원자적 저장 경로 그대로.
     if (this.state.settings.autosave && tab.path) {
@@ -535,6 +552,7 @@ export class AppStore {
       tab.dirty = false;
       tab.words = countWords(stripFrontMatter(doc.text));
       tab.chars = stripFrontMatter(doc.text).length;
+      tab.checkbox = checkboxOf(doc.text);
       tab.conflict = null;
       this.emit();
     } catch (e) {
@@ -655,6 +673,7 @@ export class AppStore {
 
   /** 문서별 스타일을 에디터 컨테이너 CSS 변수로(호스트는 App이 등록한다). */
   hostEl: HTMLElement | null = null;
+  private checkboxTimer: ReturnType<typeof setTimeout> | null = null;
 
   applyDocStyleVars(): void {
     if (!this.hostEl) return;
@@ -767,6 +786,7 @@ export class AppStore {
         docStyle: null,
         marks: { bold: false, italic: false, strike: false, code: false, link: false },
         selChars: 0,
+        checkbox: checkboxOf(doc.text),
         bookmarks: [],
         dirty: false,
         words: countWords(stripFrontMatter(doc.text)),
@@ -894,6 +914,22 @@ export function countWords(text: string): number {
   const cjk = (text.match(/[가-힣぀-ヿ一-鿿]/g) ?? []).length;
   const latin = (text.match(/[A-Za-z0-9'’_-]+/g) ?? []).length;
   return cjk + latin;
+}
+
+/** GFM 작업 항목 진행률 — [ ]·[x] 개수(줄 머리 목록 마커 뒤만). 순수 함수. */
+export function countCheckboxes(text: string): { done: number; total: number } {
+  let done = 0;
+  let total = 0;
+  for (const m of text.matchAll(/^ {0,3}(?:[-*+]|\d+[.)]) \[([ xX])\]/gm)) {
+    total++;
+    if (m[1] !== " ") done++;
+  }
+  return { done, total };
+}
+
+function checkboxOf(text: string): { done: number; total: number } | null {
+  const { done, total } = countCheckboxes(text);
+  return total > 0 ? { done, total } : null;
 }
 
 /** 커서 위치의 인라인 서식 조상을 찾는다(도구모음 활성 상태용). */

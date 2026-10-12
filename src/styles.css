@@ -1572,6 +1572,13 @@ body.resizing .toc {
   outline: none;
 }
 
+.status-check {
+  font-variant-numeric: tabular-nums;
+}
+.status-check.status-check-done {
+  color: var(--md-accent);
+}
+
 .palette-input-static {
   font-weight: 650;
   cursor: default;
@@ -1933,4 +1940,28 @@ body.resizing .toc {
   position: absolute;
   right: 10px;
   top: 9px;
+}
+
+/* 위키링크 자동완성 팝업 — 앱 테마 토큰 적용 */
+
+.cm-tooltip.cm-tooltip-autocomplete {
+  border: 1px solid var(--md-border) !important;
+  border-radius: 10px;
+  box-shadow: var(--md-shadow);
+  background: var(--md-bg);
+  overflow: hidden;
+  font-family: var(--md-prose-font);
+}
+
+.cm-tooltip-autocomplete ul li[aria-selected] {
+  background: var(--md-accent) !important;
+  color: #fff !important;
+}
+
+.cm-tooltip-autocomplete .cm-completionDetail {
+  color: var(--md-fg-dim);
+  font-size: 11px;
+  font-family: var(--md-code-font);
+  margin-left: 8px;
+  float: right;
 }

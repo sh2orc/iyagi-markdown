@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 
-import { AppStore, countWords, type StoreIO } from "./store";
+import { AppStore, countCheckboxes, countWords, type StoreIO } from "./store";
 import { setViewListener } from "../editor/cm";
 import { previewConfigField } from "../editor/livePreview";
 
@@ -168,5 +168,13 @@ describe("토스트 퇴장", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("countCheckboxes", () => {
+  it("목록 마커 뒤의 [ ]·[x]만 센다", () => {
+    expect(countCheckboxes("- [ ] a\n- [x] b\n* [X] c\n1. [ ] d\n")).toEqual({ done: 2, total: 4 });
+    expect(countCheckboxes("일반 [ ] 텍스트\n- [x] 항목\n")).toEqual({ done: 1, total: 1 });
+    expect(countCheckboxes("문서 없음\n")).toEqual({ done: 0, total: 0 });
   });
 });

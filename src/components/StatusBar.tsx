@@ -69,6 +69,14 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats }
                 </button>
               </>
             )}
+            {tab.checkbox && tab.checkbox.total > 0 && (
+              <span
+                className={`status-cell status-check ${tab.checkbox.done >= tab.checkbox.total ? "status-check-done" : ""}`}
+                title={t.checkProgress}
+              >
+                ☑ {tab.checkbox.done}/{tab.checkbox.total}
+              </span>
+            )}
             {dirty && <span className="status-dot" title={t.dirtyTitle} />}
           </>
         )}
