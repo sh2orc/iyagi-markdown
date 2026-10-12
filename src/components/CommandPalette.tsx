@@ -235,6 +235,7 @@ export function CommandPalette({
             const pos = Math.min(r.h.pos, view.state.doc.length);
             view.dispatch({ selection: { anchor: pos } });
             smoothScrollIntoView(view, pos);
+            view.focus();
           },
         },
       }));
@@ -306,7 +307,8 @@ export function CommandPalette({
     if (!r || r.kind === "header") return;
     onClose();
     if (r.kind === "cmd") {
-      rememberRecent(r.c.id);
+      // 제목 점프(@모드)는 기록 대상이 아니다 — 목록 오염 방지.
+      if (!r.c.id.startsWith("head-")) rememberRecent(r.c.id);
       r.c.run();
     } else {
       void store.openPath(r.f.path);
