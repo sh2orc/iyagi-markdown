@@ -1842,6 +1842,36 @@ body.resizing .toc {
   color: var(--md-fg);
 }
 
+/* 위키링크 호버 미리보기 */
+
+.link-preview {
+  position: fixed;
+  z-index: 90;
+  max-width: 340px;
+  background: var(--md-bg);
+  border: 1px solid var(--md-border);
+  border-radius: 10px;
+  box-shadow: var(--md-shadow);
+  padding: 10px 14px;
+  pointer-events: none;
+  animation: modal-in 0.12s ease;
+}
+
+.link-preview-title {
+  font-weight: 650;
+  font-size: 13px;
+  color: var(--md-fg);
+  margin-bottom: 4px;
+}
+
+.link-preview-body {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--md-fg-dim);
+  max-height: 120px;
+  overflow: hidden;
+}
+
 /* 이미지 확대 뷰어 */
 
 .imgviewer {

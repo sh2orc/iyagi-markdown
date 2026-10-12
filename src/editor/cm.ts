@@ -25,6 +25,7 @@ import { mathSyntax } from "./mathSyntax";
 import { wikiAutocompletion } from "./wikiComplete";
 import { frontMatterSyntax } from "./frontmatter";
 import { wikiLinkSyntax } from "./wiki";
+import { previewTextOf, scheduleHideLinkPreview, showLinkPreview } from "./linkPreview";
 import { htmlToMarkdown } from "./htmlPaste";
 import { isInApp } from "../api";
 import { relPath } from "../paths";
@@ -161,6 +162,32 @@ function baseExtensions(): Extension[] {
     // 스마트 붙여넣기 — ① URL을 선택 텍스트 위에 붙이면 링크로(Word/워프류),
     // ② HTML 클립보드(Word·브라우저 복사)는 마크다운으로 변환해 삽입.
     EditorView.domEventHandlers({
+      // 위키링크 호버 미리보기(Obsidian page preview v1) — 350ms 머무르면
+      // 대상 문서 제목·첫 문단 팝오버(마커 정리 텍스트). 문서 읽기는 비동기.
+      mouseover(event) {
+        const el = (event.target as HTMLElement | null)?.closest?.(".md-wikilink");
+        if (el?.isConnected && el.getAttribute("data-wiki-path") && isInApp()) {
+          const path = el.getAttribute("data-wiki-path")!;
+          const x = event.clientX;
+          const y = event.clientY;
+          window.setTimeout(() => {
+            if (!el.isConnected || !el.getAttribute("data-wiki-path")) return;
+            void import("../api").then(async (a) => {
+              try {
+                const doc = await a.api.readDocument(path);
+                const p = previewTextOf(doc.text);
+                showLinkPreview(x, y, p.title, p.body);
+              } catch {
+                /* 열 수 없는 문서 — 조용히 */
+              }
+            });
+          }, 350);
+        }
+      },
+      mouseout(event) {
+        const el = (event.target as HTMLElement | null)?.closest?.(".md-wikilink");
+        if (el) scheduleHideLinkPreview();
+      },
       copy(event, view) {
         // 서식 복사 — 선택한 마크다운을 plain과 HTML로 **같이** 클립보드에 넣는다
         // (Word·메일에 굵게·제목·표가 유지되어 붙는다). setData는 이벤트 동기창에서만
