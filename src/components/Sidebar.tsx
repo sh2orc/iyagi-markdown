@@ -3,7 +3,7 @@
 // 리사이즈 드래그는 React를 거치지 않고 DOM 스타일을 직접 쓴다(프레임마다
 // 조정 렌더가 없음) — 놓을 때만 스토어에 확정 반영.
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 
 import { isInApp, pickOpenFolder, type TreeNode } from "../api";
 import type { AppStore } from "../app/store";
@@ -160,7 +160,16 @@ interface RowProps {
   store: AppStore;
 }
 
-function TreeNodeRow({ node, depth, activePath, collapsed, onToggle, store }: RowProps): JSX.Element {
+/** 트리 행 — memo: 스토어 emit(타이핑 등)마다 App이 다시 그려져도 props가
+ *  같은 행은 재조정을 건너뛴다. 대형 워크스페이스에서 프레임을 지킨다. */
+const TreeNodeRow = memo(function TreeNodeRow({
+  node,
+  depth,
+  activePath,
+  collapsed,
+  onToggle,
+  store,
+}: RowProps): JSX.Element {
   if (node.kind === "dir") {
     const open = !collapsed.has(node.path);
     return (
@@ -199,4 +208,4 @@ function TreeNodeRow({ node, depth, activePath, collapsed, onToggle, store }: Ro
       <span className="tree-name">{node.stem ?? node.name}</span>
     </button>
   );
-}
+});

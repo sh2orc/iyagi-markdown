@@ -108,7 +108,7 @@ export class AppStore {
     tree: [],
     sidebarOpen: true,
     sidebarWidth: 240,
-    tocOpen: false,
+    tocOpen: defaultSessionToc(),
     settings: defaultSettings(),
     theme: "light",
     searchOpen: false,
@@ -871,11 +871,16 @@ function marksAt(
   return marks;
 }
 
+/** 목차 기본 표시 여부 — 세션에 기록이 없으면 연다. */
+export function defaultSessionToc(): boolean {
+  return true;
+}
+
 export function defaultSettings(): Settings {
   return {
     theme: "auto",
     fontSize: 15,
-    lineWidth: 760,
+    lineWidth: 0,
     defaultMode: "edit",
     remoteImages: true,
     language: "auto",

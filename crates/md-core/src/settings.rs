@@ -61,7 +61,7 @@ fn default_font_size() -> f64 {
     15.0
 }
 fn default_line_width() -> f64 {
-    760.0
+    0.0 // 0 = 폭 제한 없음(창 가득) — Word 문서 관례.
 }
 fn default_true() -> bool {
     true
@@ -133,7 +133,7 @@ mod tests {
         let s = Settings::default();
         assert_eq!(s.theme, ThemeSetting::Auto);
         assert_eq!(s.font_size, 15.0);
-        assert_eq!(s.line_width, 760.0);
+        assert_eq!(s.line_width, 0.0);
         assert_eq!(s.default_mode, ViewMode::Edit);
         assert!(s.remote_images);
         assert_eq!(s.language, LangSetting::Auto);

@@ -60,7 +60,7 @@ fn default_sidebar_width() -> f64 {
     240.0
 }
 fn default_toc_open() -> bool {
-    false
+    true // 문서를 열면 목차가 보이는 게 Word 문서 앱 관례.
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
