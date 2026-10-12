@@ -160,6 +160,13 @@ export const api = {
   scanWorkspace: (root: string) => invoke<TreeNode[]>("scan_workspace", { root }),
   searchWorkspace: (root: string, query: string) =>
     invoke<SearchHit[]>("search_workspace", { root, query }),
+  replaceWorkspace: (root: string, needle: string, replacement: string, caseSensitive: boolean) =>
+    invoke<Array<{ path: string; count: number }>>("replace_workspace", {
+      root,
+      needle,
+      replacement,
+      caseSensitive,
+    }),
   snapshotList: (path: string) => invoke<SnapshotInfo[]>("snapshot_list", { path }),
   snapshotRead: (path: string, ts: number) => invoke<string>("snapshot_read", { path, ts }),
   getSettings: () => invoke<Settings>("get_settings"),

@@ -197,3 +197,129 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
     }
 }
+
+/// 작업 폴더 전체 찾아바꾸기 결과 — 파일별 교체 수.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceOutcome {
+    pub path: String,
+    pub count: usize,
+}
+
+/// 루트 아래 모든 .md에서 needle → replacement(대소문자 구분 없음 옵션).
+/// 각 파일은 md_core::io::write_doc_atomic 경로로 **원자적 저장**된다 —
+/// 문서 메타(BOM/CRLF)는 그대로 보존되고, 실패한 파일은 건너뛰고 계속한다.
+pub fn replace_all_tree(
+    root: &Path,
+    needle: &str,
+    replacement: &str,
+    case_sensitive: bool,
+) -> std::io::Result<Vec<ReplaceOutcome>> {
+    let mut out = Vec::new();
+    if needle.is_empty() {
+        return Ok(out);
+    }
+    let mut files = Vec::new();
+    collect_files(root, 0, 12, &mut files);
+    for path in files {
+        let Ok(original) = std::fs::read(&path) else { continue };
+        let Ok(doc) = crate::io::decode_doc(original, &path) else { continue };
+        let (hay, matched): (String, bool) = if case_sensitive {
+            (doc.text.clone(), doc.text.contains(needle))
+        } else {
+            // 대소문자 무시 교체 — 소문자 비교 후 원본 슬라이스 재조립.
+            (doc.text.clone(), doc.text.to_lowercase().contains(&needle.to_lowercase()))
+        };
+        if !matched {
+            continue;
+        }
+        let replaced = if case_sensitive {
+            doc.text.replace(needle, replacement)
+        } else {
+            case_insensitive_replace(&doc.text, needle, replacement)
+        };
+        if replaced != doc.text {
+            crate::io::write_doc_atomic(&path, &replaced, doc.meta).map_err(std::io::Error::other)?;
+            let count = count_replacements(&hay, needle, case_sensitive);
+            out.push(ReplaceOutcome { path: path.to_string_lossy().into_owned(), count });
+        }
+    }
+    Ok(out)
+}
+
+fn case_insensitive_replace(hay: &str, needle: &str, replacement: &str) -> String {
+    let hay_l = hay.to_lowercase();
+    let needle_l = needle.to_lowercase();
+    let mut out = String::with_capacity(hay.len());
+    let mut prev = 0usize;
+    while let Some(idx) = hay_l[prev..].find(&needle_l) {
+        let at = prev + idx;
+        out.push_str(&hay[prev..at]);
+        out.push_str(replacement);
+        prev = at + needle.chars().count().max(1);
+    }
+    out.push_str(&hay[prev.min(hay.len())..]);
+    out
+}
+
+fn count_replacements(hay: &str, needle: &str, case_sensitive: bool) -> usize {
+    if case_sensitive {
+        hay.matches(needle).count()
+    } else {
+        let hay_l = hay.to_lowercase();
+        let needle_l = needle.to_lowercase();
+        let mut n = 0;
+        let mut at = 0usize;
+        while let Some(idx) = hay_l[at..].find(&needle_l) {
+            n += 1;
+            at += idx + needle_l.len();
+        }
+        n
+    }
+}
+
+#[cfg(test)]
+mod replace_tests {
+    use super::*;
+    use std::fs;
+
+    fn tempdir(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("md-core-repl-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn replaces_across_files_atomically() {
+        let d = tempdir("basic");
+        fs::write(d.join("a.md"), "foo 와 bar\n").unwrap();
+        fs::write(d.join("b.md"), "없음\n").unwrap();
+        fs::write(d.join("c.MARKDOWN"), "foo foo\n").unwrap();
+        let out = replace_all_tree(&d, "foo", "BAZ", true).unwrap();
+        assert_eq!(out.len(), 2); // b.md는 매치 없음
+        assert_eq!(fs::read_to_string(d.join("a.md")).unwrap(), "BAZ 와 bar\n");
+        assert_eq!(fs::read_to_string(d.join("c.MARKDOWN")).unwrap(), "BAZ BAZ\n");
+        assert_eq!(out[0].count, 1);
+        assert_eq!(out[1].count, 2);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn case_insensitive_preserves_surroundings() {
+        let d = tempdir("case");
+        fs::write(d.join("a.md"), "Hello hello HELLO\n").unwrap();
+        replace_all_tree(&d, "hello", "안녕", false).unwrap();
+        assert_eq!(fs::read_to_string(d.join("a.md")).unwrap(), "안녕 안녕 안녕\n");
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn crlf_and_bom_survive_replace() {
+        let d = tempdir("meta");
+        fs::write(d.join("a.md"), b"\xEF\xBB\xBFfoo\r\nbar\r\n").unwrap();
+        replace_all_tree(&d, "foo", "x", true).unwrap();
+        assert_eq!(fs::read(d.join("a.md")).unwrap(), b"\xEF\xBB\xBFx\r\nbar\r\n");
+        let _ = fs::remove_dir_all(&d);
+    }
+}

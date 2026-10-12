@@ -399,6 +399,10 @@ const enF = {
   hourAgo: (n: number) => `${n} h ago`,
   dayAgo: (n: number) => `${n} d ago`,
   wsTruncated: (n: number) => `Showing first ${n.toLocaleString()} — narrow your search`,
+  wsReplaceConfirm: (n: number) =>
+    `Replace in all workspace files? ${n.toLocaleString()} match(es) will be changed (⌘Z per file).`,
+  wsReplaceDone: (files: number, count: number) =>
+    `Replaced ${count.toLocaleString()} in ${files.toLocaleString()} file(s).`,
 };
 const koF = {
   findCount: (n: number, total: number) => `${total}개 중 ${n}`,
@@ -411,6 +415,10 @@ const koF = {
   hourAgo: (n: number) => `${n}시간 전`,
   dayAgo: (n: number) => `${n}일 전`,
   wsTruncated: (n: number) => `앞 ${n.toLocaleString()}개만 표시 — 검색어를 좁혀보세요`,
+  wsReplaceConfirm: (n: number) =>
+    `작업 폴더 전체에서 바꿉니다? ${n.toLocaleString()}건이 변경됩니다(파일별 ⌘Z로 되돌리기 가능).`,
+  wsReplaceDone: (files: number, count: number) =>
+    `${files.toLocaleString()}개 파일에서 ${count.toLocaleString()}건을 바꿨습니다.`,
 };
 
 const dicts: Record<Lang, Dict> = { en, ko };

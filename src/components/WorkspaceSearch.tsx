@@ -120,6 +120,28 @@ export function WorkspaceSearch({ store, t, onClose, onOpenHit }: Props): JSX.El
   };
 
   const noWorkspace = !store.state.workspace;
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  const [replacement, setReplacement] = useState("");
+  const [caseSensitive, setCaseSensitive] = useState(false);
+
+  const totalMatches = results?.groups.reduce((n, g) => n + g.hits.length, 0) ?? 0;
+
+  const replaceAll = async () => {
+    const root = store.state.workspace;
+    if (!root || !query.trim()) return;
+    const ok = window.confirm(t.f.wsReplaceConfirm(totalMatches));
+    if (!ok) return;
+    try {
+      const outcomes = await api.replaceWorkspace(root, query.trim(), replacement, caseSensitive);
+      const files = outcomes.length;
+      const count = outcomes.reduce((n, o) => n + o.count, 0);
+      store.toast(t.f.wsReplaceDone(files, count));
+      setResults(null); // 재검색 유도
+      setQuery("");
+    } catch (e) {
+      store.toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  };
 
   return (
     <div className="overlay palette-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -147,6 +169,47 @@ export function WorkspaceSearch({ store, t, onClose, onOpenHit }: Props): JSX.El
             }
           }}
         />
+        <button
+          className="search-toggle wssearch-replace-toggle"
+          title={t.replacePlaceholder}
+          onClick={() => setReplaceOpen(!replaceOpen)}
+        >
+          ⇄
+        </button>
+        {replaceOpen && (
+          <div className="searchbar-row wssearch-replace">
+            <input
+              className="search-input"
+              placeholder={t.replacePlaceholder}
+              value={replacement}
+              onChange={(e) => setReplacement(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void replaceAll();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setReplaceOpen(false);
+                }
+              }}
+            />
+            <button
+              className={`search-toggle ${caseSensitive ? "is-on" : ""}`}
+              title={t.findCaseSensitive}
+              onClick={() => setCaseSensitive(!caseSensitive)}
+            >
+              Aa
+            </button>
+            <button
+              className="search-toggle"
+              disabled={!query.trim() || totalMatches === 0}
+              title={`${t.findReplaceAll} (${totalMatches})`}
+              onClick={() => void replaceAll()}
+            >
+              {t.findReplaceAll}{totalMatches > 0 ? ` (${totalMatches})` : ""}
+            </button>
+          </div>
+        )}
         <div className="palette-list" ref={listRef}>
           {results === null && <div className="palette-empty">{t.wsSearchHint}</div>}
           {results !== null && results.groups.length === 0 && query.trim() && (

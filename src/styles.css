@@ -1913,3 +1913,16 @@ body.resizing .toc {
 .diff-add { background: rgba(26, 127, 55, 0.12); color: var(--md-fg); }
 .diff-del { background: rgba(209, 36, 47, 0.10); color: var(--md-fg); text-decoration: line-through; text-decoration-color: rgba(209, 36, 47, 0.4); }
 .diff-gutter { display: inline-block; width: 1.2em; color: var(--md-fg-dim); user-select: none; }
+
+/* 워크스페이스 검색 — 바꾸기 행 */
+
+.wssearch-replace {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--md-border);
+}
+
+.wssearch-replace-toggle {
+  position: absolute;
+  right: 10px;
+  top: 9px;
+}

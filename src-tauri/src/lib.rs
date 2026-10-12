@@ -61,6 +61,7 @@ pub fn run() {
             commands::search_workspace,
             commands::snapshot_list,
             commands::snapshot_read,
+            commands::replace_workspace,
             commands::get_settings,
             commands::set_settings,
             commands::get_session,

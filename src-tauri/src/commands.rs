@@ -397,6 +397,27 @@ fn urlencode(s: &str) -> String {
     out
 }
 
+/// 작업 폴더 전체 찾아바꾸기 — 각 파일 원자적 저장(§4-2). 결과는 파일별 교체 수.
+#[tauri::command]
+pub async fn replace_workspace(
+    root: String,
+    needle: String,
+    replacement: String,
+    case_sensitive: bool,
+) -> Result<Vec<md_core::search::ReplaceOutcome>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        md_core::search::replace_all_tree(
+            std::path::Path::new(&root),
+            &needle,
+            &replacement,
+            case_sensitive,
+        )
+        .map_err(err)
+    })
+    .await
+    .map_err(err)?
+}
+
 /// 클립보드 이미지 → 파일로 저장(스크린샷 붙여넣기). 문서 폴더 assets/ 하위에
 /// PNG로 기록하고 절대 경로를 돌려준다. 원문에는 표준 이미지 참조만 삽입된다
 /// (프런트) — 저장 경로 외에는 아무 것도 기록하지 않는다.
