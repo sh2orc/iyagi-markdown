@@ -315,3 +315,32 @@ describe("읽는 중 표시", () => {
     }
   });
 });
+
+describe("외부 변경(수동 QA 항목 자동화)", () => {
+  it("깨끗한 탭은 자동 다시 읽기·더티 탭은 충돌 표시", async () => {
+    const store = new AppStore(fakeIo());
+    const view = mount(store);
+    await openTab(store, "/tmp/ext.md");
+    const t = store.active!;
+
+    // 1) 더티 아님 → 내용 교체·커서 보존·충돌 없음.
+    view.dispatch({ selection: { anchor: 5 } });
+    store.syncActiveState();
+    store.externalChange("/tmp/ext.md", "changed");
+    expect(t.conflict).toBeNull();
+    expect(t.dirty).toBe(false);
+
+    // 2) 더티 → 충돌 플래그, 내용 유지.
+    view.dispatch({ changes: { from: 0, insert: "수정 " } });
+    await nextFrame();
+    expect(t.dirty).toBe(true);
+    const before = t.state.doc.toString();
+    store.externalChange("/tmp/ext.md", "changed");
+    expect(t.conflict).toBe("conflict");
+    expect(t.state.doc.toString()).toBe(before);
+
+    // 3) 제거 → removed 표시.
+    store.externalChange("/tmp/ext.md", "removed");
+    expect(t.conflict).toBe("removed");
+  });
+});

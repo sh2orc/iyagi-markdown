@@ -80,6 +80,9 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
       <button className="mtb-btn" title={t.tbStrike} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleStrikethrough)}>
         <s>S</s>
       </button>
+      <button className="mtb-btn" title={`${t.tbHighlight} (⇧⌘H)`} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleHighlight)}>
+        <span className="tb-mark">▤</span>
+      </button>
       <button className="mtb-btn" title={t.tbCode} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleInlineCode)}>
         <span className="tb-mono">{"</>"}</span>
       </button>
@@ -89,6 +92,12 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
       <span className="mtb-sep" />
       <button className="mtb-btn" title={t.tbBullet} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleBulletList)}>
         •—
+      </button>
+      <button className="mtb-btn" title={`${t.tbHeading} 1`} onMouseDown={(e) => e.preventDefault()} onClick={() => run((v) => fmt.toggleHeading(v, 1))}>
+        <b>H1</b>
+      </button>
+      <button className="mtb-btn" title={`${t.tbHeading} 2`} onMouseDown={(e) => e.preventDefault()} onClick={() => run((v) => fmt.toggleHeading(v, 2))}>
+        <b>H2</b>
       </button>
       <button className="mtb-btn" title={t.tbQuote} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleQuote)}>
         ❝

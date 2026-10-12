@@ -909,6 +909,13 @@ export class AppStore {
 
   /** 활성 문서 스타일 변경 — 즉시 적용 + SQLite 저장(원문 불변).
    *  디스크 저장은 디바운스 — 슬라이더를 끌 때 매 틱마다 쓰지 않는다. */
+  /** 문단 정렬(Word ⌘L/E/R/J) — 문서 스타일 사이드카에만. */
+  setAlign(align: DocStyle["textAlign"]): void {
+    const tab = this.active;
+    if (!tab) return;
+    this.setDocStyle({ ...(tab.docStyle ?? DEFAULT_DOC_STYLE_T), textAlign: align });
+  }
+
   setDocStyle(style: DocStyle): void {
     const tab = this.active;
     if (!tab) return;
