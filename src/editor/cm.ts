@@ -25,7 +25,22 @@ import { mathSyntax } from "./mathSyntax";
 import { wikiAutocompletion } from "./wikiComplete";
 import { frontMatterSyntax } from "./frontmatter";
 import { wikiLinkSyntax } from "./wiki";
-import { previewTextOf, scheduleHideLinkPreview, showLinkPreview } from "./linkPreview";
+import {
+  cachedLinkPreview,
+  previewTextOf,
+  rememberLinkPreview,
+  scheduleHideLinkPreview,
+  showLinkPreview,
+} from "./linkPreview";
+
+/** 위키 호버 머무름 타이머 — mouseout에서 취소(지나갈 때 팝오버 방지). */
+let wikiHoverTimer: number | null = null;
+function clearWikiHoverTimer(): void {
+  if (wikiHoverTimer !== null) {
+    window.clearTimeout(wikiHoverTimer);
+    wikiHoverTimer = null;
+  }
+}
 import { htmlToMarkdown } from "./htmlPaste";
 import { isInApp } from "../api";
 import { relPath } from "../paths";
@@ -166,16 +181,26 @@ function baseExtensions(): Extension[] {
       // 대상 문서 제목·첫 문단 팝오버(마커 정리 텍스트). 문서 읽기는 비동기.
       mouseover(event) {
         const el = (event.target as HTMLElement | null)?.closest?.(".md-wikilink");
+        clearWikiHoverTimer();
         if (el?.isConnected && el.getAttribute("data-wiki-path") && isInApp()) {
           const path = el.getAttribute("data-wiki-path")!;
           const x = event.clientX;
           const y = event.clientY;
-          window.setTimeout(() => {
-            if (!el.isConnected || !el.getAttribute("data-wiki-path")) return;
+          // 350ms 머무름 — 그 전에 떠나면 취소(지나가던 길에 팝오버가 튀는
+          // 것 방지). 캐시 히트는 읽기 없이 즉시.
+          wikiHoverTimer = window.setTimeout(() => {
+            wikiHoverTimer = null;
+            if (!el.isConnected) return;
+            const cached = cachedLinkPreview(path);
+            if (cached) {
+              showLinkPreview(x, y, cached.title, cached.body);
+              return;
+            }
             void import("../api").then(async (a) => {
               try {
                 const doc = await a.api.readDocument(path);
                 const p = previewTextOf(doc.text);
+                rememberLinkPreview(path, p);
                 showLinkPreview(x, y, p.title, p.body);
               } catch {
                 /* 열 수 없는 문서 — 조용히 */
@@ -186,7 +211,10 @@ function baseExtensions(): Extension[] {
       },
       mouseout(event) {
         const el = (event.target as HTMLElement | null)?.closest?.(".md-wikilink");
-        if (el) scheduleHideLinkPreview();
+        if (el) {
+          clearWikiHoverTimer();
+          scheduleHideLinkPreview();
+        }
       },
       copy(event, view) {
         // 서식 복사 — 선택한 마크다운을 plain과 HTML로 **같이** 클립보드에 넣는다

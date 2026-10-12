@@ -20,6 +20,7 @@ import {
 import { AppStore, resolveTheme, type ExportKind, type Tab } from "./app/store";
 import { replaceDoc, setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
 import { setPhrases } from "./app/phrases";
+import { invalidateLinkPreviews } from "./editor/linkPreview";
 import { stripFrontMatter } from "./editor/frontmatter";
 import { EPUB_CSS, epubChapterInputs, splitEpubChapters } from "./export/epub";
 import { relPath } from "./paths";
@@ -585,7 +586,12 @@ export function App(): JSX.Element {
     };
 
     keep(onMenu((id) => handleMenu(id)));
-    keep(onFsEvent((e) => store.externalChange(e.path, e.kind)));
+    keep(
+      onFsEvent((e) => {
+        store.externalChange(e.path, e.kind);
+        invalidateLinkPreviews(e.path); // 호버 미리보기 캐시도 함께 무효화
+      }),
+    );
     keep(onOpenFiles(async (paths) => {
       for (const p of paths) await store.openPath(p);
     }));

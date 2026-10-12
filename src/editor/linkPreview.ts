@@ -58,6 +58,36 @@ export function cleanMarkers(text: string): string {
     .trim();
 }
 
+// — 캐시(재호버 즉시) —
+
+const previewCache = new Map<string, { title: string; body: string }>();
+const PREVIEW_CACHE_MAX = 30;
+
+/** 캐시 조회(LRU 갱신). 없으면 null. */
+export function cachedLinkPreview(path: string): { title: string; body: string } | null {
+  const hit = previewCache.get(path);
+  if (hit) {
+    previewCache.delete(path);
+    previewCache.set(path, hit);
+  }
+  return hit ?? null;
+}
+
+export function rememberLinkPreview(path: string, p: { title: string; body: string }): void {
+  previewCache.set(path, p);
+  while (previewCache.size > PREVIEW_CACHE_MAX) {
+    const oldest = previewCache.keys().next().value;
+    if (oldest === undefined) break;
+    previewCache.delete(oldest);
+  }
+}
+
+/** 무효화 — fs 이벤트(변경·삭제)에서 path별/전체. */
+export function invalidateLinkPreviews(path?: string): void {
+  if (path === undefined) previewCache.clear();
+  else previewCache.delete(path);
+}
+
 /** 팝오버 — 하나만 유지, 마우스 근처에. */
 let popover: HTMLDivElement | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;

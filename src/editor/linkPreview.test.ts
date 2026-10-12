@@ -4,7 +4,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { cleanMarkers, previewTextOf } from "./linkPreview";
+import {
+  cachedLinkPreview,
+  cleanMarkers,
+  invalidateLinkPreviews,
+  previewTextOf,
+  rememberLinkPreview,
+} from "./linkPreview";
 
 const DOC = `---
 title: 메타
@@ -52,5 +58,21 @@ describe("cleanMarkers", () => {
     );
     expect(cleanMarkers("> 인용 줄")).toBe("인용 줄");
     expect(cleanMarkers("- 항목")).toBe("• 항목");
+  });
+});
+
+describe("미리보기 캐시", () => {
+  it("LRU — 재조회로 갱신, 최대 30에서 가장 오래된 것 제거, 무효화", () => {
+    rememberLinkPreview("/a", { title: "A", body: "a" });
+    rememberLinkPreview("/b", { title: "B", body: "b" });
+    expect(cachedLinkPreview("/a")?.title).toBe("A"); // LRU 순서 갱신
+    for (let i = 0; i < 29; i++) rememberLinkPreview(`/x${i}`, { title: `X${i}`, body: "" });
+    expect(cachedLinkPreview("/b")).toBeNull(); // 갱신 안 한 b가 밀려남
+    expect(cachedLinkPreview("/a")?.title).toBe("A"); // a는 살아남
+    invalidateLinkPreviews("/a");
+    expect(cachedLinkPreview("/a")).toBeNull();
+    rememberLinkPreview("/z", { title: "Z", body: "" });
+    invalidateLinkPreviews();
+    expect(cachedLinkPreview("/z")).toBeNull();
   });
 });
