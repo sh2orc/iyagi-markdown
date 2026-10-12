@@ -37,6 +37,7 @@ const GROUPS = (t: Translate): Array<{ title: string; items: [string, string][] 
     title: t.scFormat,
     items: [
       ["⌘B", t.tbBold],
+      ["⌥⌘C / ⌥⌘V", t.formatPainterHelp],
       ["⌘I", t.tbItalic],
       ["⇧⌘X", t.tbStrike],
       ["⌘⇧C", t.tbCode],
