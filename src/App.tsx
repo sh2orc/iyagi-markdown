@@ -1025,6 +1025,7 @@ export function App(): JSX.Element {
           onCreate={(name) => {
             const root = store.state.workspace;
             if (!root) return;
+            setBrokenOpen(false); // 생성 후 패널 닫기 — 목록이 스테일해진다
             void store.createNote(`${root}/${name}.md`).then((ok) => {
               if (ok) store.toast(t.brokenCreated);
             });
