@@ -46,6 +46,7 @@ import { StylePanel } from "./components/StylePanel";
 import { PrintPreview } from "./components/PrintPreview";
 import { ShortcutsPanel } from "./components/ShortcutsPanel";
 import { StatsPanel } from "./components/StatsPanel";
+import { SymbolPanel } from "./components/SymbolPanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { VersionsPanel } from "./components/VersionsPanel";
 import { BacklinksPanel } from "./components/BacklinksPanel";
@@ -130,6 +131,7 @@ export function App(): JSX.Element {
   const [diffOpen, setDiffOpen] = useState(false);
   const [exportPageNumbers, setExportPageNumbers] = useState(true);
   const [exportHeader, setExportHeader] = useState(true);
+  const [symbolOpen, setSymbolOpen] = useState(false);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -587,6 +589,9 @@ export function App(): JSX.Element {
         case "save-as":
           void saveAs();
           break;
+        case "insert-symbols":
+          setSymbolOpen(true);
+          break;
         case "print":
           setPrintOpen(true);
           break;
@@ -972,6 +977,7 @@ export function App(): JSX.Element {
           onClose={() => setPaletteOpen(false)}
           onOpenShortcuts={() => setShortcutsOpen(true)}
           onOpenStats={() => setStatsOpen(true)}
+          onOpenSymbols={() => setSymbolOpen(true)}
           onOpenStyle={() => setStyleOpen(true)}
           onOpenPrint={() => setPrintOpen(true)}
           onOpenExport={(kind) => store.setExportKind(kind)}
@@ -1046,6 +1052,23 @@ export function App(): JSX.Element {
       )}
       {shortcutsOpen && <ShortcutsPanel t={t} onClose={() => setShortcutsOpen(false)} />}
       {statsOpen && <StatsPanel store={store} t={t} onClose={() => setStatsOpen(false)} />}
+      {symbolOpen && (
+        <SymbolPanel
+          t={t}
+          onClose={() => setSymbolOpen(false)}
+          onInsert={(ch) => {
+            const view = editorView.current;
+            if (!view) return;
+            const sel = view.state.selection.main;
+            view.dispatch({
+              changes: { from: sel.from, to: sel.to, insert: ch },
+              selection: { anchor: sel.from + ch.length },
+              userEvent: "input.type",
+            });
+            view.focus(); // 연속 삽입 — 패널은 유지(Word 기호 워크플로)
+          }}
+        />
+      )}
       {printOpen && (
         <PrintPreview
           store={store}
