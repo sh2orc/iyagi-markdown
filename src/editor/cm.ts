@@ -187,10 +187,11 @@ function baseExtensions(): Extension[] {
             void import("../api").then(async (a) => {
               try {
                 const abs = await a.api.saveClipboardImage(baseDir);
+                // relPath는 이미 assets/를 포함한다 — 다시 붙이면 이중 경로가 된다.
                 const rel = relPath(baseDir, abs);
                 const sel = view.state.selection.main;
                 view.dispatch({
-                  changes: { from: sel.from, to: sel.to, insert: `![](assets/${rel})\n` },
+                  changes: { from: sel.from, to: sel.to, insert: `![](${rel})\n` },
                   selection: { anchor: sel.from + 4 },
                   userEvent: "input.pasteImage",
                 });

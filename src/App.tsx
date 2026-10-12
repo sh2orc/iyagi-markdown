@@ -20,6 +20,7 @@ import {
 import { AppStore, resolveTheme, type ExportKind, type Tab } from "./app/store";
 import { replaceDoc, setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
 import { stripFrontMatter } from "./editor/frontmatter";
+import { relPath } from "./paths";
 import { resolveWikiLink, wikiLinksToMarkdown } from "./editor/wiki";
 import { collectHeadings, resolveLink } from "./links";
 import { makeT, type Lang } from "./i18n";
@@ -35,6 +36,7 @@ import { MiniToolbar } from "./components/MiniToolbar";
 import { ContextMenu } from "./components/ContextMenu";
 import { setImageResizeHandler, setImageViewerHandler, setTableHeaderClickHandler } from "./editor/widgets";
 import { setTableWidthsSaveHandler } from "./editor/livePreview";
+import { setTagClickHandler } from "./editor/cm";
 import { setWikiDocsProvider, type WikiDoc } from "./editor/wikiComplete";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { StylePanel } from "./components/StylePanel";
@@ -109,6 +111,7 @@ export function App(): JSX.Element {
   const [statsOpen, setStatsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [wsSearchOpen, setWsSearchOpen] = useState(false);
+  const [wsSearchQuery, setWsSearchQuery] = useState("");
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [backlinksOpen, setBacklinksOpen] = useState(false);
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
@@ -230,6 +233,10 @@ export function App(): JSX.Element {
     setImageResizeHandler((src, pct) => store.setImageWidth(src, pct));
     setImageViewerHandler((src, alt) => setViewer({ src, alt }));
     setTableWidthsSaveHandler((lineNo, widths) => store.setTableWidths(lineNo, widths));
+    setTagClickHandler((tag) => {
+      setWsSearchQuery(tag);
+      setWsSearchOpen(true);
+    });
     setTableHeaderClickHandler((col, reset) => {
       const view = store.view;
       const tab = store.active;
@@ -274,6 +281,7 @@ export function App(): JSX.Element {
       setImageViewerHandler(null);
       setTableHeaderClickHandler(null);
       setTableWidthsSaveHandler(null);
+      setTagClickHandler(null);
     };
   }, [store]);
 
@@ -574,8 +582,13 @@ export function App(): JSX.Element {
     if (isInApp()) {
       void import("@tauri-apps/api/event").then(async (ev) => {
         const u = await ev.listen<{ paths: string[] }>("tauri://drag-drop", (e) => {
-          const paths = e.payload.paths.filter((p) => /\.(md|markdown)$/i.test(p));
-          for (const p of paths) void store.openPath(p);
+          const paths = e.payload.paths;
+          for (const p of paths.filter((x) => /\.(md|markdown)$/i.test(x))) {
+            void store.openPath(p);
+          }
+          // 이미지 드롭 — 문서 폴더 assets/ 로 복사해 커서에 삽입(Typora 방식).
+          const imgs = paths.filter((x) => /\.(png|jpe?g|gif|webp|svg|bmp|heic)$/i.test(x));
+          if (imgs.length > 0) void importDroppedImages(imgs);
         });
         if (!disposed) unlistens.push(u);
       });
@@ -677,6 +690,35 @@ export function App(): JSX.Element {
       }
     },
     [],
+  );
+
+  /** 드롭된 이미지들을 assets/ 로 복사해 커서에 참조 삽입(여러 장 연속). */
+  const importDroppedImages = useCallback(
+    async (imgs: string[]) => {
+      const tab = store.active;
+      const dir = tab?.path ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/" : store.state.workspace;
+      if (!tab || !dir) {
+        store.toast(t.imgDropNoDoc, "error");
+        return;
+      }
+      for (const src of imgs) {
+        try {
+          const abs = await api.importImage(src, dir);
+          const rel = relPath(dir, abs);
+          const view = editorView.current;
+          if (!view) return;
+          const sel = view.state.selection.main;
+          view.dispatch({
+            changes: { from: sel.from, to: sel.to, insert: `![](${rel})\n` },
+            selection: { anchor: sel.from + 4 },
+            userEvent: "input.dropImage",
+          });
+        } catch (e) {
+          store.toast(e instanceof Error ? e.message : String(e), "error");
+        }
+      }
+    },
+    [store, t],
   );
 
   // — 전체 검색 결과 열기: 문서를 열고(활성 탭이면 전환만) 커서를 해당 줄에.
@@ -799,6 +841,7 @@ export function App(): JSX.Element {
           t={t}
           onClose={() => setWsSearchOpen(false)}
           onOpenHit={revealInPath}
+          initialQuery={wsSearchQuery}
         />
       )}
       {backlinksOpen && (

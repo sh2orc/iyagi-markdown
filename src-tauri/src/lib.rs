@@ -62,6 +62,7 @@ pub fn run() {
             commands::snapshot_list,
             commands::snapshot_read,
             commands::backlinks,
+            commands::import_image,
             commands::replace_workspace,
             commands::get_settings,
             commands::set_settings,

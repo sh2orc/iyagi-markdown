@@ -474,6 +474,44 @@ pub fn save_clipboard_image(dir: String) -> Result<String, String> {
     Ok(out.to_string_lossy().into_owned())
 }
 
+/// 드래그 앤 드롭 이미지 — 문서 폴더 assets/ 로 복사해 삽입 참조를 돌려준다
+/// (붙여넣기 이미지와 같은 규약). 원본은 건드리지 않고 복사만.
+#[tauri::command]
+pub async fn import_image(src: String, dir: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let ext = std::path::Path::new(&src)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_default();
+        const OK: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "heic"];
+        if !OK.contains(&ext.as_str()) {
+            return Err(format!("지원하지 않는 이미지 형식: .{ext}"));
+        }
+        let bytes = std::fs::read(&src).map_err(err)?;
+        if bytes.is_empty() {
+            return Err("이미지 파일이 비었습니다".into());
+        }
+        let dir_path = std::path::Path::new(&dir).join("assets");
+        std::fs::create_dir_all(&dir_path).map_err(err)?;
+        let stem = std::path::Path::new(&src)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(|s| s.chars().filter(|c| c.is_alphanumeric() || *c == '-').take(40).collect::<String>())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "image".into());
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let out = dir_path.join(format!("{stem}-{ts}.{ext}"));
+        md_core::io::write_bytes_atomic(&out, &bytes).map_err(err)?;
+        Ok(out.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // — 시스템 연동 —
 
 #[tauri::command]
