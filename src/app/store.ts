@@ -115,6 +115,8 @@ export class AppStore {
   };
 
   view: EditorView | null = null;
+  /** UI 문구 주입(App이 설치) — 스토어는 i18n 모듈을 몰라도 된다. */
+  phrases: { bigDocSource: string } | null = null;
   private listeners = new Set<() => void>();
   private io: StoreIO;
   private sessionSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -134,6 +136,24 @@ export class AppStore {
 
   getSnapshot = (): AppStoreState => this.state;
 
+  /** 창 제목 갱신 — "파일명" / "파일명 — 수정됨" / 앱 이름(Word 방식). */
+  private updateWindowTitle(): void {
+    void (async () => {
+      if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return;
+      try {
+        const w = await import("@tauri-apps/api/window").then((m) => m.getCurrentWindow());
+        const tab = this.active;
+        if (!tab || !tab.path) {
+          void w.setTitle("IYAGI Markdown");
+          return;
+        }
+        void w.setTitle(tab.dirty ? `${tab.title} — ✕` : tab.title);
+      } catch {
+        /* 제목은 부가 기능 */
+      }
+    })();
+  }
+
   private emit() {
     if (this.emitRaf) {
       // 예약된 rAF emit을 즉시 emit으로 흡수한다(중복 렌더 방지).
@@ -141,6 +161,7 @@ export class AppStore {
       this.emitRaf = 0;
     }
     this.state = { ...this.state };
+    this.updateWindowTitle();
     for (const fn of this.listeners) fn();
   }
 
@@ -178,7 +199,10 @@ export class AppStore {
       this.toast(e instanceof Error ? e.message : String(e), "error");
       return;
     }
-    const tabMode = mode ?? this.state.settings.defaultMode;
+    // §7: 임계(1MB) 초과 문서는 장식 비용이 커진다 — 소스 모드로 열고 알린다.
+    const LARGE_DOC = 1_000_000;
+    const forced = doc.text.length > LARGE_DOC && !mode ? ("source" as const) : null;
+    const tabMode: ViewMode = mode ?? forced ?? this.state.settings.defaultMode;
     const tab: Tab = {
       id: `t${nextTabId++}`,
       path,
@@ -212,6 +236,9 @@ export class AppStore {
           }
         }
       });
+    }
+    if (forced) {
+      this.toast(this.phrases?.bigDocSource ?? "Large document — opened in source mode for responsiveness.", "info");
     }
     this.activate(tab.id);
     this.emit();
@@ -607,19 +634,46 @@ export class AppStore {
     this.state.sidebarWidth = session.sidebarWidth ?? 240;
     this.state.tocOpen = session.tocOpen;
     if (session.workspace) await this.openWorkspace(session.workspace);
-    for (const t of session.tabs) {
-      if (!t.path) continue;
-      try {
-        await this.openPath(t.path, t.mode);
-        const tab = this.state.tabs.find((x) => x.path === t.path);
-        if (tab) {
-          const sel = Math.min(t.cursor, tab.state.doc.length);
-          tab.state = tab.state.update({ selection: { anchor: sel } }).state;
-          tab.scroll = t.scroll;
+    // 문서 읽기는 병렬로(순차 열기보다 첫 화면이 빨라진다). 탭 순서·활성은 유지.
+    const entries = session.tabs.filter((t) => t.path);
+    const loaded = await Promise.all(
+      entries.map(async (t) => {
+        try {
+          const doc = await this.io.readDocument(t.path!);
+          return { t, doc };
+        } catch {
+          return null; // 없는 파일은 조용히 건너뛴다.
         }
-      } catch {
-        // 없는 파일은 조용히 건너뛴다.
-      }
+      }),
+    );
+    for (const item of loaded) {
+      if (!item) continue;
+      const { t, doc } = item;
+      const tabMode: ViewMode = t.mode;
+      const tab: Tab = {
+        id: `t${nextTabId++}`,
+        path: t.path!,
+        title: baseName(t.path!),
+        state: createDocState(doc.text, tabMode),
+        mode: tabMode,
+        savedText: doc.text,
+        meta: doc.meta,
+        savedMtime: doc.mtime,
+        scroll: t.scroll,
+        cursorLine: 1,
+        cursorCol: 1,
+        conflict: null,
+        docStyle: null,
+        marks: { bold: false, italic: false, strike: false, code: false, link: false },
+        selChars: 0,
+        dirty: false,
+        words: countWords(doc.text),
+        chars: doc.text.length,
+      };
+      this.state.tabs.push(tab);
+      // 커서 복원 — update는 Transaction을 돌려주고 그 .state가 새 상태다.
+      const tr = tab.state.update({ selection: { anchor: Math.min(t.cursor, tab.state.doc.length) } });
+      tab.state = tr.state;
     }
     if (session.active) {
       const tab = this.state.tabs.find((t) => t.path === session.active);

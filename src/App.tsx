@@ -81,6 +81,7 @@ export function App(): JSX.Element {
 
   // — 초기화 —
   useEffect(() => {
+    store.phrases = { bigDocSource: t.bigDocSource };
     let disposed = false;
     initBridge();
     // 앱 셸 첫 페인트가 나왔다 — index.html의 부트 스플래시를 치운다.

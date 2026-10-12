@@ -74,6 +74,10 @@ function prewarmCopyRenderer(): Promise<void> {
 
 let mdItPromise: Promise<void> | null = null;
 
+/** 이 크기까지의 HTML 붙여넣기는 동기 변환(즉시 서식 반영). 넘으면
+ *  plain 선행 삽입 + 비동기 변환 업그레이드로 프레임을 지킨다. */
+const HTML_PASTE_SYNC_MAX = 512_000;
+
 function baseExtensions(): Extension[] {
   return [
     historyField,
@@ -152,6 +156,30 @@ function baseExtensions(): Extension[] {
         }
         const html = event.clipboardData?.getData("text/html") ?? "";
         if (html.trim()) {
+          // 거대 HTML 붙여넣기는 변환에 프레임을 통째로 먹는다 — plain을 먼저
+          // 붙이고(즉시), 변환은 다음 태스크에서 끝나면 그 범위를 마크다운으로
+          // 바꿔치기한다. 그 사이 사용자가 건드렸으면(범위 검증 실패) 그대로 둔다.
+          if (html.length > HTML_PASTE_SYNC_MAX) {
+            event.preventDefault();
+            view.dispatch({
+              changes: { from: sel.from, to: sel.to, insert: text },
+              userEvent: "input.pastePlain",
+            });
+            const from = sel.from;
+            const to = from + text.length;
+            setTimeout(() => {
+              if (!view.dom.isConnected) return;
+              const md = htmlToMarkdown(html);
+              if (!md || md === text) return;
+              if (view.state.doc.sliceString(from, to) === text) {
+                view.dispatch({
+                  changes: { from, to, insert: md },
+                  userEvent: "input.pasteHtmlUpgrade",
+                });
+              }
+            }, 16);
+            return true;
+          }
           const md = htmlToMarkdown(html);
           if (md && md !== text) {
             event.preventDefault();
