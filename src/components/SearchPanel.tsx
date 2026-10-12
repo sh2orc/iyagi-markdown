@@ -212,9 +212,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
             onClick={() => {
               if (!query || !view) return;
               // 실행 전 확인(Word의 바꾸기 확인) — 취소하면 원문 그대로.
-              const ok = window.confirm(
-                `${count}건을 바꿉니다 — 되돌리기(⌘Z)로 복원할 수 있습니다.`,
-              );
+              const ok = window.confirm(t.f.replaceAllConfirm(count));
               if (!ok) return;
               const n = replaceAll(view, { ...query, replacement });
               store.toast(t.f.replaced(n));

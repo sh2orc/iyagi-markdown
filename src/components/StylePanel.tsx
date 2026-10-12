@@ -152,7 +152,7 @@ export function StylePanel({ store, onClose, t }: Props): JSX.Element | null {
             ))}
           </div>
         </label>
-        <p className="modal-hint">스타일은 앱 데이터베이스에 저장됩니다 — .md 원문은 수정되지 않습니다.</p>
+        <p className="modal-hint">{t.styleStoredHint}</p>
         <div className="modal-actions">
           <button className="btn" onClick={reset}>
             {t.styleReset}
