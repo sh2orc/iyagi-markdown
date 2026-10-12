@@ -133,6 +133,7 @@ pub async fn export_epub(
     title: String,
     language: String,
     css: String,
+    cover_path: Option<String>,
     out_path: String,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -144,6 +145,7 @@ pub async fn export_epub(
             author: "IYAGI Markdown".into(),
             language,
             css,
+            cover_path,
             chapters,
         };
         md_export::epub::export_epub(&opts, std::path::Path::new(&out_path))

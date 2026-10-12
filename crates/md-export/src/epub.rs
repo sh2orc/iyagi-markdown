@@ -23,6 +23,8 @@ pub struct EpubOptions {
     pub language: String,
     pub chapters: Vec<EpubChapter>,
     pub css: String,
+    /// 표지 이미지 파일 경로(문서의 첫 이미지를 프런트가 고른다). 없으면 생략.
+    pub cover_path: Option<String>,
 }
 
 fn esc(s: &str) -> String {
@@ -132,6 +134,47 @@ pub fn export_epub(opts: &EpubOptions, out: &Path) -> Result<(), String> {
     );
     let modified = now_iso();
 
+    // 표지 — 문서 첫 이미지. cover-image 속성으로 리더기 표지로 쓰인다.
+    let mut cover_manifest = String::new();
+    let mut cover_spine = String::new();
+    let mut cover_nav_first = String::new();
+    if let Some(cp) = &opts.cover_path {
+        if let Ok(bytes) = std::fs::read(cp) {
+            let ext = std::path::Path::new(cp)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase())
+                .unwrap_or_else(|| "png".into());
+            let media = match ext.as_str() {
+                "jpg" | "jpeg" => "image/jpeg",
+                "gif" => "image/gif",
+                "svg" => "image/svg+xml",
+                "webp" => "image/webp",
+                _ => "image/png",
+            };
+            zip.start_file("OEBPS/cover-image", deflated).map_err(|e| e.to_string())?;
+            zip.write_all(&bytes).map_err(|e| e.to_string())?;
+            cover_manifest = format!(
+                "\n<item id=\"cover-image\" href=\"cover-image\" media-type=\"{media}\" properties=\"cover-image\"/>\
+\n<item id=\"coverpage\" href=\"cover.xhtml\" media-type=\"application/xhtml+xml\"/>"
+            );
+            cover_spine = "<itemref idref=\"coverpage\"/>".to_string();
+            let cover_body = format!(
+                "<div class=\"cover-page\"><img src=\"cover-image\" alt=\"{}\"/></div>",
+                esc(&opts.title)
+            );
+            cover_nav_first = format!(
+                "<li><a href=\"cover.xhtml\">{}</a></li>\n",
+                esc(&opts.title)
+            );
+            add(
+                &mut zip,
+                "OEBPS/cover.xhtml",
+                &xhtml_doc(&opts.title, &opts.language, &cover_body),
+            )?;
+        }
+    }
+
     // nav.xhtml — EPUB3 목차.
     let nav_items: String = opts
         .chapters
@@ -139,6 +182,7 @@ pub fn export_epub(opts: &EpubOptions, out: &Path) -> Result<(), String> {
         .map(|c| format!("<li><a href=\"{}\">{}</a></li>", c.file, esc(&c.title)))
         .collect::<Vec<_>>()
         .join("\n");
+    let nav_items = format!("{cover_nav_first}{nav_items}");
     let nav = xhtml_doc(
         &opts.title,
         &opts.language,
@@ -153,10 +197,10 @@ pub fn export_epub(opts: &EpubOptions, out: &Path) -> Result<(), String> {
     add(&mut zip, "OEBPS/style.css", &opts.css)?;
 
     // content.opf — 메타데이터·매니페스트·스파인.
-    let mut manifest = String::from(
-        "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n<item id=\"css\" href=\"style.css\" media-type=\"text/css\"/>",
-    );
-    let mut spine = String::new();
+    let mut manifest = String::from(&format!(
+        "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n<item id=\"css\" href=\"style.css\" media-type=\"text/css\"/>{cover_manifest}"
+    ));
+    let mut spine = cover_spine;
     for (i, c) in opts.chapters.iter().enumerate() {
         manifest.push_str(&format!(
             "\n<item id=\"ch{}\" href=\"{}\" media-type=\"application/xhtml+xml\"/>",
@@ -203,6 +247,7 @@ mod tests {
             author: "iyagi".into(),
             language: "ko".into(),
             css: "body{font-family:sans-serif}".into(),
+            cover_path: None,
             chapters: vec![
                 EpubChapter {
                     title: "첫 장".into(),
@@ -251,6 +296,42 @@ mod tests {
         assert!(ch1.contains("href=\"style.css\""));
         assert!(ch1.contains("<mark>강조</mark>"));
         let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn cover_image_wires_manifest_and_spine_first() {
+        // 1x1 PNG.
+        let png: Vec<u8> = vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1F, 0x15, 0xC4, 0x89, 0, 0, 0, 0x0A, 0x49,
+            0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0, 1, 0, 0, 5, 0, 1, 0x0D, 0x0A, 0x2D, 0xB4, 0,
+            0, 0, 0, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        let img = std::env::temp_dir().join(format!("md-export-cover-{}.png", std::process::id()));
+        std::fs::write(&img, &png).unwrap();
+        let mut o = opts();
+        o.cover_path = Some(img.to_string_lossy().into_owned());
+        let out = tmp("cover");
+        export_epub(&o, &out).unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let cursor = std::io::Cursor::new(&bytes);
+        let mut zip = zip::ZipArchive::new(cursor).unwrap();
+        // 표지 이미지 엔트리 + cover.xhtml 존재.
+        assert!(zip.by_name("OEBPS/cover-image").is_ok());
+        assert!(zip.by_name("OEBPS/cover.xhtml").is_ok());
+        let opf = read_entry(&out, "OEBPS/content.opf");
+        assert!(opf.contains(r#"properties="cover-image""#));
+        // 스파인에서 표지가 첫 항목.
+        let cpos = opf.find("idref=\"coverpage\"").unwrap();
+        let c1 = opf.find("idref=\"ch1\"").unwrap();
+        assert!(cpos < c1);
+        // nav 첫 항목이 표지.
+        let nav = read_entry(&out, "OEBPS/nav.xhtml");
+        let nav_cover = nav.find("cover.xhtml").unwrap();
+        let nav_ch1 = nav.find("chapter1.xhtml").unwrap();
+        assert!(nav_cover < nav_ch1);
+        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_file(&img);
     }
 
     #[test]

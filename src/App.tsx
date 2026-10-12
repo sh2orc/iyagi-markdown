@@ -340,6 +340,17 @@ export function App(): JSX.Element {
     [],
   );
 
+  /** 문서의 첫 로컬 이미지 경로(절대) — http(s)/데이터 URL 제외. */
+  const firstLocalImage = (md: string, baseDir: string): string | null => {
+    for (const m of md.matchAll(/!\[[^\]]*\]\(([^)\s]+)[^)]*\)/g)) {
+      const src = m[1];
+      if (/^(https?:|data:)/i.test(src)) continue;
+      if (src.startsWith("/")) return src;
+      return baseDir ? `${baseDir}/${src.replace(/\.\//g, "")}` : src;
+    }
+    return null;
+  };
+
   const runExport = useCallback(
     async (kind: ExportKind, opts: PdfExportOptions) => {
       const tab = store.active;
@@ -401,11 +412,14 @@ export function App(): JSX.Element {
           });
           // 전체를 한 번 렌더한 HTML을 <h1> 경계로 챕터 분할(각주는 마지막 챕터에).
           const chapters = epubChapterInputs(splitEpubChapters(body));
+          // 표지 — 문서의 첫 로컬 이미지(없으면 생략).
+          const coverPath = firstLocalImage(text, baseDir);
           await api.exportEpub(
             chapters,
             tab.path ? tab.title : name,
             lang === "ko" ? "ko" : "en",
             EPUB_CSS,
+            coverPath,
             out,
           );
         } else {
