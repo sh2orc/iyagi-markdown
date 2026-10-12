@@ -2189,3 +2189,15 @@ body.resizing .toc {
   background: rgba(127, 127, 127, 0.07); border: none; cursor: pointer; color: inherit;
 }
 .symbol-cell:hover { background: rgba(10, 108, 214, 0.14); }
+
+/* — 표 삽입 대화상자 — */
+.table-dialog { min-width: 360px; }
+.table-dialog-fields { display: flex; gap: 16px; padding: 10px 16px 4px; }
+.table-dialog-preview { display: flex; flex-direction: column; gap: 3px; padding: 8px 16px; }
+.table-dialog-preview .trow { display: flex; gap: 3px; }
+.table-dialog-preview .tcell {
+  width: 26px; height: 16px; border-radius: 3px;
+  background: rgba(127, 127, 127, 0.14);
+}
+.table-dialog-preview .trow.head .tcell { background: rgba(10, 108, 214, 0.2); }
+.table-dialog-more { font-size: 12px; color: var(--md-raw, #8a919c); text-align: center; }

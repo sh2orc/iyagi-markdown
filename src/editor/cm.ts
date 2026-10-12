@@ -240,7 +240,7 @@ function baseExtensions(): Extension[] {
       // 위키링크 호버 미리보기(Obsidian page preview v1) — 350ms 머무르면
       // 대상 문서 제목·첫 문단 팝오버(마커 정리 텍스트). 문서 읽기는 비동기.
       mouseover(event, view) {
-        const el = (event.target as HTMLElement | null)?.closest?.(".md-wikilink");
+        const el = (event.target as HTMLElement | null)?.closest?.(".md-wikilink, .md-link");
         clearWikiHoverTimer();
         // 각주 참조 호버 — 같은 문서의 정의를 팝오버(정의 찾기: 순수 스캔).
         const fn = (event.target as HTMLElement | null)?.closest?.(".md-footnote-ref");
@@ -286,7 +286,8 @@ function baseExtensions(): Extension[] {
       },
       mouseout(event) {
         const t = event.target as HTMLElement | null;
-        const el = t?.closest?.(".md-wikilink") ?? t?.closest?.(".md-footnote-ref");
+        const el =
+          t?.closest?.(".md-wikilink") ?? t?.closest?.(".md-link") ?? t?.closest?.(".md-footnote-ref");
         if (el) {
           clearWikiHoverTimer();
           scheduleHideLinkPreview();

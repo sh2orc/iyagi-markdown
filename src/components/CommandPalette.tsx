@@ -68,6 +68,7 @@ interface Props {
   onOpenShortcuts: () => void;
   onOpenStats: () => void;
   onOpenSymbols?: () => void;
+  onOpenTableDialog?: () => void;
   onOpenStyle: () => void;
   onOpenPrint: () => void;
   onOpenExport: (kind: "html" | "pdf" | "docx") => void;
@@ -80,6 +81,7 @@ export function CommandPalette({
   onOpenShortcuts,
   onOpenStats,
   onOpenSymbols,
+  onOpenTableDialog,
   onOpenStyle,
   onOpenPrint,
   onOpenExport,
@@ -201,6 +203,7 @@ export function CommandPalette({
         { id: "ol", label: `${t.tbNumbered}`, run: go(() => fmt.toggleOrderedList(view)) },
         { id: "quote", label: `${t.tbQuote}`, run: go(() => fmt.toggleQuote(view)) },
         { id: "table", label: `${t.tbTable}`, run: go(() => fmt.insertTable(view)) },
+        ...(onOpenTableDialog ? [{ id: "table-dialog", label: `${t.tbTable}: ${t.tableInsertTitle}…`, run: onOpenTableDialog }] : []),
         { id: "toc-insert", label: `${t.tbInsertToc}`, run: go(() => fmt.insertToc(view)) },
         { id: "hr", label: `${t.tbRule}`, run: go(() => fmt.insertBlock(view, "---")) },
         { id: "row-add", label: `${t.ctxAddRow}`, run: go(() => fmt.tableAddRow(view)) },

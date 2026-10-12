@@ -34,7 +34,7 @@ import {
   WidgetType,
 } from "@codemirror/view";
 
-import { lexicallyClean, percentDecode } from "../links";
+import { lexicallyClean, percentDecode, resolveLink } from "../links";
 import { parseWikiLink, resolveWikiLink } from "./wiki";
 import { mdTableKey } from "./tableKey";
 import { phrases } from "../app/phrases";
@@ -484,7 +484,11 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
             ranges.push(replace({}).range(from, from + 1));
             ranges.push(replace({}).range(labelEnd, to));
             if (labelEnd > from + 1) {
-              ranges.push(Decoration.mark({ class: "md-link", attributes: { title: `${phrases.linkOpen}: ${inline[2]}` } }).range(from + 1, labelEnd));
+              // 내부 마크다운 링크는 경로를 싣는다(호버 미리보기용).
+              const internal = resolveLink(inline[2], baseDir);
+              const attrs: Record<string, string> = { title: `${phrases.linkOpen}: ${inline[2]}` };
+              if (internal.kind === "markdown") attrs["data-md-link"] = internal.path;
+              ranges.push(Decoration.mark({ class: "md-link", attributes: attrs }).range(from + 1, labelEnd));
             }
             return;
           }

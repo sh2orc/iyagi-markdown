@@ -7,6 +7,8 @@ import * as fmt from "../editor/format";
 interface Props {
   store: AppStore;
   t: Translate;
+  /** ▦ 클릭 — 크기 지정 대화상자(⌥클릭은 즉시 3×3). */
+  onInsertTable?: () => void;
 }
 
 function ToolBtn({
@@ -19,7 +21,7 @@ function ToolBtn({
 }: {
   label: React.ReactNode;
   title: string;
-  onClick: () => void;
+  onClick: (ev: React.MouseEvent<HTMLButtonElement>) => void;
   disabled?: boolean;
   narrow?: boolean;
   active?: boolean;
@@ -39,7 +41,8 @@ function ToolBtn({
 
 const Sep = () => <span className="tb-sep" />;
 
-export function Toolbar({ store, t }: Props): JSX.Element {
+export function Toolbar({ store, t, onInsertTable,
+}: Props): JSX.Element {
   const state = store.getSnapshot();
   const view = store.view;
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
@@ -75,7 +78,16 @@ export function Toolbar({ store, t }: Props): JSX.Element {
       </div>
       <Sep />
       <div className="tb-group">
-        <ToolBtn narrow label="▦" title={t.tbTable} disabled={disabled} onClick={() => run((v) => fmt.insertTable(v))} />
+        <ToolBtn
+          narrow
+          label="▦"
+          title={`${t.tbTable} (⌥: 3×3)`}
+          disabled={disabled}
+          onClick={(ev) => {
+            if (ev.altKey) run((v) => fmt.insertTable(v));
+            else onInsertTable?.();
+          }}
+        />
         <ToolBtn narrow label="―" title={t.tbRule} disabled={disabled} onClick={() => run((v) => fmt.insertBlock(v, "---"))} />
       </div>
     </div>

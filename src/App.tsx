@@ -47,6 +47,7 @@ import { PrintPreview } from "./components/PrintPreview";
 import { ShortcutsPanel } from "./components/ShortcutsPanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { SymbolPanel } from "./components/SymbolPanel";
+import { TableDialog } from "./components/TableDialog";
 import { CommandPalette } from "./components/CommandPalette";
 import { VersionsPanel } from "./components/VersionsPanel";
 import { BacklinksPanel } from "./components/BacklinksPanel";
@@ -132,6 +133,7 @@ export function App(): JSX.Element {
   const [exportPageNumbers, setExportPageNumbers] = useState(true);
   const [exportHeader, setExportHeader] = useState(true);
   const [symbolOpen, setSymbolOpen] = useState(false);
+  const [tableDialogOpen, setTableDialogOpen] = useState(false);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -918,7 +920,7 @@ export function App(): JSX.Element {
         />
         <main className="app-main">
           <TabBar store={store} t={t} onClose={(tab) => void closeTabWithConfirm(tab)} />
-          <Toolbar store={store} t={t} />
+          <Toolbar store={store} t={t} onInsertTable={() => setTableDialogOpen(true)} />
           <SearchPanel store={store} view={editorView.current} t={t} open={state.searchOpen} />
           <div className={`editor-area ${activeTab?.mode === "read" ? "read-mode" : ""}`}>
             <MiniToolbar store={store} t={t} />
@@ -978,6 +980,7 @@ export function App(): JSX.Element {
           onOpenShortcuts={() => setShortcutsOpen(true)}
           onOpenStats={() => setStatsOpen(true)}
           onOpenSymbols={() => setSymbolOpen(true)}
+          onOpenTableDialog={() => setTableDialogOpen(true)}
           onOpenStyle={() => setStyleOpen(true)}
           onOpenPrint={() => setPrintOpen(true)}
           onOpenExport={(kind) => store.setExportKind(kind)}
@@ -1052,6 +1055,9 @@ export function App(): JSX.Element {
       )}
       {shortcutsOpen && <ShortcutsPanel t={t} onClose={() => setShortcutsOpen(false)} />}
       {statsOpen && <StatsPanel store={store} t={t} onClose={() => setStatsOpen(false)} />}
+      {tableDialogOpen && (
+        <TableDialog store={store} t={t} onClose={() => setTableDialogOpen(false)} />
+      )}
       {symbolOpen && (
         <SymbolPanel
           t={t}

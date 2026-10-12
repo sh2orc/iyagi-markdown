@@ -300,3 +300,34 @@ describe("줄 편집(이동·복제·삭제)", () => {
     document.body.innerHTML = "";
   });
 });
+
+// — 표 삽입 크기 지정(대화상자가 부르는 형태) —
+describe("insertTable(rows, cols)", async () => {
+  const { insertTable } = await import("./format");
+  const { EditorState } = await import("@codemirror/state");
+  const { EditorView } = await import("@codemirror/view");
+
+  function mount(doc: string): EditorView {
+    const host = document.createElement("div");
+    document.body.append(host);
+    return new EditorView({ state: EditorState.create({ doc }), parent: host });
+  }
+
+  it("지정한 행·열로 골격 생성", () => {
+    const v = mount("");
+    insertTable(v, 2, 4);
+    // 삽입 블록 앞뒤로 빈 줄이 붙는다 — 표 본체만 본다.
+    const lines = v.state.doc.toString().split("\n").filter((l) => l.trim());
+    expect(lines).toHaveLength(4); // 헤더 + 구분 + 2행
+    expect((lines[0]!.match(/열 제목/g) ?? []).length).toBe(4);
+    expect(lines[1]).toBe("| --- | --- | --- | --- |");
+    v.destroy();
+  });
+
+  it("1×1도 유효", () => {
+    const v = mount("");
+    insertTable(v, 1, 1);
+    expect(v.state.doc.toString().split("\n").filter((l) => l.trim())).toHaveLength(3);
+    v.destroy();
+  });
+});
