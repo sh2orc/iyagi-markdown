@@ -20,6 +20,7 @@ import {
 import { AppStore, resolveTheme, type ExportKind, type Tab } from "./app/store";
 import { replaceDoc, setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
 import { stripFrontMatter } from "./editor/frontmatter";
+import { EPUB_CSS, epubChapterInputs, splitEpubChapters } from "./export/epub";
 import { relPath } from "./paths";
 import { resolveWikiLink, wikiLinksToMarkdown } from "./editor/wiki";
 import { collectHeadings, resolveLink } from "./links";
@@ -364,10 +365,6 @@ export function App(): JSX.Element {
         // 청크에서 빼 시작 로딩을 줄인다.
         const { buildDocxManifest, buildExportHtml, renderMarkdownBody } = await import("./export/html");
 
-        // EPUB용: HTML5 조각을 XHTML로 — 빈 요소 자가 폐쇄. 최소 가독 CSS.
-        const toXhtml = (frag: string) =>
-          frag.replace(/<(br|hr|img|input)\b([^>]*?)(?<!\/)>/gi, "<$1$2/>");
-        const EPUB_CSS = `body{font-family:-apple-system,BlinkMacSystemFont,"Noto Sans KR",sans-serif;line-height:1.7;margin:0 6%;color:#1a1a1a}h1{font-size:1.6em;margin:1.4em 0 .6em}h2{font-size:1.35em;margin:1.3em 0 .5em}h3{font-size:1.15em}p{margin:.8em 0}img{max-width:100%;height:auto}code{font-family:Menlo,monospace;font-size:.88em;background:rgba(0,0,0,.05);padding:.1em .3em;border-radius:3px}pre{background:rgba(0,0,0,.05);padding:12px;border-radius:8px;overflow-x:auto}pre code{background:none;padding:0}blockquote{border-left:3px solid rgba(0,0,0,.15);margin:1em 0;padding-left:1em;color:#555}table{border-collapse:collapse;margin:1em 0}td,th{border:1px solid rgba(0,0,0,.2);padding:6px 10px}mark{background:#ffd60a55}a{color:#0a6cd6}`;
         const baseDir = tab.path
           ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/"
           : store.state.workspace ?? "";
@@ -402,9 +399,10 @@ export function App(): JSX.Element {
             theme: store.state.theme,
             readBytes: readBytesForExport,
           });
-          const xhtml = toXhtml(body);
+          // 전체를 한 번 렌더한 HTML을 <h1> 경계로 챕터 분할(각주는 마지막 챕터에).
+          const chapters = epubChapterInputs(splitEpubChapters(body));
           await api.exportEpub(
-            xhtml,
+            chapters,
             tab.path ? tab.title : name,
             lang === "ko" ? "ko" : "en",
             EPUB_CSS,

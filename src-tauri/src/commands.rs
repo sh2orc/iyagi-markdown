@@ -129,20 +129,18 @@ pub async fn write_document(
 /// EPUB 내보내기 — 본문 XHTML·CSS는 프런트가, 조립·zip은 md-export가.
 #[tauri::command]
 pub async fn export_epub(
-    body: String,
+    chapters: Vec<md_export::epub::EpubChapter>,
     title: String,
     language: String,
     css: String,
     out_path: String,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let chapters = vec![md_export::epub::EpubChapter {
-            title,
-            body,
-            file: "chapter1.xhtml".into(),
-        }];
+        if chapters.is_empty() {
+            return Err("EPUB: 챕터가 없습니다".into());
+        }
         let opts = md_export::epub::EpubOptions {
-            title: chapters[0].title.clone(),
+            title,
             author: "IYAGI Markdown".into(),
             language,
             css,

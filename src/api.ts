@@ -187,8 +187,13 @@ export const api = {
     invoke<void>("export_pdf", { html, options, outPath }),
   exportDocx: (markdown: string, manifest: DocxManifest, outPath: string, baseDir: string) =>
     invoke<void>("export_docx", { markdown, manifest, outPath, baseDir }),
-  exportEpub: (body: string, title: string, language: string, css: string, outPath: string) =>
-    invoke<void>("export_epub", { body, title, language, css, outPath }),
+  exportEpub: (
+    chapters: Array<{ title: string; body: string; file: string }>,
+    title: string,
+    language: string,
+    css: string,
+    outPath: string,
+  ) => invoke<void>("export_epub", { chapters, title, language, css, outPath }),
   writeExportFile: (path: string, contents: string) =>
     invoke<void>("write_export_file", { path, contents }),
   revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),
