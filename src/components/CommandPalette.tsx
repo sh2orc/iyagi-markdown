@@ -1,10 +1,13 @@
 // 명령 팔레트(⌘⇧P) — 모든 기능을 검색으로 즉시 실행. 단축키를 몰라도
 // 기능 이름만으로 도달한다(Word 리본 검색 · VS Code 팔레트).
+// 하이브리드: 워크스페이스·최근 파일도 같이 퍼지 검색해 바로 연다
+// (Obsidian 퀵 스위처 · Xcode Open Quickly).
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { isInApp } from "../api";
+import { api, isInApp, type TreeNode } from "../api";
 import type { AppStore } from "../app/store";
+import { flattenFiles, scoreFile, subsequence, type FileEntry } from "../app/quickOpen";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
 
@@ -15,30 +18,21 @@ interface Cmd {
   run: () => void;
 }
 
+type Row =
+  | { kind: "header"; label: string }
+  | { kind: "cmd"; c: Cmd }
+  | { kind: "file"; f: FileEntry };
+
 interface Props {
   store: AppStore;
   t: Translate;
   onClose: () => void;
+  onOpenDiff?: () => void;
   onOpenShortcuts: () => void;
   onOpenStats: () => void;
   onOpenStyle: () => void;
   onOpenPrint: () => void;
   onOpenExport: (kind: "html" | "pdf" | "docx") => void;
-}
-
-/** 서브시퀀스 퍼지 매칭 — "표정렬" 같은 입력에도 "표: 정렬(가운데)"가 걸린다. */
-function fuzzyScore(query: string, text: string): number {
-  if (!query) return 1;
-  let qi = 0;
-  let score = 0;
-  const hay = text.toLowerCase();
-  for (const ch of query.toLowerCase()) {
-    const idx = hay.indexOf(ch, qi);
-    if (idx === -1) return -1;
-    score += idx === qi ? 2 : 1; // 연속 매치 가중치
-    qi = idx + 1;
-  }
-  return score;
 }
 
 export function CommandPalette({
@@ -50,14 +44,48 @@ export function CommandPalette({
   onOpenStyle,
   onOpenPrint,
   onOpenExport,
+  onOpenDiff,
 }: Props): JSX.Element {
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
+  const [files, setFiles] = useState<FileEntry[] | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
+  }, []);
+
+  // 파일 후보는 마운트 시 1회 수집 — 최근 문서 → 워크스페이스 트리 순서.
+  useEffect(() => {
+    if (!isInApp()) {
+      setFiles([]);
+      return;
+    }
+    let disposed = false;
+    void (async () => {
+      let recent: { path: string; name: string }[] = [];
+      let tree: TreeNode[] | null = null;
+      try {
+        recent = await api.getRecent();
+      } catch {
+        /* 무시 — 폴백 */
+      }
+      const root = store.state.workspace;
+      if (root) {
+        try {
+          tree = await api.scanWorkspace(root);
+        } catch {
+          /* 무시 */
+        }
+      }
+      if (!disposed) setFiles(flattenFiles(recent, tree, root));
+    })();
+    return () => {
+      disposed = true;
+    };
+    // 마운트 시 1회 의도 — store.workspace를 다시 읽지 않는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const commands: Cmd[] = useMemo(() => {
@@ -76,6 +104,7 @@ export function CommandPalette({
       { id: "stats", label: `${t.statsTitle}`, run: onOpenStats },
       { id: "style", label: `${t.styleTitle} — Aa`, run: onOpenStyle },
       { id: "shortcuts", label: `${t.shortcutsTitle}`, run: onOpenShortcuts },
+          ...(onOpenDiff ? [{ id: "diff", label: `${t.diffTitle}…`, run: onOpenDiff }] : []),
       { id: "print", label: `${t.printPreviewTitle} ⌘P`, run: onOpenPrint },
       { id: "export-html", label: `${t.exportTitle} — ${t.exportHtml}`, run: () => onOpenExport("html") },
       { id: "export-pdf", label: `${t.exportTitle} — ${t.exportPdf}`, run: () => onOpenExport("pdf") },
@@ -118,13 +147,46 @@ export function CommandPalette({
     return cmds;
   }, [store, t, onOpenStats, onOpenStyle, onOpenShortcuts, onOpenPrint, onOpenExport]);
 
-  const results = useMemo(() => {
-    if (!query.trim()) return commands.map((c) => ({ c, s: 1 }));
-    return commands
-      .map((c) => ({ c, s: fuzzyScore(query.trim(), c.label) }))
+  const rows = useMemo<Row[]>(() => {
+    const q = query.trim();
+    const out: Row[] = [];
+    if (!q) {
+      for (const c of commands) out.push({ kind: "cmd", c });
+      if (files && files.length > 0) {
+        out.push({ kind: "header", label: t.paletteRecentFiles });
+        for (const f of files.slice(0, 8)) out.push({ kind: "file", f });
+      }
+      return out;
+    }
+    const cmdHits = commands
+      .map((c) => ({ c, s: subsequence(q, c.label) }))
       .filter((r) => r.s > 0)
       .sort((a, b) => b.s - a.s);
-  }, [commands, query]);
+    for (const r of cmdHits) out.push({ kind: "cmd", c: r.c });
+    if (files) {
+      const fileHits = files
+        .map((f) => ({ f, s: scoreFile(q, f) }))
+        .filter((r) => r.s > 0)
+        .sort((a, b) => b.s - a.s)
+        .slice(0, 40);
+      if (fileHits.length > 0) {
+        out.push({ kind: "header", label: t.paletteFiles });
+        for (const r of fileHits) out.push({ kind: "file", f: r.f });
+      }
+    }
+    return out;
+  }, [commands, files, query, t]);
+
+  // 헤더 행은 건너뛰는 이동.
+  const step = (from: number, delta: number): number => {
+    let i = from;
+    for (;;) {
+      const next = i + delta;
+      if (next < 0 || next >= rows.length) return i;
+      if (rows[next].kind !== "header") return next;
+      i = next;
+    }
+  };
 
   useEffect(() => {
     setSel(0);
@@ -136,10 +198,11 @@ export function CommandPalette({
   }, [sel]);
 
   const runIdx = (i: number) => {
-    const r = results[i];
-    if (!r) return;
+    const r = rows[i];
+    if (!r || r.kind === "header") return;
     onClose();
-    r.c.run();
+    if (r.kind === "cmd") r.c.run();
+    else void store.openPath(r.f.path);
   };
 
   return (
@@ -154,10 +217,10 @@ export function CommandPalette({
           onKeyDown={(e) => {
             if (e.key === "ArrowDown") {
               e.preventDefault();
-              setSel((s) => Math.min(s + 1, results.length - 1));
+              setSel((s) => step(s, 1));
             } else if (e.key === "ArrowUp") {
               e.preventDefault();
-              setSel((s) => Math.max(s - 1, 0));
+              setSel((s) => step(s, -1));
             } else if (e.key === "Enter") {
               e.preventDefault();
               runIdx(sel);
@@ -168,17 +231,30 @@ export function CommandPalette({
           }}
         />
         <div className="palette-list" ref={listRef}>
-          {results.length === 0 && <div className="palette-empty">{t.paletteNoMatch}</div>}
-          {results.map((r, i) => (
-            <button
-              key={r.c.id}
-              className={`palette-item ${i === sel ? "is-sel" : ""}`}
-              onMouseEnter={() => setSel(i)}
-              onClick={() => runIdx(i)}
-            >
-              {r.c.label}
-            </button>
-          ))}
+          {rows.length === 0 && <div className="palette-empty">{t.paletteNoMatch}</div>}
+          {rows.map((r, i) => {
+            if (r.kind === "header") {
+              return (
+                <div key={`h-${r.label}`} className="palette-section">
+                  {r.label}
+                </div>
+              );
+            }
+            const cls = `palette-item ${i === sel ? "is-sel" : ""}`;
+            if (r.kind === "cmd") {
+              return (
+                <button key={r.c.id} className={cls} onMouseEnter={() => setSel(i)} onClick={() => runIdx(i)}>
+                  {r.c.label}
+                </button>
+              );
+            }
+            return (
+              <button key={`f-${r.f.path}`} className={`${cls} palette-file`} onMouseEnter={() => setSel(i)} onClick={() => runIdx(i)}>
+                <span className="palette-file-name">{r.f.name}</span>
+                {r.f.rel && <span className="palette-file-path">{r.f.rel}</span>}
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>
