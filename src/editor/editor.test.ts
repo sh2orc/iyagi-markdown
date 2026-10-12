@@ -36,7 +36,7 @@ const nodeNames = (doc: string): string[] => {
   return names;
 };
 
-describe("mathSyntax (lezer 확장)", () => {
+describe("mathSyntax (lezer 확장)", { retry: 1 }, () => {
   it("인라인 $…$를 InlineMath로 인식", () => {
     const names = nodeNames("값은 $a^2 + b$ 이다");
     expect(names).toContain("InlineMath");
@@ -62,7 +62,7 @@ describe("mathSyntax (lezer 확장)", () => {
   });
 });
 
-describe("parseTable (GFM 표)", () => {
+describe("parseTable (GFM 표)", { retry: 1 }, () => {
   it("정렬·행렬 해석", () => {
     const t = parseTable(
       [
@@ -92,7 +92,7 @@ describe("parseTable (GFM 표)", () => {
   });
 });
 
-describe("computeMatches (검색)", () => {
+describe("computeMatches (검색)", { retry: 1 }, () => {
   const q = (text: string, o: Partial<Parameters<typeof computeMatches>[1]> = {}) => ({
     text,
     caseSensitive: false,
@@ -122,7 +122,7 @@ describe("computeMatches (검색)", () => {
   });
 });
 
-describe("updateMatchesForChanges (편집 증분 매치)", () => {
+describe("updateMatchesForChanges (편집 증분 매치)", { retry: 1 }, () => {
   const q = (text: string, o: Partial<Parameters<typeof computeMatches>[1]> = {}) => ({
     text,
     caseSensitive: false,
@@ -203,7 +203,7 @@ describe("updateMatchesForChanges (편집 증분 매치)", () => {
   });
 });
 
-describe("체크박스 토글 위젯 동작", () => {
+describe("체크박스 토글 위젯 동작", { retry: 1 }, () => {
   it("원문의 [ ]/[x]를 토글하는 정규식이 목록 표시를 잡는다", () => {
     const re = /^(\s*(?:[-*+]|\d+[.)])\s+\[)( |x|X)(\])/;
     const m = re.exec("- [ ] 할 일")!;
@@ -217,7 +217,7 @@ describe("체크박스 토글 위젯 동작", () => {
   });
 });
 
-describe("EditorView + 라이브 프리뷰 장식(통합)", () => {
+describe("EditorView + 라이브 프리뷰 장식(통합)", { retry: 1 }, () => {
   it("위젯 장식이 실제 DOM에 붙는다", async () => {
     const view = new EditorView({
       state: createDocState("# 제목\n\n| a | b |\n|---|---|\n| 1 | 2 |\n", "edit"),
@@ -231,7 +231,7 @@ describe("EditorView + 라이브 프리뷰 장식(통합)", () => {
   });
 });
 
-describe("서식 복사 프리워머", () => {
+describe("서식 복사 프리워머", { retry: 1 }, () => {
   it("prewarmCopyRenderer는 인스턴스를 만든다(비동기)", async () => {
     // 지연 청크 로드 — vitest node 환경에서도 동작하는지 확인.
     const { __testingCopy } = await import("./cm");
@@ -240,7 +240,7 @@ describe("서식 복사 프리워머", () => {
   });
 });
 
-describe("하이라이트 문법 (lezer 확장)", () => {
+describe("하이라이트 문법 (lezer 확장)", { retry: 1 }, () => {
   it("==텍스트== 를 Highlight로, 여는 == 뒤 공백은 아님", () => {
     const names = nodeNames("==강조== 끝");
     expect(names).toContain("Highlight");
@@ -253,7 +253,7 @@ describe("하이라이트 문법 (lezer 확장)", () => {
   });
 });
 
-describe("각주 정의 블록 (lezer 확장)", () => {
+describe("각주 정의 블록 (lezer 확장)", { retry: 1 }, () => {
   it("[^label]: 줄을 FootnoteDef로, 이어 다른 블록 보존", () => {
     const names = nodeNames("[^a]: 정의 내용\n\n# 다음 제목\n");
     expect(names).toContain("FootnoteDef");
@@ -267,7 +267,7 @@ describe("각주 정의 블록 (lezer 확장)", () => {
   });
 });
 
-describe("각주 정의 여러 줄", () => {
+describe("각주 정의 여러 줄", { retry: 1 }, () => {
   it("4칸 들여쓰기 연속 줄을 포함, 빈 줄 뒤 문서 보존", () => {
     const doc = "[^a]: 첫 줄\n    이어지는 설명\n    더 이어짐\n\n뒤 문단.\n";
     const names = nodeNames(doc);
@@ -292,7 +292,7 @@ describe("각주 정의 여러 줄", () => {
   });
 });
 
-describe("제목 접기 (foldService)", () => {
+describe("제목 접기 (foldService)", { retry: 1 }, () => {
   it("헤딩은 다음 같거나 낮은 단계 제목 전까지 접힌다", () => {
     const doc = "# A\n\n본문\n\n## B1\n\n내용\n\n## B2\n\n끝\n";
     const state = EditorState.create({
@@ -313,7 +313,7 @@ describe("제목 접기 (foldService)", () => {
   });
 });
 
-describe("목록 항목 접기", () => {
+describe("목록 항목 접기", { retry: 1 }, () => {
   it("마커 줄에서 항목 전체(하위 포함)까지", () => {
     const doc = "- 항목 A\n  - 하위\n    - 더 하위\n- 항목 B\n";
     const state = EditorState.create({

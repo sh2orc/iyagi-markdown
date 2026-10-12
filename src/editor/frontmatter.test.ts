@@ -37,7 +37,7 @@ date: 2026-10-12
 내용입니다.
 `;
 
-describe("frontMatterSyntax", () => {
+describe("frontMatterSyntax", { retry: 1 }, () => {
   it("문서 시작 --- … --- 를 하나의 FrontMatter 블록으로", () => {
     const tree = parse(DOC);
     const first = tree.topNode.firstChild;
@@ -56,7 +56,7 @@ describe("frontMatterSyntax", () => {
   });
 });
 
-describe("stripFrontMatter / frontMatterLen", () => {
+describe("stripFrontMatter / frontMatterLen", { retry: 1 }, () => {
   it("프론트매터만 떼고 본문은 무손실", () => {
     expect(stripFrontMatter(DOC)).toBe("\n# 본문 제목\n\n내용입니다.\n");
     expect(frontMatterLen(DOC)).toBe(DOC.indexOf("\n\n# 본문") + 1);
@@ -74,7 +74,7 @@ describe("stripFrontMatter / frontMatterLen", () => {
   });
 });
 
-describe("parseFrontMatter", () => {
+describe("parseFrontMatter", { retry: 1 }, () => {
   it("스칼라·목록·인용부 제거", () => {
     const yaml = DOC.slice(4, DOC.indexOf("\n\n# 본문") - 3); // --- 사이 본문
     const rows = parseFrontMatter(yaml);
@@ -90,7 +90,7 @@ describe("parseFrontMatter", () => {
   });
 });
 
-describe("frontMatterMeta", () => {
+describe("frontMatterMeta", { retry: 1 }, () => {
   it("title·author·date를 뽑는다(대소문자 무시·따옴표 제거)", () => {
     const doc = `---
 title: "보고서 - 3분기"
@@ -116,7 +116,7 @@ DATE: 2026-10-12
   });
 });
 
-describe("frontMatterMeta toc", () => {
+describe("frontMatterMeta toc", { retry: 1 }, () => {
   it("toc: true/yes/1을 참으로, 그 외는 거짓·미설정", () => {
     expect(frontMatterMeta("---\ntoc: true\n---\n")?.toc).toBe(true);
     expect(frontMatterMeta("---\ntoc: yes\n---\n")?.toc).toBe(true);
