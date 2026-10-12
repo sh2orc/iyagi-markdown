@@ -379,14 +379,13 @@ fn table<'a>(
 
 // — 인라인 —
 
-fn plain_run(text: &str, _style: &RunStyle) -> String {
+fn plain_run(text: &str, style: &RunStyle) -> String {
     if text.is_empty() {
         return String::new();
     }
-    format!(
-        "<w:r><w:t xml:space=\"preserve\">{}</w:t></w:r>",
-        crate::xml::esc(text)
-    )
+    // rpr(style): 굵게·기울임·취소·위첨자 등 인라인 서식 런 속성(각주 안
+    // 인라인이 사라지던 회귀 수정 — 스타일이 무시돼선 안 된다).
+    format!("<w:r>{}<w:t{}>{}</w:t></w:r>", rpr(style), PRESERVE, esc(text))
 }
 
 #[derive(Default)]
@@ -501,27 +500,6 @@ fn extract_footnotes(markdown: &str) -> (String, Vec<(String, String)>) {
 
 /// 본문 문자열의 자리표시자(\u{E000}라벨\u{E000})를 footnoteReference로 치환.
 /// 등록 안 된 라벨은 원문 [^라벨]로 복원(데이터 무손실).
-/// 각주 정의 텍스트를 DOCX 런으로(인라인 서식 문자 제거 — 간단 정리).
-fn footnote_definition_runs(def_text: &str) -> String {
-    // 마크다운 인라인 마커를 제거해 순수 텍스트로(서식 파싱은 다음 개선).
-    let clean = def_text
-        .replace("**", "")
-        .replace("__", "")
-        .replace("~~", "")
-        .replace("*", "")
-        .replace("_", "")
-        .replace("`", "");
-    format!(
-        concat!(
-            "<w:p><w:pPr><w:pStyle w:val=\"FootnoteText\"/></w:pPr>",
-            "<w:r><w:rPr><w:rStyle w:val=\"FootnoteReference\"/></w:rPr>",
-            "<w:t xml:space=\"preserve\"> </w:t></w:r>",
-            "<w:r><w:t xml:space=\"preserve\">{}</w:t></w:r></w:p>"
-        ),
-        crate::xml::esc(clean.trim())
-    )
-}
-
 fn resolve_footnote_refs(body: &str, ctx: &Ctx) -> String {
     const SEP: char = '\u{E000}';
     let sep_len = SEP.len_utf8();
@@ -1235,7 +1213,7 @@ mod tests {
 
     #[test]
     fn resolve_footnote_refs_unit() {
-        let mut ctx = Ctx {
+        let ctx = Ctx {
             math: &HashMap::new(),
             diagrams: &HashMap::new(),
             images: &ImageSource::new(String::new()),
@@ -1245,9 +1223,8 @@ mod tests {
             footnotes: vec!["DEF".into()],
             footnote_ids: [("a".to_string(), 1usize)].into_iter().collect(),
         };
-        let body = format!("x\u{E000}a\u{E000}y");
-        let out = resolve_footnote_refs(&body, &ctx);
-        eprintln!("RESOLVED={out}");
+        let body = "x\u{E000}a\u{E000}y";
+        let out = resolve_footnote_refs(body, &ctx);
         assert!(out.contains("<w:footnoteReference w:id=\"1\"/>"));
         assert!(!out.contains("\u{E000}"));
     }
@@ -1278,7 +1255,7 @@ mod tests {
         assert!(doc.contains("뒤 문단"));
         let fns = read(&mut zip, "word/footnotes.xml");
         assert!(fns.contains("각주 정의"));
-        assert!(fns.contains("내용")); // 정의 인라인이 런으로 분할 렌더
+        assert!(fns.contains("<w:b/>")); // 정의 안 굵게 등 인라인 서식 유지
         // 관계·콘텐츠 타입.
         let rels = read(&mut zip, "word/_rels/document.xml.rels");
         assert!(rels.contains("footnotes.xml"));
