@@ -1654,6 +1654,16 @@ body.resizing .toc {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+/* 줌인 상태에서만 팬 가능 — 커서로 알린다. */
+.imgviewer-stage.can-pan {
+  cursor: grab;
+}
+.imgviewer-stage.is-dragging {
+  cursor: grabbing;
 }
 
 .imgviewer-stage img {

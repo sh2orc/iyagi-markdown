@@ -74,7 +74,7 @@ export function ImageViewer({ src, alt, t, onClose }: Props): JSX.Element {
         </button>
       </div>
       <div
-        className={`imgviewer-stage ${dragging ? "is-dragging" : ""}`}
+        className={`imgviewer-stage ${dragging ? "is-dragging" : ""} ${zoom > 1 ? "can-pan" : ""}`}
         onPointerDown={(e) => {
           // 줌인 상태 드래그 팬 — 확대해 잘린 부분을 볼 수 있게.
           if (zoom <= 1) return;
