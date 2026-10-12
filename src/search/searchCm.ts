@@ -10,8 +10,8 @@ export interface SearchQuery {
   regexp: boolean;
   /** 단어 단위 일치 — 가장자리가 라틴 단어 문자일 때만  경계 적용. */
   wholeWord?: boolean;
-  /** 바꿀 내용(바꾸기 모드에서만). */
-  replacement: string;
+  /** 바꿀 내용(바꾸기 모드에서만 — 찾기 전용 쿼리는 생략). */
+  replacement?: string;
 }
 
 export interface SearchMatch {
@@ -262,7 +262,7 @@ export function replaceCurrent(view: EditorView, query: SearchQuery): void {
   const m = st.matches[st.current];
   if (!m || !query) return;
   view.dispatch({
-    changes: { from: m.from, to: m.to, insert: query.replacement },
+    changes: { from: m.from, to: m.to, insert: query.replacement ?? "" },
     // 문서 변경으로 매치가 재계산된다(searchField.update).
   });
   // 다음 매치로 이동.
@@ -278,7 +278,7 @@ export function replaceAll(view: EditorView, query: SearchQuery): number {
   const changes = st.matches.map((m) => ({
     from: m.from,
     to: m.to,
-    insert: query.replacement,
+    insert: query.replacement ?? "",
   }));
   view.dispatch({ changes, userEvent: "input.replaceAll" });
   return changes.length;
