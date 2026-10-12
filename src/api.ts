@@ -82,6 +82,13 @@ export interface SearchHit {
   line: string;
 }
 
+/** 버전 기록 스냅숏(저장이 교체한 이전 상태) — Rust snapshots.rs와 같은 모양. */
+export interface SnapshotInfo {
+  /** 에포크 밀리초. */
+  ts: number;
+  size: number;
+}
+
 export interface PdfOptions {
   paper: "a4" | "letter" | "a5";
   orientation: "portrait" | "landscape";
@@ -153,6 +160,8 @@ export const api = {
   scanWorkspace: (root: string) => invoke<TreeNode[]>("scan_workspace", { root }),
   searchWorkspace: (root: string, query: string) =>
     invoke<SearchHit[]>("search_workspace", { root, query }),
+  snapshotList: (path: string) => invoke<SnapshotInfo[]>("snapshot_list", { path }),
+  snapshotRead: (path: string, ts: number) => invoke<string>("snapshot_read", { path, ts }),
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (settings: Settings) => invoke<void>("set_settings", { settings }),
   getSession: () => invoke<SessionState | null>("get_session"),

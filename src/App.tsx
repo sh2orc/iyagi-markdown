@@ -18,7 +18,7 @@ import {
   webviewWindowApi,
 } from "./api";
 import { AppStore, resolveTheme, type ExportKind, type Tab } from "./app/store";
-import { setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
+import { replaceDoc, setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
 import { collectHeadings, resolveLink } from "./links";
 import { makeT, type Lang } from "./i18n";
 import { TabBar } from "./components/TabBar";
@@ -39,6 +39,7 @@ import { PrintPreview } from "./components/PrintPreview";
 import { ShortcutsPanel } from "./components/ShortcutsPanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { CommandPalette } from "./components/CommandPalette";
+import { VersionsPanel } from "./components/VersionsPanel";
 import { WorkspaceSearch } from "./components/WorkspaceSearch";
 import { ImageViewer } from "./components/ImageViewer";
 import { DiffPanel } from "./components/DiffPanel";
@@ -104,6 +105,7 @@ export function App(): JSX.Element {
   const [statsOpen, setStatsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [wsSearchOpen, setWsSearchOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
 
@@ -125,6 +127,7 @@ export function App(): JSX.Element {
     statsOpen ||
     paletteOpen ||
     wsSearchOpen ||
+    versionsOpen ||
     diffOpen ||
     state.exportKind ||
     state.busy ||
@@ -454,8 +457,8 @@ export function App(): JSX.Element {
         case "find":
           store.setSearchOpen(true);
           break;
-        case "workspace-search":
-          setWsSearchOpen(true);
+        case "versions":
+          setVersionsOpen(true);
           break;
         case "mode-edit":
           store.setMode("edit");
@@ -759,6 +762,7 @@ export function App(): JSX.Element {
           onOpenExport={(kind) => store.setExportKind(kind)}
           onOpenDiff={() => setDiffOpen(true)}
           onOpenWsSearch={() => setWsSearchOpen(true)}
+          onOpenVersions={() => setVersionsOpen(true)}
         />
       )}
       {wsSearchOpen && (
@@ -767,6 +771,21 @@ export function App(): JSX.Element {
           t={t}
           onClose={() => setWsSearchOpen(false)}
           onOpenHit={revealInPath}
+        />
+      )}
+      {versionsOpen && (
+        <VersionsPanel
+          store={store}
+          t={t}
+          onClose={() => setVersionsOpen(false)}
+          onRestore={(text) => {
+            setVersionsOpen(false);
+            const view = editorView.current;
+            if (!view || !store.active) return;
+            replaceDoc(view, text);
+            view.dispatch({ selection: { anchor: 0 } });
+            store.toast(t.versionsRestored);
+          }}
         />
       )}
       {shortcutsOpen && <ShortcutsPanel t={t} onClose={() => setShortcutsOpen(false)} />}

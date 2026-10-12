@@ -147,6 +147,12 @@ const en = {
   wsSearchHint: "Searches every .md file in the open folder.",
   wsSearchNoFolder: "Open a folder first.",
   wsSearchNoMatch: "No matches.",
+  versionsTitle: "Versions",
+  versionsEmpty: "No saved history yet — each save keeps the previous version here.",
+  versionsPick: "Pick a version to preview",
+  versionsRestore: "Restore this version",
+  versionsRestored: "Restored — save (⌘S) to confirm",
+  timeJustNow: "just now",
 
   diffTitle: "Compare",
   diffPick: "Choose File…",
@@ -328,6 +334,12 @@ const ko: Dict = {
   wsSearchHint: "열린 폴더의 모든 .md 파일 내용을 검색합니다.",
   wsSearchNoFolder: "먼저 폴더를 여세요.",
   wsSearchNoMatch: "일치하는 결과가 없습니다.",
+  versionsTitle: "이전 버전",
+  versionsEmpty: "저장 이력이 아직 없습니다 — 저장할 때마다 이전 상태가 여기 남습니다.",
+  versionsPick: "미리 볼 버전을 고르세요",
+  versionsRestore: "이 버전으로 되돌리기",
+  versionsRestored: "되돌렸습니다 — 저장(⌘S)하면 확정됩니다",
+  timeJustNow: "방금",
 
   diffTitle: "문서 비교",
   diffPick: "파일 선택…",
@@ -383,6 +395,9 @@ const enF = {
   lines: (n: number) => `${n.toLocaleString()} lines`,
   exportDone: (name: string) => `Exported ${name}`,
   replaced: (n: number) => `Replaced ${n.toLocaleString()} matches`,
+  minAgo: (n: number) => `${n} min ago`,
+  hourAgo: (n: number) => `${n} h ago`,
+  dayAgo: (n: number) => `${n} d ago`,
   wsTruncated: (n: number) => `Showing first ${n.toLocaleString()} — narrow your search`,
 };
 const koF = {
@@ -392,6 +407,9 @@ const koF = {
   lines: (n: number) => `줄 ${n.toLocaleString()}개`,
   exportDone: (name: string) => `${name}을(를) 내보냈습니다`,
   replaced: (n: number) => `${n.toLocaleString()}곳을 바꿨습니다`,
+  minAgo: (n: number) => `${n}분 전`,
+  hourAgo: (n: number) => `${n}시간 전`,
+  dayAgo: (n: number) => `${n}일 전`,
   wsTruncated: (n: number) => `앞 ${n.toLocaleString()}개만 표시 — 검색어를 좁혀보세요`,
 };
 
