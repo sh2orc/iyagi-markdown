@@ -29,6 +29,47 @@ export const DEFAULT_DOC_STYLE: DocStyle = {
   tableWidths: {},
 };
 
+/** 스타일 프리셋(Word 스타일 갤러리에 대응) — 원문 불변, 사이드카에 기록. */
+export interface StylePreset {
+  id: string;
+  nameKo: string;
+  nameEn: string;
+  style: DocStyle;
+}
+
+export const STYLE_PRESETS: StylePreset[] = [
+  {
+    id: "report",
+    nameKo: "보고서",
+    nameEn: "Report",
+    style: { font: "system", fontSize: 0, lineHeight: 1.6, paraSpace: "normal", textAlign: "justify", firstLineIndent: true, accent: null, imageWidths: {}, tableWidths: {} },
+  },
+  {
+    id: "blog",
+    nameKo: "블로그",
+    nameEn: "Blog",
+    style: { font: "round", fontSize: 0, lineHeight: 1.7, paraSpace: "relaxed", textAlign: "left", firstLineIndent: false, accent: null, imageWidths: {}, tableWidths: {} },
+  },
+  {
+    id: "memo",
+    nameKo: "메모",
+    nameEn: "Memo",
+    style: { font: "system", fontSize: 0, lineHeight: 1.5, paraSpace: "tight", textAlign: "left", firstLineIndent: false, accent: null, imageWidths: {}, tableWidths: {} },
+  },
+  {
+    id: "paper",
+    nameKo: "논문",
+    nameEn: "Paper",
+    style: { font: "serif", fontSize: 0, lineHeight: 1.9, paraSpace: "normal", textAlign: "justify", firstLineIndent: true, accent: null, imageWidths: {}, tableWidths: {} },
+  },
+  {
+    id: "code",
+    nameKo: "개발 노트",
+    nameEn: "Dev Notes",
+    style: { font: "mono", fontSize: 0, lineHeight: 1.55, paraSpace: "normal", textAlign: "left", firstLineIndent: false, accent: null, imageWidths: {}, tableWidths: {} },
+  },
+];
+
 /** 스타일을 호스트 요소의 CSS 변수로 반영한다. */
 export function applyDocStyle(el: HTMLElement, style: DocStyle | null, globalFontSize: number): void {
   const s = style ?? DEFAULT_DOC_STYLE;

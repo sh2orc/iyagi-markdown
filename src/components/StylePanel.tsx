@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { api, isInApp, type DocStyle } from "../api";
 import type { AppStore } from "../app/store";
-import { DEFAULT_DOC_STYLE } from "../app/docStyle";
+import { DEFAULT_DOC_STYLE, STYLE_PRESETS } from "../app/docStyle";
 import type { Translate } from "../i18n";
 
 interface Props {
@@ -37,6 +37,27 @@ export function StylePanel({ store, onClose, t }: Props): JSX.Element | null {
         <div className="modal-title">
           {t.styleTitle}
           <span className="modal-file-name">{tab.path ? tab.title : t.untitled}</span>
+        </div>
+        <div className="settings-label" style={{ marginBottom: 2 }}>
+          {t.stylePresets}
+          <div className="style-font-row" style={{ flexWrap: "wrap" }}>
+            {STYLE_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                className="style-font-btn"
+                onClick={() => {
+                  // 프리셋 적용 — 이미지·표 폭은 그 문서의 기존 배치를 유지.
+                  update({
+                    ...p.style,
+                    imageWidths: style.imageWidths,
+                    tableWidths: style.tableWidths,
+                  });
+                }}
+              >
+                {store.state.settings.language === "ko" ? p.nameKo : p.nameEn}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="settings-grid">
           <label className="settings-label">
