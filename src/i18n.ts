@@ -187,6 +187,7 @@ const en = {
   styleRelaxed: "Relaxed",
   styleAccent: "Accent color",
   styleReset: "Reset to default",
+  styleStoredHint: "Styles are stored in the app database — the .md file is never modified.",
   styleIndent: "First-line indent",
   stylePresets: "Style Presets",
   styleAlign: "Alignment",
