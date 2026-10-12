@@ -48,6 +48,7 @@ import { ShortcutsPanel } from "./components/ShortcutsPanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { SymbolPanel } from "./components/SymbolPanel";
 import { TableDialog } from "./components/TableDialog";
+import { Welcome } from "./components/Welcome";
 import { CommandPalette } from "./components/CommandPalette";
 import { VersionsPanel } from "./components/VersionsPanel";
 import { BacklinksPanel } from "./components/BacklinksPanel";
@@ -952,11 +953,13 @@ export function App(): JSX.Element {
             <div className="editor-host" ref={editorHost} />
             {!state.ready && <div className="app-splash">{t.loading}</div>}
             {state.ready && state.tabs.length === 0 && (
-              <div className="app-empty">
-                <div className="app-empty-mark">M↓</div>
-                <div className="app-empty-title">{t.emptyNoDoc}</div>
-                <div className="app-empty-hint">{t.emptyNoDocHint}</div>
-              </div>
+              <Welcome
+                store={store}
+                t={t}
+                lang={lang}
+                onOpenFile={() => void pickOpenFile().then((p) => { if (p) void store.openPath(p); })}
+                onOpenFolder={() => void pickOpenFolder().then((d) => { if (d) void store.openWorkspace(d); })}
+              />
             )}
           </div>
           <StatusBar store={store} t={t} onOpenSettings={() => setSettingsOpen(true)} onOpenStyle={() => setStyleOpen(true)} onOpenStats={() => setStatsOpen(true)} onOpenBacklinks={() => setBacklinksOpen(true)} />

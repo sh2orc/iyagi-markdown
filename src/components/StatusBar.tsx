@@ -20,21 +20,25 @@ interface Props {
 export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, onOpenBacklinks }: Props): JSX.Element {
   const state = store.getSnapshot();
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
-  // 브레드크럼 — 커서가 속한 제목 경로. 편집이 멈춘 뒤 재계산(타이핑마다
-  // 전체 재스캔이 되지 않게 — 목차 패널과 같은 디바운스).
+  // 브레드크럼 — 커서가 속한 제목 경로. 헤딩 목록은 문서가 바뀔 때만(디바운스)
+  // 재스캔하고, 커서 이동은 캐시한 목록에서 경로만 즉시 계산한다(O(제목 수)).
+  const [headings, setHeadings] = useState<Heading[]>([]);
   const [crumbs, setCrumbs] = useState<Heading[]>([]);
   const doc = tab?.state.doc;
   const cursor = tab?.state.selection.main.head ?? 0;
   useEffect(() => {
     if (!doc) {
-      setCrumbs([]);
+      setHeadings([]);
       return;
     }
     const id = setTimeout(() => {
-      setCrumbs(headingPath(collectHeadings(doc.toString()), cursor));
+      setHeadings(collectHeadings(doc.toString()));
     }, 150);
     return () => clearTimeout(id);
-  }, [doc, cursor]);
+  }, [doc]);
+  useEffect(() => {
+    setCrumbs(headingPath(headings, cursor));
+  }, [headings, cursor]);
   // 통계는 스토어가 증분 유지한다 — 여기서 문서를 다시 훑지 않는다.
   const dirty = tab?.dirty ?? false;
   const words = tab?.words ?? 0;
