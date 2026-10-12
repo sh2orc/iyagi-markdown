@@ -16,10 +16,16 @@ export interface WikiDoc {
 }
 
 let docsProvider: () => WikiDoc[] = () => [];
+let tagsProvider: () => string[] = () => [];
 
 /** 자동완성 목록 공급자 등록(App이 트리 갱신 때 다시 등록). */
 export function setWikiDocsProvider(fn: (() => WikiDoc[]) | null): void {
   docsProvider = fn ?? (() => []);
+}
+
+/** \ud0dc\uadf8 \ubaa9\ub85d \uacf5\uae09\uc790 \ub4f1\ub85d(App\uc774 \ubb38\uc11c \uc2a4\ucea8 \ud6c4 \uc124\uc815). */
+export function setTagListProvider(fn: (() => string[]) | null): void {
+  tagsProvider = fn ?? (() => []);
 }
 
 /** "[[위치" 에서 문서 이름 후보. */
@@ -60,9 +66,43 @@ function fuzzy(query: string, text: string): boolean {
 
 export function wikiAutocompletion() {
   return autocompletion({
-    override: [wikiCompletions],
+    override: [combinedMatcher],
     activateOnTyping: true,
     icons: false,
     closeOnBlur: true,
   });
+}
+
+/** "[[" wikilink + "#" tag in one matcher (wikilink first). */
+function combinedMatcher(context: CompletionContext): CompletionResult | null {
+  const wiki = wikiCompletions(context);
+  if (wiki) return wiki;
+  return tagCompletions(context);
+}
+
+/** "#pos" - workspace tag candidates (heading "#" excluded). */
+function tagCompletions(context: CompletionContext): CompletionResult | null {
+  const before = context.matchBefore(/#[\p{L}\p{N}_\-\/]*/u);
+  if (!before) return null;
+  const typed = before.text.slice(1);
+  if (typed.length === 0) return null;
+  if (typed[0] === " ") return null;
+  if (/^\d/u.test(typed)) return null;
+  const tags = tagsProvider();
+  if (tags.length === 0) return null;
+  const q = typed.toLowerCase();
+  const options: Completion[] = tags
+    .filter((t) => !q || t.toLowerCase().includes(q))
+    .slice(0, 20)
+    .map((t) => ({
+      label: t,
+      apply: t,
+      type: "keyword",
+    }));
+  if (options.length === 0) return null;
+  return {
+    from: before.from + 1,
+    options,
+    validFor: /^[\p{L}\p{N}_\-\/]*$/u,
+  };
 }

@@ -37,7 +37,7 @@ import { ContextMenu } from "./components/ContextMenu";
 import { setImageResizeHandler, setImageViewerHandler, setTableHeaderClickHandler } from "./editor/widgets";
 import { setTableWidthsSaveHandler } from "./editor/livePreview";
 import { setTagClickHandler } from "./editor/cm";
-import { setWikiDocsProvider, type WikiDoc } from "./editor/wikiComplete";
+import { setWikiDocsProvider, setTagListProvider, type WikiDoc } from "./editor/wikiComplete";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { StylePanel } from "./components/StylePanel";
 import { PrintPreview } from "./components/PrintPreview";
@@ -660,7 +660,11 @@ export function App(): JSX.Element {
   // 위키링크 자동완성 목록 — 트리 기반(워크스페이스 문서들).
   useEffect(() => {
     setWikiDocsProvider(() => wikiDocsOf(state.tree));
-    return () => setWikiDocsProvider(null);
+    setTagListProvider(() => collectWorkspaceTags(state.tree));
+    return () => {
+      setWikiDocsProvider(null);
+      setTagListProvider(null);
+    };
   }, [state.tree]);
 
   // — CSS 변수로 테마·글꼴 반영 —
@@ -967,6 +971,28 @@ function wikiDocsOf(tree: import("./api").TreeNode[]): WikiDoc[] {
     }
   }
   return out;
+}
+
+/** 워크스페이스 트리에서 태그 후보 수집(폴더 이름 → 태그). */
+let wsTagCache: string[] | null = null;
+let wsTagCacheKey = '';
+
+function collectWorkspaceTags(tree: import('./api').TreeNode[]): string[] {
+  const key = JSON.stringify(tree.map((n) => n.path));
+  if (key === wsTagCacheKey && wsTagCache) return wsTagCache;
+  wsTagCacheKey = key;
+  const tags = new Set<string>();
+  const walk = (nodes: import('./api').TreeNode[]): void => {
+    for (const n of nodes) {
+      if (n.kind === 'dir') {
+        tags.add(n.name);
+        walk(n.children ?? []);
+      }
+    }
+  };
+  walk(tree);
+  wsTagCache = [...tags].sort();
+  return wsTagCache;
 }
 
 function detectBrowserLang(): Lang {
