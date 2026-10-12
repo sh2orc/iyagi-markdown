@@ -2,6 +2,7 @@
 //! SVG→DrawingML·MathML→OMML 변환기(§4-3: 래스터화 금지, 편집 가능 객체 유지).
 
 pub mod docx;
+pub mod epub;
 pub mod mathml2omml;
 pub mod svg2dml;
 pub mod xml;
