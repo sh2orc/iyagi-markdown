@@ -247,6 +247,14 @@ pub struct DocxStyleSpec {
     pub font: String,
     #[serde(default = "default_size_pt")]
     pub size_pt: f64,
+    /// 행간 배율(0 = 기본 1.15).
+    #[serde(default)]
+    pub line_height: f64,
+    /// 문단 첫 줄 들여쓰기(한국어 문서 관례).
+    #[serde(default)]
+    pub first_line_indent: bool,
+    /// 강조색(RRGGBB, # 없음).
+    pub accent: Option<String>,
 }
 
 fn default_size_pt() -> f64 {
@@ -268,7 +276,15 @@ pub fn export_docx(
         &manifest.diagrams,
         &images,
         Path::new(&out_path),
-        manifest.style.as_ref().map(|s| (s.font.as_str(), s.size_pt)),
+        manifest.style.as_ref().map(|s| {
+        (
+            s.font.as_str(),
+            s.size_pt,
+            s.line_height,
+            s.first_line_indent,
+            s.accent.clone().unwrap_or_default(),
+        )
+    }),
     )
     .map_err(err)
 }

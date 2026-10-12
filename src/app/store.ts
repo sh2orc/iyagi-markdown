@@ -18,7 +18,7 @@ import type {
   TreeNode,
 } from "../api";
 import { applyDocStyle, DEFAULT_DOC_STYLE as DEFAULT_DOC_STYLE_T } from "./docStyle";
-import { applyPreviewConfig, createDocState, switchMode, type ViewMode } from "../editor/cm";
+import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, type ViewMode } from "../editor/cm";
 import { dirname } from "../paths";
 
 export interface Tab {
@@ -627,12 +627,12 @@ export class AppStore {
     void (has ? this.io.bookmarkRemove?.(tab.path, line) : this.io.bookmarkAdd?.(tab.path, line));
   }
 
-  /** 책갈피로 이동. */
+  /** 책갈피로 이동 — 목차·앵커와 같은 부드러운 스크롤. */
   gotoBookmark(line: number): void {
     if (!this.view) return;
     const doc = this.view.state.doc;
     const l = doc.line(Math.min(Math.max(line, 1), doc.lines));
-    this.view.dispatch({ selection: { anchor: l.from }, scrollIntoView: true });
+    smoothScrollIntoView(this.view, l.from);
   }
 
   /** 이미지 표시 폭 변경(원문 불변 — 사이드카에만 저장). */

@@ -630,9 +630,17 @@ export function App(): JSX.Element {
 }
 
 /** 탭의 문서 스타일 → 내보내기 옵션(라이브 프리뷰와 동일 값). */
-function exportStyleOf(tab: { docStyle: { font: "system" | "serif" | "round" | "mono"; fontSize: number; lineHeight: number; firstLineIndent: boolean; accent: string | null } | null }): {
+function exportStyleOf(tab: {
+  docStyle: {
+    font: "system" | "serif" | "round" | "mono";
+    fontSize: number;
+    lineHeight: number;
+    firstLineIndent: boolean;
+    accent: string | null;
+  } | null;
+}): {
   font: "system" | "serif" | "round" | "mono";
-  fontSize: number;
+  sizePt: number;
   lineHeight: number;
   firstLineIndent: boolean;
   accent: string | null;
@@ -640,7 +648,7 @@ function exportStyleOf(tab: { docStyle: { font: "system" | "serif" | "round" | "
   const ds = tab.docStyle;
   return {
     font: ds?.font ?? "system",
-    fontSize: ds?.fontSize ?? 0,
+    sizePt: ds && ds.fontSize > 0 ? ds.fontSize : 11,
     lineHeight: ds?.lineHeight ?? 0,
     firstLineIndent: ds?.firstLineIndent ?? false,
     accent: ds?.accent ?? null,

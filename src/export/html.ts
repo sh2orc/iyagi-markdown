@@ -20,7 +20,7 @@ export interface ExportHtmlOptions {
   /** 문서별 스타일(라이브 프리뷰와 동일 반영 — 폰트·크기·행간·들여쓰기·강조색). */
   style?: {
     font: "system" | "serif" | "round" | "mono";
-    fontSize: number;
+    sizePt: number;
     lineHeight: number;
     firstLineIndent: boolean;
     accent: string | null;
@@ -287,7 +287,7 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
           : st.font === "mono"
             ? `font-family:ui-monospace,"SF Mono",Menlo,monospace;`
             : "") +
-      (st.fontSize > 0 ? `font-size:${st.fontSize}px;` : "") +
+      (st.sizePt > 0 ? `font-size:${st.sizePt}px;` : "") +
       (st.lineHeight > 0 ? `line-height:${st.lineHeight};` : "") +
       `}` +
       (st.firstLineIndent ? `.markdown-body p{text-indent:1.25em;}` : ``) +
@@ -386,7 +386,17 @@ body{margin:0 auto;padding:24px 16px;max-width:820px;font-family:-apple-system,B
 /** DOCX 내보내기용 매니페스트(수식 MathML·다이어그램 SVG) — §4-4. */
 export async function buildDocxManifest(
   markdown: string,
-): Promise<{ math: Record<string, string>; diagrams: Record<string, string>; style?: { font: "system" | "serif" | "round" | "mono"; sizePt: number } }> {
+): Promise<{
+  math: Record<string, string>;
+  diagrams: Record<string, string>;
+  style?: {
+    font: "system" | "serif" | "round" | "mono";
+    sizePt: number;
+    lineHeight?: number;
+    firstLineIndent?: boolean;
+    accent?: string | null;
+  };
+}> {
   const math: Record<string, string> = {};
   const diagrams: Record<string, string> = {};
   const jobs: Promise<void>[] = [];

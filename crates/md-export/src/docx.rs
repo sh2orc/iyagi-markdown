@@ -72,7 +72,7 @@ pub fn export_docx(
     diagrams: &HashMap<String, String>,
     images: &ImageSource,
     out: &Path,
-    style: Option<(&str, f64)>,
+    style: Option<(&str, f64, f64, bool, String)>, // (font, pt, 행간, 들여쓰기, 강조색)
 ) -> Result<(), DocxError> {
     let mut options = Options::default();
     options.extension.table = true;
@@ -624,7 +624,12 @@ fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
 
 // — 패키지(zip) 작성 —
 
-fn write_docx_zip(out: &Path, body: &str, ctx: &Ctx, style: Option<(&str, f64)>) -> Result<(), DocxError> {
+fn write_docx_zip(
+    out: &Path,
+    body: &str,
+    ctx: &Ctx,
+    style: Option<(&str, f64, f64, bool, String)>,
+) -> Result<(), DocxError> {
     let file = std::fs::File::create(out)?;
     let mut zip = zip::ZipWriter::new(file);
     let opts: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
@@ -746,20 +751,62 @@ fn document_rels(ctx: &Ctx) -> String {
     s
 }
 
-/// 문서별 서체(라이브 프리뷰 스타일) — ascii/eastAsia 폰트와 기본 호점 크기.
-fn styles_xml(style: Option<(&str, f64)>) -> String {
-    let (ascii, east_asia, half_points) = match style.map(|(f, pt)| (f, pt)) {
-        Some(("serif", pt)) => ("Georgia", "AppleMyungjo", (pt * 2.0).round() as i64),
-        Some(("mono", pt)) => ("Menlo", "Apple SD Gothic Neo", (pt * 2.0).round() as i64),
-        Some(("round", pt)) => ("Helvetica Neue", "Apple SD Gothic Neo", (pt * 2.0).round() as i64),
-        Some((_, pt)) => ("-apple-system", "Apple SD Gothic Neo", (pt * 2.0).round() as i64),
-        None => ("-apple-system", "Apple SD Gothic Neo", 22),
+/// 문서별 서체(라이브 프리뷰 스타일) — 폰트·크기·행간·첫 줄 들여쓰기·강조색.
+fn styles_xml(style: Option<(&str, f64, f64, bool, String)>) -> String {
+    let (ascii, east_asia, half_points, line, indent, accent) = match style {
+        Some(("serif", pt, lh, fi, ac)) => (
+            "Georgia",
+            "AppleMyungjo",
+            (pt * 2.0).round() as i64,
+            if lh > 0.0 { lh } else { 1.15 },
+            fi,
+            ac.to_string(),
+        ),
+        Some(("mono", pt, lh, fi, ac)) => (
+            "Menlo",
+            "Apple SD Gothic Neo",
+            (pt * 2.0).round() as i64,
+            if lh > 0.0 { lh } else { 1.15 },
+            fi,
+            ac.to_string(),
+        ),
+        Some(("round", pt, lh, fi, ac)) => (
+            "Helvetica Neue",
+            "Apple SD Gothic Neo",
+            (pt * 2.0).round() as i64,
+            if lh > 0.0 { lh } else { 1.15 },
+            fi,
+            ac.to_string(),
+        ),
+        Some((_, pt, lh, fi, ac)) => (
+            "-apple-system",
+            "Apple SD Gothic Neo",
+            (pt * 2.0).round() as i64,
+            if lh > 0.0 { lh } else { 1.15 },
+            fi,
+            ac.to_string(),
+        ),
+        None => ("-apple-system", "Apple SD Gothic Neo", 22, 1.15, false, String::new()),
     };
     let heading_scale = |mult: f64, base: i64| ((base as f64 * mult).round() as i64).to_string();
     let base = half_points;
     let h1 = heading_scale(1.45, base);
     let h2 = heading_scale(1.24, base);
     let h3 = heading_scale(1.12, base);
+    // 행간(240 = 단일)과 첫 줄 들여쓰기(1.25em ≈ 폰트 크기의 1.25배 twip).
+    let line_rule = format!("{:.0}", (line * 240.0).round());
+    let indent_tw = format!("{:.0}", (base as f64 / 2.0) * 1.25 * 20.0);
+    let para_extra = if indent {
+        format!("<w:ind w:firstLine=\"{indent_tw}\"/>")
+    } else {
+        String::new()
+    };
+    // 강조색 — 링크색(hyperlink 스타일)으로 반영.
+    let hyperlink_color = if accent.is_empty() {
+        "0563C1".to_string()
+    } else {
+        accent.trim_start_matches('#').to_uppercase()
+    };
     STYLES_TEMPLATE
         .replace("@ASCII@", ascii)
         .replace("@EASTASIA@", east_asia)
@@ -767,11 +814,14 @@ fn styles_xml(style: Option<(&str, f64)>) -> String {
         .replace("@H1@", &h1)
         .replace("@H2@", &h2)
         .replace("@H3@", &h3)
+        .replace("@LINE@", &line_rule)
+        .replace("@INDENT@", &para_extra)
+        .replace("@LINKCLR@", &hyperlink_color)
 }
 
 const STYLES_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-<w:docDefaults><w:rPrDefault><w:rPr>
+<w:docDefaults><w:pPrDefault><w:pPr><w:spacing w:line="@LINE@" w:lineRule="auto"/>@INDENT@</w:pPr></w:pPrDefault><w:rPrDefault><w:rPr>
 <w:rFonts w:ascii="@ASCII@" w:hAnsi="@ASCII@" w:eastAsia="@EASTASIA@"/>
 <w:sz w:val="@SZ@"/><w:szCs w:val="@SZ@"/>
 </w:rPr></w:rPrDefault><w:pPrDefault/></w:docDefaults>
@@ -813,6 +863,8 @@ const STYLES_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone
 <w:bottom w:val="single" w:sz="4" w:color="B8BCC4"/><w:right w:val="single" w:sz="4" w:color="B8BCC4"/>
 <w:insideH w:val="single" w:sz="4" w:color="B8BCC4"/><w:insideV w:val="single" w:sz="4" w:color="B8BCC4"/>
 </w:tblBorders></w:tblPr></w:style>
+<w:style w:type="character" w:styleId="Hyperlink"><w:name w:val="Hyperlink"/>
+<w:rPr><w:color w:val="@LINKCLR@"/><w:u w:val="single"/></w:rPr></w:style>
 </w:styles>"#;
 
 const NUMBERING: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

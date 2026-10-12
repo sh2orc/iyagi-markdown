@@ -401,3 +401,29 @@ export function continueListOnEnter(view: EditorView): boolean {
   });
   return true;
 }
+
+/** 목록 항목 Tab/Shift-Tab 들여쓰기(Word 표준 동작) — 커서 줄의 목록 마커
+ *  앞 공백을 2칸 단위로 늘리거나 줄인다. 원문은 공백 삽입·제거만(§4-1). */
+export function indentListItem(view: EditorView, outdent: boolean): boolean {
+  const state = view.state;
+  const sel = state.selection.main;
+  const line = state.doc.lineAt(sel.head);
+  const m = /^(\s*)([-*+]|\d+[.)])\s+/.exec(line.text);
+  if (!m) return false;
+  const indent = m[1].length;
+  if (outdent) {
+    if (indent === 0) return false;
+    // 2칸(또는 남은 만큼) 제거.
+    const remove = Math.min(2, indent);
+    view.dispatch({
+      changes: { from: line.from, to: line.from + remove },
+      userEvent: "input.listOutdent",
+    });
+    return true;
+  }
+  view.dispatch({
+    changes: { from: line.from, insert: "  " },
+    userEvent: "input.listIndent",
+  });
+  return true;
+}

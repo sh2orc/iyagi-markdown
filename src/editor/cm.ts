@@ -95,6 +95,10 @@ function baseExtensions(): Extension[] {
       { key: "Mod-Shift-k", run: (v) => fmt.toggleInlineCode(v), preventDefault: true },
       // 목록 자동 계속 — 항목 끝에서 Enter면 다음 마커를 잇는다(빈 항목은 종료).
       { key: "Enter", run: (v) => fmt.continueListOnEnter(v) },
+      // 목록 들여쓰기 — Tab/Shift-Tab으로 단계 조정(Word 표준). 목록 밖에서는
+      // 기본 Tab(포커스 이동)을 그대로 둔다.
+      { key: "Tab", run: (v) => fmt.indentListItem(v, false) },
+      { key: "Shift-Tab", run: (v) => fmt.indentListItem(v, true) },
       // 강제 줄바꿈(Word Shift+Enter) — 마크다운 관례의 두 공백 + 개행.
       {
         key: "Shift-Enter",

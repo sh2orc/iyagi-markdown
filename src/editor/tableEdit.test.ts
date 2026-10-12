@@ -161,3 +161,38 @@ describe("목록 자동 계속(Enter)", () => {
     document.body.innerHTML = "";
   });
 });
+
+// 목록 들여쓰기 Tab/Shift-Tab(15차).
+import { indentListItem } from "./format";
+
+describe("목록 들여쓰기(Tab)", () => {
+  it("Tab — 마커 앞 2공백 추가", () => {
+    const view = viewWith("- 항목\n", 4);
+    indentListItem(view, false);
+    expect(view.state.doc.toString()).toBe("  - 항목\n");
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("Shift-Tab — 2공백 제거, 1공백이면 그만큼만", () => {
+    const view = viewWith("  - 항목\n", 6);
+    indentListItem(view, true);
+    expect(view.state.doc.toString()).toBe("- 항목\n");
+    const odd = viewWith(" - 항목\n", 5);
+    indentListItem(odd, true);
+    expect(odd.state.doc.toString()).toBe("- 항목\n");
+    view.destroy();
+    odd.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("최상위 항목 Shift-Tab·일반 문단 Tab — 무동작(기본 동작 유지)", () => {
+    const top = viewWith("- 항목\n", 4);
+    expect(indentListItem(top, true)).toBe(false);
+    const plain = viewWith("문단\n", 2);
+    expect(indentListItem(plain, false)).toBe(false);
+    top.destroy();
+    plain.destroy();
+    document.body.innerHTML = "";
+  });
+});
