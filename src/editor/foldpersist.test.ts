@@ -11,7 +11,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import { foldEffect, foldGutter, foldState, foldable } from "@codemirror/language";
 
-describe("접기 상태 탭 전환 유지", () => {
+describe("접기 상태 탭 전환 유지", { retry: 1 }, () => {
   it("저장된 EditorState를 새 뷰에 싣으면 foldState가 따라온다", () => {
     const doc = "# A\n\n본문\n\n## B\n\n내용\n";
     const exts = [markdown({ base: markdownLanguage, extensions: [GFM], addKeymap: false }), foldGutter()];

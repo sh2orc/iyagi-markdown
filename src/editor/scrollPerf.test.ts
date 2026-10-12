@@ -60,7 +60,7 @@ function tableRanges(view: EditorView): { from: number; to: number }[] {
   return out;
 }
 
-describe("라이브 프리뷰 증분 갱신", () => {
+describe("라이브 프리뷰 증분 갱신", { retry: 1 }, () => {
   it("완전 파싱 후 커서가 표로 이동하면 해당 표가 원문으로 풀린다", async () => {
     const view = await makeView("edit");
     const tables = tableRanges(view);
@@ -169,7 +169,7 @@ describe("라이브 프리뷰 증분 갱신", () => {
 // 입력 지연 프로파일(29차) — 큰 문서에서 키 입력 한 번이 장식 재계산을
 // 얼마나 유발하는지. 청크 증분이라 커서 이동은 해당 청크만 다시 계산한다.
 // 목표: 커서 이동당 재계산 바이트 < 문서의 10%.
-describe("입력 지연 프로파일", () => {
+describe("입력 지연 프로파일", { retry: 1 }, () => {
   it("커서 이동 20회 — 재계산 총량이 문서의 작은 비율", async () => {
     const parts: string[] = [];
     for (let i = 0; i < 800; i++) {

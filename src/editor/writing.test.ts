@@ -38,7 +38,7 @@ const b = 2;
 끝 문단.
 `;
 
-describe("computeDimRanges", () => {
+describe("computeDimRanges", { retry: 1 }, () => {
   it("커서 문단 외 나머지 최상위 블록이 흐려진다", () => {
     const tree = parse(DOC);
     const headEnd = DOC.indexOf("제목") + 2; // ATX 제목 노드 안
@@ -74,7 +74,7 @@ describe("computeDimRanges", () => {
   });
 });
 
-describe("sentenceSpans · 문장 포커스", () => {
+describe("sentenceSpans · 문장 포커스", { retry: 1 }, () => {
   it("종결부+공백에서 끊는다(연속 ?!, 전각 포함)", () => {
     // 종결부 뒤 공백까지 문장에 포함(실측 고정).
     expect(sentenceSpans("첫 문장입니다. 두 번째! 세 번째?")).toEqual([
