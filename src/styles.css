@@ -2358,3 +2358,10 @@ body.resizing .toc {
 
 /* — 단축키 패널 검색 — */
 .sc-search { margin: 10px 16px 0; width: calc(100% - 32px); }
+
+/* — 인쇄 미리보기 조절(여백·배율 슬라이더) — */
+.print-ctl {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--md-fg-dim); white-space: nowrap;
+}
+.print-ctl input[type="range"] { width: 90px; }

@@ -3,6 +3,7 @@
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
+import { redo, undo } from "@codemirror/commands";
 
 interface Props {
   store: AppStore;
@@ -57,6 +58,11 @@ export function Toolbar({ store, t, onInsertTable,
 
   return (
     <div className="toolbar" role="toolbar">
+      <div className="tb-group">
+        <ToolBtn narrow label="↩︎" title={`${t.ctxUndo} (⌘Z)`} disabled={disabled} onClick={() => run((v) => undo(v))} />
+        <ToolBtn narrow label="↪︎" title={`${t.ctxRedo} (⇧⌘Z)`} disabled={disabled} onClick={() => run((v) => redo(v))} />
+      </div>
+      <Sep />
       <div className="tb-group">
         <ToolBtn label={<b>B</b>} title={`${t.tbBold} (⌘B)`} disabled={disabled} active={!!tab?.marks.bold} onClick={() => run(fmt.toggleBold)} />
         <ToolBtn label={<i>I</i>} title={`${t.tbItalic} (⌘I)`} disabled={disabled} active={!!tab?.marks.italic} onClick={() => run(fmt.toggleItalic)} />

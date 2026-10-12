@@ -20,6 +20,15 @@ export function PrintPreview({ store, t, onExport, onCancel }: Props): JSX.Eleme
   const tab = store.active;
   const [html, setHtml] = useState<string | null>(null);
   const [paper, setPaper] = useState<"a4" | "letter" | "a5">("a4");
+  const [margin, setMargin] = useState(14);
+  const [scale, setScale] = useState(1);
+  // 옵션(용지·여백·배율) 바뀌면 재렌더 — 연속 조절에 프레임을 태우지
+  // 않게 디바운스.
+  const [renderKey, setRenderKey] = useState(0);
+  useEffect(() => {
+    const id = setTimeout(() => setRenderKey((k) => k + 1), 300);
+    return () => clearTimeout(id);
+  }, [paper, margin, scale]);
 
   useEffect(() => {
     if (!tab) return;
@@ -34,7 +43,8 @@ export function PrintPreview({ store, t, onExport, onCancel }: Props): JSX.Eleme
         baseDir: tab.path ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/" : store.state.workspace ?? "",
         theme: store.state.theme,
         forPdf: true,
-        marginMm: 14,
+        marginMm: margin,
+        scale,
         wikiResolve: (name) =>
           resolveWikiLink(
             name,
@@ -54,7 +64,9 @@ export function PrintPreview({ store, t, onExport, onCancel }: Props): JSX.Eleme
     return () => {
       alive = false;
     };
-  }, [tab, tab?.state.doc, store]);
+    // margin·scale·renderKey — 옵션 변경 재렌더.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, tab?.state.doc, store, margin, scale, renderKey]);
 
   if (!tab) return null;
 
@@ -73,7 +85,15 @@ export function PrintPreview({ store, t, onExport, onCancel }: Props): JSX.Eleme
             <option value="letter">Letter</option>
             <option value="a5">A5</option>
           </select>
-          <button className="btn btn-primary" onClick={() => onExport("pdf", { paper, orientation: "portrait", marginMm: 14, scale: 1 })}>
+          <label className="print-ctl" title={t.exportMargin}>
+            {t.exportMargin} ({margin}mm)
+            <input type="range" min={0} max={30} value={margin} onChange={(e) => setMargin(Number(e.target.value))} />
+          </label>
+          <label className="print-ctl" title={t.exportScale}>
+            {t.exportScale} ({scale.toFixed(2)}×)
+            <input type="range" min={0.5} max={2} step={0.05} value={scale} onChange={(e) => setScale(Number(e.target.value))} />
+          </label>
+          <button className="btn btn-primary" onClick={() => onExport("pdf", { paper, orientation: "portrait", marginMm: margin, scale })}>
             PDF
           </button>
           <button className="btn btn-plain" onClick={onCancel}>
