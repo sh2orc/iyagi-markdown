@@ -10,6 +10,7 @@ import type { AppStore } from "../app/store";
 import { flattenFiles, scoreFile, subsequence, type FileEntry } from "../app/quickOpen";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
+import { DOC_TEMPLATES } from "../app/templates";
 
 interface Cmd {
   id: string;
@@ -29,6 +30,7 @@ interface Props {
   onClose: () => void;
   onOpenDiff?: () => void;
   onOpenGraph?: () => void;
+  onNewFromTemplate?: (content: string) => void;
   onOpenWsSearch?: () => void;
   onOpenVersions?: () => void;
   onOpenBacklinks?: () => void;
@@ -50,6 +52,7 @@ export function CommandPalette({
   onOpenExport,
   onOpenDiff,
   onOpenGraph,
+  onNewFromTemplate,
   onOpenWsSearch,
   onOpenVersions,
   onOpenBacklinks,
@@ -113,6 +116,13 @@ export function CommandPalette({
       { id: "style", label: `${t.styleTitle} — Aa`, run: onOpenStyle },
       { id: "shortcuts", label: `${t.shortcutsTitle}`, run: onOpenShortcuts },
           ...(onOpenGraph ? [{ id: "graph", label: `${t.graphTitle}`, run: onOpenGraph }] : []),
+          ...(onNewFromTemplate
+            ? DOC_TEMPLATES.map((tpl) => ({
+                id: `tpl-${tpl.id}`,
+                label: `${t.newFromTemplate}: ${tpl.nameEn}`,
+                run: () => onNewFromTemplate(tpl.content),
+              }))
+            : []),
       ...(onOpenDiff ? [{ id: "diff", label: `${t.diffTitle}…`, run: onOpenDiff }] : []),
       { id: "wssearch", label: `${t.wsSearchTitle} ⇧⌘F`, run: () => onOpenWsSearch?.() },
       { id: "versions", label: `${t.scFile}: ${t.versionsTitle}`, run: () => onOpenVersions?.() },

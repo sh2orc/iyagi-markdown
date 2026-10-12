@@ -900,6 +900,10 @@ export function App(): JSX.Element {
           onOpenExport={(kind) => store.setExportKind(kind)}
           onOpenDiff={() => setDiffOpen(true)}
           onOpenGraph={() => setGraphOpen(true)}
+          onNewFromTemplate={(content) => {
+            store.setExportKind(null);
+            store.newTabWithContent(content);
+          }}
           onOpenWsSearch={() => setWsSearchOpen(true)}
           onOpenVersions={() => setVersionsOpen(true)}
           onOpenBacklinks={() => setBacklinksOpen(true)}

@@ -275,6 +275,38 @@ export class AppStore {
     this.scheduleSessionSave();
   }
 
+  /** 지정 내용으로 새 탭(템플릿) — 원문은 그 내용이 곧 원문이 된다. */
+  newTabWithContent(content: string): void {
+    const tabMode = this.state.settings.defaultMode;
+    const tab: Tab = {
+      id: `t${nextTabId++}`,
+      path: null,
+      title: "",
+      state: createDocState(content, tabMode),
+      mode: tabMode,
+      savedText: content,
+      meta: { hadBom: false, crlf: false },
+      savedMtime: 0,
+      scroll: 0,
+      cursorLine: 1,
+      cursorCol: 1,
+      conflict: null,
+      docStyle: null,
+      marks: { bold: false, italic: false, strike: false, code: false, link: false },
+      selChars: 0,
+      bookmarks: [],
+      dirty: false,
+      words: countWords(stripFrontMatter(content)),
+      chars: stripFrontMatter(content).length,
+      checkbox: checkboxOf(content),
+      backlinks: 0,
+    };
+    this.state.tabs.push(tab);
+    this.activate(tab.id);
+    this.emit();
+    this.scheduleSessionSave();
+  }
+
   newTab(): void {
     const tab: Tab = {
       id: `t${nextTabId++}`,
