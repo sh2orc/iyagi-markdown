@@ -60,6 +60,15 @@ const GROUPS = (t: Translate): Array<{ title: string; items: [string, string][] 
       ["우클릭", `${t.ctxAddRow} · ${t.ctxAlign}`],
     ],
   },
+  {
+    title: t.scMousePalette,
+    items: [
+      ["⌘⇧P + @", t.helpSymbolMode],
+      ["거터 ▾", t.helpFold],
+      ["호버", t.helpWikiHover],
+      ["⌘⇧P", `${t.speakStart} · ${t.speakStop}`],
+    ],
+  },
 ];
 
 export function ShortcutsPanel({ t, onClose }: Props): JSX.Element {
