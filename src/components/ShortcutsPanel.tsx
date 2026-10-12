@@ -27,6 +27,7 @@ const GROUPS = (t: Translate): Array<{ title: string; items: [string, string][] 
       ["⇧⌘B", t.toggleSidebar],
       ["⇧⌘T", t.tocTitle],
       ["⌘F", t.findPlaceholder],
+      ["⇧⌘F", t.wsSearchTitle],
       ["⌘G / ⇧⌘G", `${t.findNext ?? t.findPlaceholder} / ${t.findPrev ?? t.findPlaceholder}`],
       ["⌘+ / ⌘− / ⌘0", `${t.zoomIn} · ${t.zoomOut}`],
       ["⇧⌘] / ⇧⌘[", `${t.nextTab ?? t.tbBullet} / ${t.prevTab ?? t.tbBullet}`],

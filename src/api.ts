@@ -70,6 +70,14 @@ export interface RecentEntry {
   name: string;
 }
 
+/** 워크스페이스 전체 검색 결과(줄 조각) — Rust search_tree와 같은 모양. */
+export interface SearchHit {
+  path: string;
+  /** 1부터 시작. */
+  lineNo: number;
+  line: string;
+}
+
 export interface PdfOptions {
   paper: "a4" | "letter" | "a5";
   orientation: "portrait" | "landscape";
@@ -139,6 +147,8 @@ export const api = {
     invoke<WriteOutcome>("write_document", { path, text, meta }),
   readFileBytes: (path: string) => invoke<number[]>("read_file_bytes", { path }),
   scanWorkspace: (root: string) => invoke<TreeNode[]>("scan_workspace", { root }),
+  searchWorkspace: (root: string, query: string) =>
+    invoke<SearchHit[]>("search_workspace", { root, query }),
   getSettings: () => invoke<Settings>("get_settings"),
   setSettings: (settings: Settings) => invoke<void>("set_settings", { settings }),
   getSession: () => invoke<SessionState | null>("get_session"),

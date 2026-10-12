@@ -39,6 +39,7 @@ import { PrintPreview } from "./components/PrintPreview";
 import { ShortcutsPanel } from "./components/ShortcutsPanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { CommandPalette } from "./components/CommandPalette";
+import { WorkspaceSearch } from "./components/WorkspaceSearch";
 import { ImageViewer } from "./components/ImageViewer";
 import { DiffPanel } from "./components/DiffPanel";
 import * as fmt from "./editor/format";
@@ -101,6 +102,7 @@ export function App(): JSX.Element {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [wsSearchOpen, setWsSearchOpen] = useState(false);
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
 
@@ -121,6 +123,7 @@ export function App(): JSX.Element {
     shortcutsOpen ||
     statsOpen ||
     paletteOpen ||
+    wsSearchOpen ||
     diffOpen ||
     state.exportKind ||
     state.busy ||
@@ -409,6 +412,9 @@ export function App(): JSX.Element {
         case "command-palette":
           setPaletteOpen(true);
           break;
+        case "workspace-search":
+          setWsSearchOpen(true);
+          break;
         case "new-tab":
           store.newTab();
           break;
@@ -446,6 +452,9 @@ export function App(): JSX.Element {
         }
         case "find":
           store.setSearchOpen(true);
+          break;
+        case "workspace-search":
+          setWsSearchOpen(true);
           break;
         case "mode-edit":
           store.setMode("edit");
@@ -520,7 +529,8 @@ export function App(): JSX.Element {
         store.setMode(store.active?.mode === "source" ? "edit" : "source");
       } else if (key === "f") {
         e.preventDefault();
-        store.setSearchOpen(true);
+        if (e.shiftKey) setWsSearchOpen(true);
+        else store.setSearchOpen(true);
       } else if (key === "s") {
         e.preventDefault();
         if (e.shiftKey) void saveAs();
@@ -638,6 +648,21 @@ export function App(): JSX.Element {
     [],
   );
 
+  // — 전체 검색 결과 열기: 문서를 열고(활성 탭이면 전환만) 커서를 해당 줄에.
+  //    activate()가 뷰 상태를 동기로 갈아끼우므로 then 안에서 즉시 스크롤해도 된다.
+  const revealInPath = useCallback(
+    (path: string, lineNo: number) => {
+      void store.openPath(path).then(() => {
+        const view = editorView.current;
+        if (!view) return;
+        const line = view.state.doc.line(Math.min(Math.max(lineNo, 1), view.state.doc.lines));
+        view.dispatch({ selection: { anchor: line.from } });
+        smoothScrollIntoView(view, line.from);
+      });
+    },
+    [store],
+  );
+
   // — 링크 클릭(에디터 장식) —
   useEffect(() => {
     setLinkClickHandler((url, baseDir) => {
@@ -732,6 +757,15 @@ export function App(): JSX.Element {
           onOpenPrint={() => setPrintOpen(true)}
           onOpenExport={(kind) => store.setExportKind(kind)}
           onOpenDiff={() => setDiffOpen(true)}
+          onOpenWsSearch={() => setWsSearchOpen(true)}
+        />
+      )}
+      {wsSearchOpen && (
+        <WorkspaceSearch
+          store={store}
+          t={t}
+          onClose={() => setWsSearchOpen(false)}
+          onOpenHit={revealInPath}
         />
       )}
       {shortcutsOpen && <ShortcutsPanel t={t} onClose={() => setShortcutsOpen(false)} />}

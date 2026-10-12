@@ -135,6 +135,23 @@ pub async fn scan_workspace(root: String) -> Result<Vec<TreeNode>, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// 워크스페이스 전체 텍스트 검색 — 파일 전체를 읽는 무거운 IO라 같은 이유로
+/// 스레드 풀에서(4차 교훈과 동일한 패턴).
+#[tauri::command]
+pub async fn search_workspace(
+    root: String,
+    query: String,
+) -> Result<Vec<md_core::search::SearchHit>, String> {
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        md_core::search::search_tree(Path::new(&root), &query, 2000).map_err(err)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // — 설정·세션·최근 문서 —
 
 #[tauri::command]

@@ -164,6 +164,7 @@ mod tests {
                 width: 900.0,
                 height: 700.0,
             }),
+            aux_window: None,
         };
         save(&path, &state).unwrap();
         assert_eq!(load(&path).unwrap(), state);

@@ -140,6 +140,12 @@ const en = {
   scMoveLines: "Move line up/down",
   scDuplicateLine: "Duplicate line",
   scDeleteLines: "Delete line(s)",
+  wsSearchTitle: "Search in Folder",
+  wsSearchPlaceholder: "Search all documents…",
+  wsSearchHint: "Searches every .md file in the open folder.",
+  wsSearchNoFolder: "Open a folder first.",
+  wsSearchNoMatch: "No matches.",
+
   diffTitle: "Compare",
   diffPick: "Choose File…",
   diffSame: "Documents are identical.",
@@ -313,6 +319,12 @@ const ko: Dict = {
   scMoveLines: "줄 위/아래로 이동",
   scDuplicateLine: "줄 복제",
   scDeleteLines: "줄 삭제",
+  wsSearchTitle: "폴더에서 검색",
+  wsSearchPlaceholder: "모든 문서에서 검색…",
+  wsSearchHint: "열린 폴더의 모든 .md 파일 내용을 검색합니다.",
+  wsSearchNoFolder: "먼저 폴더를 여세요.",
+  wsSearchNoMatch: "일치하는 결과가 없습니다.",
+
   diffTitle: "문서 비교",
   diffPick: "파일 선택…",
   diffSame: "두 문서가 같습니다.",
@@ -367,6 +379,7 @@ const enF = {
   lines: (n: number) => `${n.toLocaleString()} lines`,
   exportDone: (name: string) => `Exported ${name}`,
   replaced: (n: number) => `Replaced ${n.toLocaleString()} matches`,
+  wsTruncated: (n: number) => `Showing first ${n.toLocaleString()} — narrow your search`,
 };
 const koF = {
   findCount: (n: number, total: number) => `${total}개 중 ${n}`,
@@ -375,6 +388,7 @@ const koF = {
   lines: (n: number) => `줄 ${n.toLocaleString()}개`,
   exportDone: (name: string) => `${name}을(를) 내보냈습니다`,
   replaced: (n: number) => `${n.toLocaleString()}곳을 바꿨습니다`,
+  wsTruncated: (n: number) => `앞 ${n.toLocaleString()}개만 표시 — 검색어를 좁혀보세요`,
 };
 
 const dicts: Record<Lang, Dict> = { en, ko };

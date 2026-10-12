@@ -160,6 +160,12 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
                 Some("Shift+CmdOrCtrl+G"),
             )?,
             &mi(app, "replace", t(Msg::Replace), Some("Alt+CmdOrCtrl+F"))?,
+            &mi(
+                app,
+                "workspace-search",
+                t(Msg::WorkspaceSearch),
+                Some("Shift+CmdOrCtrl+F"),
+            )?,
         ],
     )?;
 

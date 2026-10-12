@@ -58,6 +58,7 @@ pub fn run() {
             commands::write_document,
             commands::read_file_bytes,
             commands::scan_workspace,
+            commands::search_workspace,
             commands::get_settings,
             commands::set_settings,
             commands::get_session,

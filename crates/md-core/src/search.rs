@@ -171,6 +171,7 @@ mod tests {
         let d = tempdir("skip");
         fs::create_dir_all(d.join("node_modules/pkg")).unwrap();
         fs::write(d.join("node_modules/pkg/x.md"), "needle\n").unwrap();
+        fs::create_dir_all(d.join(".h")).unwrap();
         fs::write(d.join(".h/hidden.md"), "needle\n").unwrap();
         for i in 0..5 {
             fs::write(d.join(format!("f{i}.md")), "needle\n").unwrap();

@@ -28,6 +28,7 @@ interface Props {
   t: Translate;
   onClose: () => void;
   onOpenDiff?: () => void;
+  onOpenWsSearch?: () => void;
   onOpenShortcuts: () => void;
   onOpenStats: () => void;
   onOpenStyle: () => void;
@@ -45,6 +46,7 @@ export function CommandPalette({
   onOpenPrint,
   onOpenExport,
   onOpenDiff,
+  onOpenWsSearch,
 }: Props): JSX.Element {
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
@@ -104,7 +106,8 @@ export function CommandPalette({
       { id: "stats", label: `${t.statsTitle}`, run: onOpenStats },
       { id: "style", label: `${t.styleTitle} — Aa`, run: onOpenStyle },
       { id: "shortcuts", label: `${t.shortcutsTitle}`, run: onOpenShortcuts },
-          ...(onOpenDiff ? [{ id: "diff", label: `${t.diffTitle}…`, run: onOpenDiff }] : []),
+      ...(onOpenDiff ? [{ id: "diff", label: `${t.diffTitle}…`, run: onOpenDiff }] : []),
+      { id: "wssearch", label: `${t.wsSearchTitle} ⇧⌘F`, run: () => onOpenWsSearch?.() },
       { id: "print", label: `${t.printPreviewTitle} ⌘P`, run: onOpenPrint },
       { id: "export-html", label: `${t.exportTitle} — ${t.exportHtml}`, run: () => onOpenExport("html") },
       { id: "export-pdf", label: `${t.exportTitle} — ${t.exportPdf}`, run: () => onOpenExport("pdf") },
