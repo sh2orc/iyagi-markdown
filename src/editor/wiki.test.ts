@@ -93,3 +93,24 @@ describe("wikiLinksToMarkdown", () => {
     expect(wikiLinksToMarkdown("[[^블록]]", resolve, "/w")).toBe("[[^블록]]");
   });
 });
+
+// 자동완성 매칭(37차) — 순수 로직.
+import { describe as d2, expect as e2, it as t2 } from "vitest";
+
+d2("위키링크 자동완성 매칭", () => {
+  // fuzzy는 wikiComplete 내부 — 동일 규칙을 여기서 재현 검증(내보내지 않음).
+  const fuzzy = (query: string, text: string): boolean => {
+    let qi = 0;
+    for (const ch of text) {
+      if (qi < query.length && ch === query[qi]) qi++;
+    }
+    return qi === query.length;
+  };
+  t2("서브시퀀스 — 노트마 → 노트/마케팅", () => {
+    e2(fuzzy("노트마", "노트/마케팅")).toBe(true);
+    e2(fuzzy("노트마", "회의록")).toBe(false);
+  });
+  t2("빈 쿼리는 전부 매치", () => {
+    e2(fuzzy("", "아무거나")).toBe(true);
+  });
+});

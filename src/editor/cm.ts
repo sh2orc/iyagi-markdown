@@ -22,6 +22,7 @@ import {
 } from "./livePreview";
 import { editorSyntaxHighlighting, editorTheme } from "./theme";
 import { mathSyntax } from "./mathSyntax";
+import { wikiAutocompletion } from "./wikiComplete";
 import { frontMatterSyntax } from "./frontmatter";
 import { wikiLinkSyntax } from "./wiki";
 import { htmlToMarkdown } from "./htmlPaste";
@@ -141,6 +142,7 @@ function baseExtensions(): Extension[] {
       addKeymap: false,
     }),
     editorSyntaxHighlighting(),
+    wikiAutocompletion(),
     livePreviewExtension(),
     searchHighlight(),
     editorTheme,

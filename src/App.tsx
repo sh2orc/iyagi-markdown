@@ -35,6 +35,7 @@ import { MiniToolbar } from "./components/MiniToolbar";
 import { ContextMenu } from "./components/ContextMenu";
 import { setImageResizeHandler, setImageViewerHandler, setTableHeaderClickHandler } from "./editor/widgets";
 import { setTableWidthsSaveHandler } from "./editor/livePreview";
+import { setWikiDocsProvider, type WikiDoc } from "./editor/wikiComplete";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { StylePanel } from "./components/StylePanel";
 import { PrintPreview } from "./components/PrintPreview";
@@ -641,6 +642,12 @@ export function App(): JSX.Element {
     return () => window.removeEventListener("keydown", onEsc);
   }, [closeAsk, state.exportKind, styleOpen, settingsOpen, store]);
 
+  // 위키링크 자동완성 목록 — 트리 기반(워크스페이스 문서들).
+  useEffect(() => {
+    setWikiDocsProvider(() => wikiDocsOf(state.tree));
+    return () => setWikiDocsProvider(null);
+  }, [state.tree]);
+
   // — CSS 변수로 테마·글꼴 반영 —
   useEffect(() => {
     const root = document.documentElement;
@@ -886,6 +893,33 @@ function updateSettings(
   const next = { ...store.state.settings, ...patch };
   store.setSettings(next);
   if (isInApp()) void api.setSettings(next).catch(() => {});
+}
+
+/** 트리 → 자동완성 문서 목록(이름 충돌 시 상대경로 포함). */
+function wikiDocsOf(tree: import("./api").TreeNode[]): WikiDoc[] {
+  const out: WikiDoc[] = [];
+  const seen = new Map<string, number>();
+  const walk = (nodes: import("./api").TreeNode[], prefix: string): void => {
+    for (const n of nodes) {
+      if (n.kind === "dir") {
+        walk(n.children ?? [], prefix ? `${prefix}/${n.name}` : n.name);
+      } else if (n.kind === "file") {
+        const stem = n.stem ?? n.name;
+        const count = (seen.get(stem) ?? 0) + 1;
+        seen.set(stem, count);
+        out.push({ name: stem, path: n.path });
+      }
+    }
+  };
+  walk(tree, "");
+  // 동일 stem이 여러 개면 상대경로를 이름에 포함해 구분 표시(표시 전용).
+  for (const d of out) {
+    if ((seen.get(d.name) ?? 0) > 1) {
+      const rel = d.path.split("/").slice(-3, -1).join("/");
+      if (rel) d.name = `${d.name} (${rel})`;
+    }
+  }
+  return out;
 }
 
 function detectBrowserLang(): Lang {
