@@ -149,6 +149,7 @@ export function CommandPalette({
         { id: "align-l", label: `${t.ctxAlign}: ${t.alignLeft}`, run: go(() => fmt.tableAlignColumn(view, "left")) },
         { id: "align-c", label: `${t.ctxAlign}: ${t.alignCenter}`, run: go(() => fmt.tableAlignColumn(view, "center")) },
         { id: "align-r", label: `${t.ctxAlign}: ${t.alignRight}`, run: go(() => fmt.tableAlignColumn(view, "right")) },
+        { id: "table-format", label: `${t.scTable}: ${t.ctxFormatTable}`, run: go(() => fmt.formatTable(view)) },
       );
       const win = store.active?.path;
       if (win && isInApp()) {

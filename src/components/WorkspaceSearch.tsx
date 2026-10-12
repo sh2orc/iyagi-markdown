@@ -25,6 +25,8 @@ interface Props {
   t: Translate;
   onClose: () => void;
   onOpenHit: (path: string, lineNo: number) => void;
+  /** 초기 검색어(태그 클릭 등 — 패널이 열리며 채워진다). */
+  initialQuery?: string;
 }
 
 /** 같은 파일의 매치를 하나의 묶음으로 — Rust 결과는 도달 순이라 이미 연속. */
@@ -43,8 +45,8 @@ export function groupHits(hits: SearchHit[], root: string): Group[] {
   return out;
 }
 
-export function WorkspaceSearch({ store, t, onClose, onOpenHit }: Props): JSX.Element {
-  const [query, setQuery] = useState("");
+export function WorkspaceSearch({ store, t, onClose, onOpenHit, initialQuery }: Props): JSX.Element {
+  const [query, setQuery] = useState(initialQuery ?? "");
   const [sel, setSel] = useState(0);
   const [truncated, setTruncated] = useState(false);
   /** 결과를 만든 쿼리 — 하이라이트가 타이핑 도중 어긋나지 않게 함께 저장. */

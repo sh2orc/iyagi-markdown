@@ -46,6 +46,12 @@ export function setViewListener(fn: ViewListener | null) {
   listener = fn;
 }
 
+/** 태그 클릭 처리기(App이 설치 — 태그 검색 열기). */
+let tagClickHandler: ((tag: string) => void) | null = null;
+export function setTagClickHandler(fn: ((tag: string) => void) | null): void {
+  tagClickHandler = fn;
+}
+
 /** 링크 클릭 처리기(App이 설치 — 내부 열기/외부 브라우저 분기). */
 let linkClickHandler: ((url: string, baseDir: string) => void) | null = null;
 export function setLinkClickHandler(fn: ((url: string, baseDir: string) => void) | null) {
@@ -255,6 +261,19 @@ function baseExtensions(): Extension[] {
       },
       mousedown(event, view) {
         const target = event.target as HTMLElement | null;
+        // 해시태그 클릭 → 워크스페이스 태그 검색으로.
+        const tagEl = target?.closest?.(".md-tag");
+        if (tagEl) {
+          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (pos != null) {
+            const line = view.state.doc.lineAt(pos);
+            const m = /#[\p{L}\p{N}_\-\/]+/u.exec(line.text.slice(Math.max(0, pos - line.from - 1)));
+            const tagText = (m?.[0] ?? tagEl.textContent ?? "").replace(/^#/, "");
+            event.preventDefault();
+            tagClickHandler?.(tagText);
+            return true;
+          }
+        }
         // 각주 참조 → 정의 줄로 이동(Word 각주 이동).
         const fnEl = target?.closest?.(".md-footnote-ref");
         if (fnEl) {

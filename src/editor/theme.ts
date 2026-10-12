@@ -165,6 +165,14 @@ export const editorTheme = EditorView.theme({
     cursor: "pointer",
   },
   ".md-html": { color: "var(--md-raw)" },
+  ".md-tag": {
+    color: "var(--md-accent)",
+    backgroundColor: "var(--md-accent-soft)",
+    borderRadius: "999px",
+    padding: "0.05em 0.5em",
+    fontSize: "0.9em",
+    cursor: "pointer",
+  },
   ".md-footnote-ref": {
     color: "var(--md-link)",
     fontSize: "0.72em",

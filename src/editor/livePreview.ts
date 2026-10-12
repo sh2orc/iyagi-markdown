@@ -316,6 +316,28 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
         }
       },
     });
+    // 해시태그 마크(#태그) — 청크 창 안에서 인식(제목/코드펜스 규칙은
+    // extractTags와 같은 정규식으로 여기선 간단히: 경계 + # + 태그문자).
+    {
+      const firstLineNo2 = doc.lineAt(chunkFrom).number;
+      const lastLineNo2 = doc.lineAt(Math.min(chunkTo, doc.length)).number;
+      const inCode = (from: number) => codeRanges.some(([cf, ct]) => from >= cf && from <= ct);
+      for (let n = firstLineNo2; n <= lastLineNo2; n++) {
+        const line = doc.line(n);
+        if (/^\s*(```|~~~)/.test(line.text)) continue; // 펜스 줄 자체
+        const re = /(^|\s)(#[\p{L}\p{N}_\-\/]+)/gu;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(line.text))) {
+          const name = m[2].slice(1);
+          if (/^\p{N}/u.test(name)) continue;
+          if (/^#{1,6}\s/.test(line.text) && m.index === 0) continue; // ATX 제목 표시
+          const from = line.from + m.index + m[1].length;
+          const to = from + m[2].length;
+          if (inCode(from)) continue;
+          ranges.push(Decoration.mark({ class: "md-tag" }).range(from, to));
+        }
+      }
+    }
     // 책갈피 줄 장식 — 청크 창 안의 줄만(별 배지 + 왼쪽 강조선).
     for (const bm of bookmarks) {
       const line = doc.line(Math.min(Math.max(bm, 1), doc.lines));

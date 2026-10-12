@@ -3,6 +3,8 @@
 
 import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { formatTableText } from "./tableFormat";
+import { syntaxTree } from "@codemirror/language";
 
 /** 선택 각 줄의 앞뒤에 마커를 넣는다(굵게/기울임/취소선/코드). */
 function wrapSelection(view: EditorView, marker: string): boolean {
@@ -535,6 +537,34 @@ export function deleteLines(view: EditorView): boolean {
   view.dispatch({
     changes: { from, to },
     userEvent: "delete.deleteLines",
+  });
+  return true;
+}
+
+
+// — 표 자동 정렬(tableFormat) —
+
+/** 커서(또는 선택이 닿는) 표를 정렬된 형태로 다시 쓴다(원문 무손실 —
+ *  셀 내용·정렬 표시 유지, 배열만 바뀐다). */
+export function formatTable(view: EditorView): boolean {
+  const { state } = view;
+  const sel = state.selection.main;
+  const found: Array<{ from: number; to: number }> = [];
+  syntaxTree(state).iterate({
+    enter: (node) => {
+      if (node.name !== "Table") return;
+      const hits = node.from <= sel.head && sel.head <= node.to;
+      const overlaps = node.from < sel.to && sel.from < node.to;
+      if (hits || overlaps) found.push({ from: node.from, to: node.to });
+    },
+  });
+  const table = found[found.length - 1];
+  if (!table) return false;
+  const formatted = formatTableText(state.sliceDoc(table.from, table.to));
+  if (formatted === null) return false;
+  view.dispatch({
+    changes: { from: table.from, to: table.to, insert: formatted },
+    userEvent: "format.table",
   });
   return true;
 }
