@@ -31,7 +31,7 @@ import { ExportSheet } from "./components/ExportSheet";
 import { Toolbar } from "./components/Toolbar";
 import { MiniToolbar } from "./components/MiniToolbar";
 import { ContextMenu } from "./components/ContextMenu";
-import { setImageResizeHandler, setImageViewerHandler } from "./editor/widgets";
+import { setImageResizeHandler, setImageViewerHandler, setTableHeaderClickHandler } from "./editor/widgets";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { StylePanel } from "./components/StylePanel";
 import { PrintPreview } from "./components/PrintPreview";
@@ -39,6 +39,7 @@ import { ShortcutsPanel } from "./components/ShortcutsPanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { ImageViewer } from "./components/ImageViewer";
+import * as fmt from "./editor/format";
 
 const ioAdapter = {
   readDocument: (path: string) => api.readDocument(path),
@@ -174,9 +175,49 @@ export function App(): JSX.Element {
   useEffect(() => {
     setImageResizeHandler((src, pct) => store.setImageWidth(src, pct));
     setImageViewerHandler((src, alt) => setViewer({ src, alt }));
+    setTableHeaderClickHandler((col, reset) => {
+      const view = store.view;
+      const tab = store.active;
+      if (!view || !tab || tab.mode === "read") return;
+      // 클릭한 열의 데이터 행 셀 안쪽으로 커서 → tableAlignColumn의 기준이 된다.
+      const t = fmt.tableAround(view);
+      if (!t) return;
+      const dataLine = Math.min(t.lastLine, t.firstLine + 2);
+      const line = view.state.doc.line(dataLine);
+      let pipes = 0;
+      let pos = line.to;
+      for (let i = 0; i < line.text.length; i++) {
+        if (line.text[i] === "|" && line.text[i - 1] !== "\\") {
+          if (pipes === col + 1) {
+            pos = line.from + i + 1;
+            break;
+          }
+          pipes += 1;
+        }
+      }
+      view.dispatch({ selection: { anchor: Math.min(pos, line.to) } });
+      // 순환: 현재 정렬 읽어서 다음 단계로. reset(Alt+클릭)면 none.
+      const sep = view.state.doc.line(t.firstLine + 1).text;
+      const re = new RegExp(`(?:^\|)|(?:\|)\s*(:?)(-{3,})(:?)\s*(?=\|)`, "g");
+      let m: RegExpExecArray | null;
+      let cur: "none" | "left" | "center" | "right" = "none";
+      let idx = 0;
+      while ((m = re.exec(sep))) {
+        if (idx === col) {
+          cur = m[1] && m[3] ? "center" : m[3] ? "right" : m[1] ? "left" : "none";
+          break;
+        }
+        idx += 1;
+      }
+      const order = ["none", "left", "center", "right"] as const;
+      const next = reset ? "none" : order[(order.indexOf(cur) + 1) % order.length];
+      fmt.tableAlignColumn(view, next);
+      view.focus();
+    });
     return () => {
       setImageResizeHandler(null);
       setImageViewerHandler(null);
+      setTableHeaderClickHandler(null);
     };
   }, [store]);
 

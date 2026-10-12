@@ -320,6 +320,10 @@ export const editorTheme = EditorView.theme({
     backgroundColor: "var(--md-table-head)",
     fontWeight: "650",
     borderBottom: "2px solid var(--md-border-strong)",
+    cursor: "pointer",
+  },
+  ".md-table th:hover": {
+    backgroundColor: "var(--md-accent-soft)",
   },
   ".md-table th[data-align]::after": {
     content: "attr(data-align)",

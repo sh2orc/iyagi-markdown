@@ -246,6 +246,12 @@ export let imageResizeHandler: ((src: string, pct: number) => void) | null = nul
 
 /** 이미지 클릭 → 확대 뷰어 콜백(App이 등록). */
 export let imageViewerHandler: ((src: string, alt: string) => void) | null = null;
+
+/** 표 헤더 클릭 → (열 인덱스, altKey 여부) 콜백(App이 등록). */
+export let tableHeaderClickHandler: ((col: number, reset?: boolean) => void) | null = null;
+export function setTableHeaderClickHandler(fn: ((col: number, reset?: boolean) => void) | null): void {
+  tableHeaderClickHandler = fn;
+}
 export function setImageViewerHandler(fn: ((src: string, alt: string) => void) | null): void {
   imageViewerHandler = fn;
 }
@@ -359,6 +365,11 @@ export class TableWidget extends WidgetType {
       const th = document.createElement("th");
       const a = parsed.align[i];
       if (a) th.style.textAlign = a;
+      // 헤더 클릭 → 정렬 토글(Word 표 머리글 정렬 버튼에 대응).
+      th.addEventListener("click", (e) => {
+        e.preventDefault();
+        tableHeaderClickHandler?.(i, e.altKey);
+      });
       th.append(tableCellText(cell));
       // 정렬 상태 표시(Word 표 도구의 정렬 아이콘에 대응).
       if (a === "left") th.dataset.align = "↤";
