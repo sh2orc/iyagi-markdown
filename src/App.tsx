@@ -171,6 +171,43 @@ export function App(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 창 위치·크기 추적 — 세션 복원용(디바운스 저장).
+  useEffect(() => {
+    if (!isInApp()) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const record = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void webviewWindowApi().then(async (win) => {
+          try {
+            const pos = await win.outerPosition();
+            const size = await win.innerSize();
+            const scale = await win.scaleFactor();
+            store.setWindowRect({
+              x: pos.x / scale,
+              y: pos.y / scale,
+              width: size.width / scale,
+              height: size.height / scale,
+            });
+          } catch {
+            /* 최소화 등 */
+          }
+        });
+      }, 800);
+    };
+    void (async () => {
+      const ev = await import("@tauri-apps/api/event");
+      // 이 창의 이동·리사이즈 이벤트(권한은 core:event:default — listen).
+      await ev.listen("tauri://move", record).catch(() => {});
+      await ev.listen("tauri://resize", record).catch(() => {});
+    })();
+    record();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [store]);
+
   // 이미지 폭 조절 → 사이드카 / 이미지 클릭 → 확대 뷰어(원문 불변).
   useEffect(() => {
     setImageResizeHandler((src, pct) => store.setImageWidth(src, pct));
