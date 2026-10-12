@@ -19,7 +19,7 @@ import type {
 } from "../api";
 import { applyDocStyle, DEFAULT_DOC_STYLE as DEFAULT_DOC_STYLE_T } from "./docStyle";
 import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, type ViewMode } from "../editor/cm";
-import { applyWriting, spellcheckComp } from "../editor/writing";
+import { applyWriting, spellcheckComp, spellcheckExtension } from "../editor/writing";
 import { applySmartPunct } from "../editor/smartPunct";
 import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
 import { phrases } from "./phrases";
