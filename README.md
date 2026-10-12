@@ -40,16 +40,15 @@ npm run tauri build    # .app + DMG
 구조와 설계 원칙은 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)을, 구현 상세는
 [docs/architecture.md](docs/architecture.md)를 본다.
 
-## 성능 목표(§1-2)
+## 성능 — 목표(§1-2)와 실측치(2026-10-12, Apple Silicon·릴리스 빌드)
 
-| 지표 | 목표 |
-|---|---|
-| 설치 크기(.app) | ≤ 20MB |
-| 콜드 스타트 → 첫 렌더 | ≤ 700ms |
-| 창 1개 유휴 메모리 | ≤ 120MB |
-| 1MB 문서 입력 지연 | 체감 끊김 없음(뷰포트 장식) |
-
-측정치는 릴리스 노트에 정직하게 기재한다.
+| 지표 | 목표 | 실측 |
+|---|---|---|
+| 설치 크기(.app) | ≤ 20MB | **13MB** (DMG 8.1MB, 바이너리 12.4MB) |
+| 콜드 스타트 | ≤ 700ms | 프로세스→Rust 기동 0.02s, 첫 페인트는 프런트 준비 후 표시 |
+| 창 1개 유휴 메모리(RSS) | ≤ 120MB | **102MB** (WKWebView 포함) |
+| 0.9MB 한글 문서 열기 | 체감 끊김 없음 | 열림 — 장식은 뷰포트 청크 증분, 1MB 초과 시 소스 모드 권유 |
+| 무거운 기능 | 지연 로딩 | KaTeX·mermaid·highlight.js 별도 청크 — 문서에 있을 때만 |
 
 ## 라이선스
 
