@@ -187,11 +187,17 @@ export const api = {
     invoke<void>("export_pdf", { html, options, outPath }),
   exportDocx: (markdown: string, manifest: DocxManifest, outPath: string, baseDir: string) =>
     invoke<void>("export_docx", { markdown, manifest, outPath, baseDir }),
+  exportEpub: (body: string, title: string, language: string, css: string, outPath: string) =>
+    invoke<void>("export_epub", { body, title, language, css, outPath }),
   writeExportFile: (path: string, contents: string) =>
     invoke<void>("write_export_file", { path, contents }),
   revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),
   openInNewWindow: (path: string) => invoke<void>("open_in_new_window", { path }),
   saveClipboardImage: (dir: string) => invoke<string>("save_clipboard_image", { dir }),
+  findOrphanImages: (root: string) =>
+    invoke<Array<{ path: string; size: number }>>("find_orphan_images", { root }),
+  deleteOrphanImages: (paths: string[]) =>
+    invoke<number>("delete_orphan_images", { paths }),
   importImage: (src: string, dir: string) => invoke<string>("import_image", { src, dir }),
   docStyleGet: (path: string) => invoke<string | null>("doc_style_get", { path }),
   bookmarkList: (path: string) => invoke<number[]>("bookmark_list", { path }),

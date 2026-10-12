@@ -59,7 +59,7 @@ export interface Tab {
   chars: number;
 }
 
-export type ExportKind = "html" | "pdf" | "docx";
+export type ExportKind = "html" | "pdf" | "docx" | "epub";
 
 export interface Toast {
   id: number;

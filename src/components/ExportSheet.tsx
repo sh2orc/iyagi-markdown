@@ -28,7 +28,13 @@ export function ExportSheet({ kind, t, onRun, onCancel, pageNumbers = true, onTo
   const [scale, setScale] = useState(1);
 
   const label =
-    kind === "html" ? t.exportHtml : kind === "pdf" ? t.exportPdf : t.exportDocx;
+    kind === "html"
+      ? t.exportHtml
+      : kind === "pdf"
+        ? t.exportPdf
+        : kind === "epub"
+          ? t.exportEpub
+          : t.exportDocx;
 
   return (
     <div className="overlay modal-overlay" onClick={(e) => e.target === e.currentTarget && onCancel()}>

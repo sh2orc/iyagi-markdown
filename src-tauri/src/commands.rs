@@ -126,6 +126,34 @@ pub async fn write_document(
     })
 }
 
+/// EPUB 내보내기 — 본문 XHTML·CSS는 프런트가, 조립·zip은 md-export가.
+#[tauri::command]
+pub async fn export_epub(
+    body: String,
+    title: String,
+    language: String,
+    css: String,
+    out_path: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let chapters = vec![md_export::epub::EpubChapter {
+            title,
+            body,
+            file: "chapter1.xhtml".into(),
+        }];
+        let opts = md_export::epub::EpubOptions {
+            title: chapters[0].title.clone(),
+            author: "IYAGI Markdown".into(),
+            language,
+            css,
+            chapters,
+        };
+        md_export::epub::export_epub(&opts, std::path::Path::new(&out_path))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// 백링크 — 현재 문서를 [[이름]]으로 참조하는 문서들(전체 검색과 같은 풀).
 #[tauri::command]
 pub async fn backlinks(
@@ -432,6 +460,40 @@ pub async fn replace_workspace(
     })
     .await
     .map_err(err)?
+}
+
+/// 워크스페이스의 고아 이미지(참조 없는 assets/ 파일) 목록.
+#[tauri::command]
+pub async fn find_orphan_images(
+    root: String,
+) -> Result<Vec<md_core::search::OrphanAsset>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        md_core::search::find_orphan_assets(std::path::Path::new(&root)).map_err(err)
+    })
+    .await
+    .map_err(err)?
+}
+
+/// 고아 이미지 일괄 삭제 — 사용자 확인 후 프런트가 부른다.
+#[tauri::command]
+pub async fn delete_orphan_images(paths: Vec<String>) -> Result<u32, String> {
+    // 파일 삭제도 워커 스레드에서(메인 스레드 보호 — find_orphan_images와 동일 규칙).
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut deleted = 0u32;
+        for p in &paths {
+            let path = std::path::Path::new(p);
+            // 안전장치: 워크스페이스 assets/ 하위인지 확인(프런트가 이미 검증하지만 이중 방어).
+            if !path.to_string_lossy().contains("/assets/") {
+                continue;
+            }
+            if std::fs::remove_file(path).is_ok() {
+                deleted += 1;
+            }
+        }
+        Ok(deleted)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 클립보드 이미지 → 파일로 저장(스크린샷 붙여넣기). 문서 폴더 assets/ 하위에

@@ -442,3 +442,66 @@ mod replace_tests {
         let _ = fs::remove_dir_all(&d);
     }
 }
+
+/// 고아 자원(이미지) 정보.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrphanAsset {
+    /// 절대 경로.
+    pub path: String,
+    /// 크기(바이트).
+    pub size: u64,
+}
+
+/// 워크스페이스 루트의 assets/ 하위에서 .md 파일이 참조하지 않는 이미지 찾기.
+/// 참조 판정: 모든 .md 내용에서 파일명(또는 상대경로)이 나타나면 참조 중.
+pub fn find_orphan_assets(root: &Path) -> std::io::Result<Vec<OrphanAsset>> {
+    // 1. 모든 .md 파일의 내용을 합친다(큰 워크스페이스에서도 문자열 포함 검색이라 충분).
+    let mut all_text = String::new();
+    let mut files = Vec::new();
+    collect_files(root, 0, 12, &mut files);
+    for path in &files {
+        if let Ok(content) = fs::read_to_string(path) {
+            all_text.push_str(&content);
+            all_text.push('\n');
+        }
+    }
+    // 2. assets/ 하위의 이미지 파일을 나열.
+    let assets_dir = root.join("assets");
+    if !assets_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut orphans = Vec::new();
+    let mut asset_files = Vec::new();
+    collect_files(&assets_dir, 0, 6, &mut asset_files);
+    for path in asset_files {
+        // 이미지 확장자만.
+        let ext = path
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        if !matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp") {
+            continue;
+        }
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if name.is_empty() || name.starts_with('.') {
+            continue;
+        }
+        // 참조 여부: 파일명이 어떤 .md에 나타나는가(경로 전체가 아닌 이름으로 —
+        // `![](assets/foo.png)`든 `![[foo.png]]`든 잡히게).
+        if all_text.contains(&name) {
+            continue;
+        }
+        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        orphans.push(OrphanAsset {
+            path: path.to_string_lossy().into_owned(),
+            size,
+        });
+    }
+    // 큰 것부터.
+    orphans.sort_by(|a, b| b.size.cmp(&a.size));
+    Ok(orphans)
+}
