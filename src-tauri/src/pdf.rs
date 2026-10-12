@@ -70,6 +70,7 @@ pub async fn export_pdf(
         dims.2,
         dims.3,
         margin_px.round() as i64,
+        options.page_numbers,
     );
     tracing::debug!(
         paper = %options.paper,
@@ -91,9 +92,9 @@ pub async fn export_pdf(
 }
 
 /// 메인 스레드에서 실제 WebKit 작업을 수행한다.
-/// config = (페이지폭px, 페이지높이px, 폭pt, 높이pt, 여백px).
-fn run_on_main(html: &str, config: (i64, i64, f64, f64, i64), out: &Path) -> Result<(), String> {
-    let (page_w, page_h, pt_w, pt_h, margin) = config;
+/// config = (페이지폭px, 페이지높이px, 폭pt, 높이pt, 여백px, 페이지번호).
+fn run_on_main(html: &str, config: (i64, i64, f64, f64, i64, bool), out: &Path) -> Result<(), String> {
+    let (page_w, page_h, pt_w, pt_h, margin, page_numbers) = config;
     unsafe {
         let wk_class: &AnyClass = class!(WKWebView);
         let cfg_class: &AnyClass = class!(WKWebViewConfiguration);
@@ -227,7 +228,7 @@ fn run_on_main(html: &str, config: (i64, i64, f64, f64, i64), out: &Path) -> Res
         let wide = wide?;
 
         // 5) 슬라이스 재조립 — 소스는 그대로 벡터로 삽입된다.
-        slice_pdf_pages(&wide, total_w, page_w as f64, pt_w, pt_h, out)
+        slice_pdf_pages(&wide, total_w, page_w as f64, pt_w, pt_h, out, page_numbers)
     }
 }
 
@@ -240,6 +241,7 @@ fn slice_pdf_pages(
     pt_w: f64,
     pt_h: f64,
     out: &Path,
+    page_numbers: bool,
 ) -> Result<(), String> {
     use objc2_core_foundation::{CFRetained, CGPoint, CGRect, CGSize};
     use objc2_core_graphics::{

@@ -96,6 +96,7 @@ export interface PdfOptions {
   orientation: "portrait" | "landscape";
   marginMm: number;
   scale: number;
+  pageNumbers?: boolean;
 }
 
 export interface DocxManifest {

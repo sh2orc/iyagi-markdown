@@ -280,6 +280,9 @@ pub struct PdfOptions {
     pub margin_mm: f64,
     /// 0.5~2.0, 본문 배율.
     pub scale: f64,
+    /// 페이지 번호 하단 중앙(N / M) — CoreGraphics 오버레이.
+    #[serde(default)]
+    pub page_numbers: bool,
 }
 
 /// HTML을 숨은 WKWebView에서 PDF로(§4-4). 임시 파일은 만들지 않는다.

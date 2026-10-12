@@ -10,6 +10,8 @@ interface Props {
   t: Translate;
   onRun: (kind: ExportKind, opts: PdfOptions) => void;
   onCancel: () => void;
+  pageNumbers?: boolean;
+  onTogglePageNumbers?: (v: boolean) => void;
 }
 
 export interface PdfOptions {
@@ -19,7 +21,7 @@ export interface PdfOptions {
   scale: number;
 }
 
-export function ExportSheet({ kind, t, onRun, onCancel }: Props): JSX.Element {
+export function ExportSheet({ kind, t, onRun, onCancel, pageNumbers = true, onTogglePageNumbers }: Props): JSX.Element {
   const [paper, setPaper] = useState<"a4" | "letter" | "a5">("a4");
   const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
   const [margin, setMargin] = useState(14);
@@ -74,6 +76,16 @@ export function ExportSheet({ kind, t, onRun, onCancel }: Props): JSX.Element {
                 onChange={(e) => setScale(Number(e.target.value))}
               />
             </label>
+            {onTogglePageNumbers && (
+              <label className="settings-check">
+                <input
+                  type="checkbox"
+                  checked={pageNumbers}
+                  onChange={(e) => onTogglePageNumbers(e.target.checked)}
+                />
+                {t.exportPageNumbers}
+              </label>
+            )}
           </div>
         )}
         <p className="modal-hint">{t.exportVectorHint}</p>
