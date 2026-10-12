@@ -156,6 +156,7 @@ export const api = {
     invoke<void>("write_export_file", { path, contents }),
   revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),
   openInNewWindow: (path: string) => invoke<void>("open_in_new_window", { path }),
+  saveClipboardImage: (dir: string) => invoke<string>("save_clipboard_image", { dir }),
   docStyleGet: (path: string) => invoke<string | null>("doc_style_get", { path }),
   bookmarkList: (path: string) => invoke<number[]>("bookmark_list", { path }),
   bookmarkAdd: (path: string, lineNo: number) => invoke<void>("bookmark_add", { path, lineNo }),

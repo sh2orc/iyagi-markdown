@@ -23,6 +23,8 @@ import {
 import { editorSyntaxHighlighting, editorTheme } from "./theme";
 import { mathSyntax } from "./mathSyntax";
 import { htmlToMarkdown } from "./htmlPaste";
+import { isInApp } from "../api";
+import { relPath } from "../paths";
 import * as fmt from "./format";
 import { resetSearch, searchHighlight } from "../search/searchCm";
 
@@ -164,6 +166,36 @@ function baseExtensions(): Extension[] {
         return false; // 이번에는 기본(plain) 복사
       },
       paste(event, view) {
+        // 이미지 붙여넣기(스크린샷) — 클립보드에 파일 아닌 이미지가 있으면
+        // 문서 폴더 assets/ 에 저장하고 표준 ![...](assets/...) 참조를 삽입한다.
+        // 원문은 표준 마크다운 이미지 구문만 — 무손실(§4-2).
+        const items = event.clipboardData?.items;
+        const imgItem = items
+          ? Array.from(items).find((it) => it.kind === "file" && it.type.startsWith("image/"))
+          : undefined;
+        if (imgItem) {
+          const tab = view.state.field(previewConfigField, false);
+          const baseDir = tab?.baseDir ?? "";
+          if (baseDir && isInApp()) {
+            event.preventDefault();
+            void import("../api").then(async (a) => {
+              try {
+                const abs = await a.api.saveClipboardImage(baseDir);
+                const rel = relPath(baseDir, abs);
+                const sel = view.state.selection.main;
+                view.dispatch({
+                  changes: { from: sel.from, to: sel.to, insert: `![](assets/${rel})\n` },
+                  selection: { anchor: sel.from + 4 },
+                  userEvent: "input.pasteImage",
+                });
+              } catch (e) {
+                // 이미지 저장 실패 — 텍스트 붙여넣기로 폴백하지 않고 알린다.
+                console.warn("이미지 붙여넣기 실패", e);
+              }
+            });
+            return true;
+          }
+        }
         const text = event.clipboardData?.getData("text/plain") ?? "";
         const sel = view.state.selection.main;
         const isUrl = /^https?:\/\/\S+$/i.test(text.trim()) && !/\s/.test(text.trim());

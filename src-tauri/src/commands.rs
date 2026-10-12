@@ -347,6 +347,49 @@ fn urlencode(s: &str) -> String {
     out
 }
 
+/// 클립보드 이미지 → 파일로 저장(스크린샷 붙여넣기). 문서 폴더 assets/ 하위에
+/// PNG로 기록하고 절대 경로를 돌려준다. 원문에는 표준 이미지 참조만 삽입된다
+/// (프런트) — 저장 경로 외에는 아무 것도 기록하지 않는다.
+#[tauri::command]
+pub fn save_clipboard_image(dir: String) -> Result<String, String> {
+    use objc2::{class, msg_send};
+    use objc2_foundation::NSString;
+    let pasteboard: *mut objc2::runtime::AnyObject = unsafe {
+        let cls: &objc2::runtime::AnyClass = class!(NSPasteboard);
+        msg_send![cls, generalPasteboard]
+    };
+    if pasteboard.is_null() {
+        return Err("클립보드에 접근할 수 없습니다".into());
+    }
+    // PNG 데이터 타입 확인·추출.
+    let png_type = NSString::from_str("public.png");
+    let data: *mut objc2_foundation::NSData = unsafe {
+        msg_send![pasteboard, dataForType: &*png_type]
+    };
+    if data.is_null() {
+        return Err("클립보드에 이미지가 없습니다".into());
+    }
+    let len = unsafe { (*data).len() };
+    if len == 0 {
+        return Err("클립보드 이미지가 비었습니다".into());
+    }
+    let raw: *const std::ffi::c_void = unsafe { msg_send![data, bytes] };
+    let bytes = unsafe { std::slice::from_raw_parts(raw as *const u8, len) };
+    // assets/ 디렉터리 + 타임스탬프 파일명.
+    let dir_path = std::path::Path::new(&dir).join("assets");
+    std::fs::create_dir_all(&dir_path).map_err(err)?;
+    let name = format!(
+        "paste-{}.png",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+    let out = dir_path.join(&name);
+    md_core::io::write_bytes_atomic(&out, bytes).map_err(err)?;
+    Ok(out.to_string_lossy().into_owned())
+}
+
 // — 시스템 연동 —
 
 #[tauri::command]

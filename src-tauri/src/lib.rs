@@ -71,6 +71,7 @@ pub fn run() {
             commands::write_export_file,
             commands::reveal_in_finder,
             commands::open_logs_dir,
+            commands::save_clipboard_image,
             commands::open_in_new_window,
             style_db::doc_style_get,
             style_db::doc_style_set,
