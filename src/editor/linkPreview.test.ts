@@ -8,6 +8,7 @@ import {
   cachedLinkPreview,
   footnoteDefinition,
   previewRenderInput,
+  ttsTextOf,
   cleanMarkers,
   invalidateLinkPreviews,
   previewTextOf,
@@ -117,5 +118,12 @@ describe("footnoteDefinition", () => {
     const out = footnoteDefinition(d, "x", 100);
     expect(out.length).toBe(100);
     expect(out.endsWith("…")).toBe(true);
+  });
+});
+
+describe("ttsTextOf(TTS 정화)", () => {
+  it("마커 제거·펜스 제외·프론트매터 제외", () => {
+    const md = `---\ntitle: 메타\n---\n\n# 제목입니다\n\n**굵게**와 \`code\` 그리고 [[위키|링크]].\n\n\`\`\`js\nconsole.log(1);\n\`\`\`\n\n- 항목 하나\n`;
+    expect(ttsTextOf(md)).toBe("제목입니다\n굵게와 code 그리고 링크.\n• 항목 하나");
   });
 });

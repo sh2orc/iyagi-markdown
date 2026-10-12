@@ -62,6 +62,18 @@ export function footnoteDefinition(text: string, label: string, maxChars = 300):
   return out;
 }
 
+/** TTS 입력 정화 — 프론트매터·펜스 제외 후 마커 정리(코드 낭독은 소음).
+ *  순수 함수(테스트 대상). */
+export function ttsTextOf(markdown: string): string {
+  const body = stripFrontMatter(markdown);
+  const noFence = body.replace(/(```|~~~)[^]*?\1/g, "");
+  return noFence
+    .split("\n")
+    .map((l) => cleanMarkers(l.replace(/^\s*#{1,6}\s+/, "")))
+    .filter((l) => l.trim().length > 0)
+    .join("\n");
+}
+
 /** 표시용 마커 정리 — 굵게/기울임/코드/링크/이미지/각주/위키. */
 export function cleanMarkers(text: string): string {
   return text

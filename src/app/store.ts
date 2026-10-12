@@ -22,6 +22,7 @@ import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, t
 import { applyWriting, spellcheckComp, spellcheckExtension } from "../editor/writing";
 import { applySmartPunct } from "../editor/smartPunct";
 import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
+import { ttsTextOf } from "../editor/linkPreview";
 import { phrases } from "./phrases";
 import { buildWikiIndex } from "../editor/wiki";
 import { dirname } from "../paths";
@@ -714,9 +715,11 @@ export class AppStore {
     const tab = this.active;
     if (!tab || !this.view) return;
     const sel = this.view.state.selection.main;
+    // TTS는 마커를 발음하지 않게 정화(선택은 사용자가 본 그대로 — 마커도
+    // 선택했다면 읽어준다). 문서 전체는 펜스 제외 + 마커 정리.
     const text = !sel.empty
       ? this.view.state.doc.sliceString(sel.from, sel.to)
-      : stripFrontMatter(this.view.state.doc.toString());
+      : ttsTextOf(this.view.state.doc.toString());
     if (!text.trim()) return;
     const rate = rateOverride ?? this.state.settings.ttsRate;
     const voice = this.state.settings.ttsVoice;
