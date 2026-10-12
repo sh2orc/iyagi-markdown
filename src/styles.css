@@ -2210,3 +2210,74 @@ body.resizing .toc {
 }
 .table-dialog-preview .trow.head .tcell { background: rgba(10, 108, 214, 0.2); }
 .table-dialog-more { font-size: 12px; color: var(--md-raw, #8a919c); text-align: center; }
+
+/* — 목차 패널 v2(트리·접기·검색) — */
+.toc-head { display: flex; align-items: center; gap: 8px; }
+.toc-head .toc-head-title { flex: 1; }
+.toc-count {
+  font-size: 10px; font-weight: 600; color: var(--md-fg-dim);
+  background: var(--md-code-bg); border-radius: 99px; padding: 1px 7px;
+}
+.toc-search {
+  margin: 0 12px 8px; font-size: 12px; padding: 5px 9px;
+  border: 1px solid var(--md-border); border-radius: 7px;
+  background: var(--md-bg); color: var(--md-fg); outline: none;
+}
+.toc-search:focus { border-color: var(--md-accent); }
+.toc-search::placeholder { color: var(--md-fg-dim); }
+
+.toc-row { display: flex; align-items: stretch; }
+.toc-chevron {
+  flex: none; width: 18px; border: none; background: none; cursor: pointer;
+  color: var(--md-fg-dim); font-size: 9px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.15s ease; opacity: 0; padding: 0;
+}
+.toc-row:hover .toc-chevron { opacity: 1; }
+.toc-chevron.is-collapsed { transform: rotate(0deg); opacity: 0.85; }
+.toc-chevron:not(.is-collapsed) { transform: rotate(90deg); }
+.toc-chevron-none { width: 18px; flex: none; }
+
+.toc-item {
+  display: flex; align-items: center; gap: 6px;
+  flex: 1; min-width: 0; text-align: left; border: none; background: none;
+  color: var(--md-fg-dim); cursor: pointer;
+  font-size: 12.5px; line-height: 1.45; padding: 4px 10px 4px 6px;
+  border-left: 2px solid transparent;
+  transition: background 0.12s ease, color 0.12s ease;
+  white-space: nowrap; overflow: hidden;
+}
+.toc-item .toc-text {
+  overflow: hidden; text-overflow: ellipsis;
+  padding-left: calc(var(--d, 0) * 12px);
+  border-left: calc(var(--d, 0)) solid transparent;
+}
+/* 수준별 타이포 — H1은 굵게 크게, 깊어질수록 작고 연하게. */
+.toc-item.toc-l1 { font-size: 13px; font-weight: 600; color: var(--md-fg); margin-top: 6px; }
+.toc-item.toc-l2 { font-size: 12.5px; }
+.toc-item.toc-l3, .toc-item.toc-l4 { font-size: 12px; color: var(--md-fg-dim); }
+.toc-item.toc-l5, .toc-item.toc-l6 { font-size: 11.5px; color: var(--md-fg-dim); opacity: 0.85; }
+/* 들여쓰기 가이드 — 깊은 항목에 연한 세로선(가족 계층이 한눈에). */
+.toc-row[data-d="1"] .toc-item { margin-left: 10px; border-left-color: rgba(127, 127, 127, 0.16); }
+.toc-row[data-d="2"] .toc-item { margin-left: 22px; border-left-color: rgba(127, 127, 127, 0.12); }
+.toc-row[data-d="3"] .toc-item,
+.toc-row[data-d="4"] .toc-item,
+.toc-row[data-d="5"] .toc-item { margin-left: 34px; border-left-color: rgba(127, 127, 127, 0.1); }
+.toc-row[data-d="1"] .toc-item.is-active,
+.toc-row[data-d="2"] .toc-item.is-active { border-left-color: var(--md-accent); }
+
+.toc-item:hover { color: var(--md-fg); background: var(--md-accent-soft); }
+.toc-item.is-active {
+  color: var(--md-accent); font-weight: 600;
+  border-left-color: var(--md-accent);
+}
+.toc-item.is-sel { background: var(--md-accent-soft); }
+.toc-item.is-ancestor { color: var(--md-fg); }
+.toc-fold-badge {
+  flex: none; font-size: 10px; font-weight: 600; color: var(--md-fg-dim);
+  background: var(--md-code-bg); border-radius: 99px; padding: 0 6px; line-height: 16px;
+}
+.toc-empty-filter { padding: 8px 14px; }
+
+.toc-bookmark-item { gap: 8px; }
+.toc-bm-line { flex: none; font-size: 10px; color: var(--md-fg-dim); opacity: 0.8; min-width: 20px; text-align: right; }
