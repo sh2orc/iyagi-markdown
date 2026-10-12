@@ -125,7 +125,7 @@ export function App(): JSX.Element {
   const [brokenOpen, setBrokenOpen] = useState(false);
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
-  const [pdfPageNumbers, setPdfPageNumbers] = useState(true);
+  const [exportPageNumbers, setExportPageNumbers] = useState(true);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -417,7 +417,7 @@ export function App(): JSX.Element {
             readBytes: readBytesForExport,
             wikiResolve,
           });
-          await api.exportPdf(html, { ...opts, pageNumbers: pdfPageNumbers }, out);
+          await api.exportPdf(html, { ...opts, pageNumbers: exportPageNumbers }, out);
         } else if (kind === "epub") {
           // EPUB — 본문 조각을 XHTML로(빈 태그 자가 폐쇄) + 최소 가독 CSS.
           // 이미지는 data URI로 인라인하지 않는다 — 로컬 경로를 그대로 두면
@@ -451,6 +451,7 @@ export function App(): JSX.Element {
             firstLineIndent: ds?.firstLineIndent ?? false,
             textAlign: ds?.textAlign ?? "left",
             accent: ds?.accent ?? null,
+            pageNumbers: exportPageNumbers,
           };
           await api.exportDocx(text, manifest, out, baseDir);
         }
@@ -867,9 +868,9 @@ export function App(): JSX.Element {
 
       {/* 오버레이 */}
       {state.busy && (
-        <div className="overlay">
+        <div className="overlay" role="status" aria-live="polite">
           <div className="overlay-card">
-            <div className="spinner" />
+            <div className="spinner" aria-hidden="true" />
             {state.busy}
           </div>
         </div>
@@ -880,8 +881,8 @@ export function App(): JSX.Element {
         <ExportSheet
           kind={state.exportKind}
           t={t}
-          pageNumbers={pdfPageNumbers}
-          onTogglePageNumbers={setPdfPageNumbers}
+          pageNumbers={exportPageNumbers}
+          onTogglePageNumbers={setExportPageNumbers}
           onRun={(kind, opts) => {
             store.setExportKind(null);
             void runExport(kind, opts);
@@ -991,9 +992,14 @@ export function App(): JSX.Element {
       <ContextMenu store={store} t={t} />
       {diffOpen && <DiffPanel store={store} t={t} onClose={() => setDiffOpen(false)} />}
       {viewer && <ImageViewer src={viewer.src} alt={viewer.alt} t={t} onClose={() => setViewer(null)} />}
-      <div className="toasts">
+      {/* 라이브 영역 — 저장 확인·오류가 스크린 리더에 발표된다(에러는 즉시). */}
+      <div className="toasts" aria-live="polite">
         {state.toasts.map((toast) => (
-          <div key={toast.id} className={`toast ${toast.kind} ${toast.leaving ? "is-leaving" : ""}`}>
+          <div
+            key={toast.id}
+            className={`toast ${toast.kind} ${toast.leaving ? "is-leaving" : ""}`}
+            role={toast.kind === "error" ? "alert" : "status"}
+          >
             {toast.text}
           </div>
         ))}
