@@ -12,6 +12,7 @@ export const mathSyntax: MarkdownExtension = {
     { name: "MathBlock", block: true },
     { name: "FootnoteRef" },
     { name: "Highlight" },
+    { name: "FootnoteDef", block: true },
   ],
   parseInline: [
     {
@@ -78,6 +79,20 @@ export const mathSyntax: MarkdownExtension = {
     },
   ],
   parseBlock: [
+    {
+      // 각주 정의 [^label]: … — 문서 끝의 각주 영역을 블록으로(단일 줄).
+      // 연속 들여쓰기 줄은 v1에서 그냥 문단(소비 규칙 위반 위험 없게).
+      name: "iyagiFootnoteDef",
+      before: "HorizontalRule",
+      parse(cx, line) {
+        const t = line.text.slice(line.pos);
+        if (!/^\[\^[^\]\s]+\]:/.test(t)) return false;
+        const from = cx.lineStart + line.pos;
+        cx.nextLine();
+        cx.addElement(cx.elt("FootnoteDef", from, from + t.length));
+        return true;
+      },
+    },
     {
       name: "mathBlock",
       before: "HorizontalRule",

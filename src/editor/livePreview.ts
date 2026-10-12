@@ -495,6 +495,12 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
           return;
         }
 
+        // — 각주 정의 블록(문서 끝 영역) —
+        if (name === "FootnoteDef") {
+          addLineClasses(from, to, "md-footnote-def");
+          return;
+        }
+
         // — 하이라이트 ==텍스트==(커스텀 문법) —
         if (name === "Highlight") {
           ranges.push(Decoration.mark({ class: "md-highlight" }).range(from, to));

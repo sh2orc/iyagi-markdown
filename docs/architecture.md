@@ -1,6 +1,6 @@
 # IYAGI Markdown 구조
 
-작성: 2026-10-11 · 구현 1차 완료 시점의 실제 구조.
+작성: 2026-10-12 · 구현 완료 상태(69 커밋, 41차 고도화).
 
 ## 저장소
 
@@ -8,18 +8,35 @@
 iyagi-markdown/
 ├─ Cargo.toml              # workspace
 ├─ crates/
-│  ├─ md-core/             # 순수 Rust: 문서 IO·링크 해석·트리·세션·설정·i18n
-│  ├─ md-export/           # 순수 Rust: DOCX 생성 + SVG→DrawingML + MathML→OMML
+│  ├─ md-core/             # 순수 Rust: 문서 IO·링크·트리·세션·설정·i18n·검색·스냅숏
+│  ├─ md-export/           # 순수 Rust: DOCX(OOXML 직접 생성) + SVG→DrawingML + MathML→OMML
 │  └─ md-macos/            # macOS 전용: 선호 언어(NSUserDefaults)
-├─ src-tauri/              # Tauri 셸: 명령·감시·메뉴·창·PDF(WKWebView)
+├─ src-tauri/              # Tauri 셸: 명령·감시·메뉴·창·PDF(WKWebView)·클립보드 이미지
 ├─ src/                    # React + TS
 │  ├─ app/store.ts         # 탭·워크스페이스·설정 상태(의존 주입형 IO — 테스트 가능)
-│  ├─ editor/              # CM6: mathSyntax(§4-1 확장)·livePreview·widgets·theme·format·cm
+│  ├─ app/docStyle.ts      # 문서별 스타일(프리셋 포함) — CSS 변수 적용
+│  ├─ editor/              # CM6: mathSyntax·wikiLink·tags·highlight·livePreview·widgets
+│  │  ├─ livePreview.ts    # 청크 증분 장식(§7) — 뷰포트 범위 + 스팬 단위 노출
+│  │  ├─ writing.ts        # 타이프라이터 스크롤·포커스 모드·문장 포커스
+│  │  ├─ wikiComplete.ts   # "[[" 자동완성
+│  │  ├─ diff.ts           # 줄 단위 diff(LCS + 트리밍 휴리스틱)
+│  │  ├─ tableFormat.ts    # 표 파이프 열 맞춤(전각 폭 반영)
+│  │  ├─ frontmatter.ts    # YAML 프런트매터 파싱·표시
+│  │  └─ htmlPaste.ts      # HTML→마크다운 붙여넣기 변환
 │  ├─ plugins/             # katex·mermaid·highlight — 전부 지연 로딩
-│  ├─ search/searchCm.ts   # 검색 상태 필드 + 하이라이트 장식
+│  ├─ search/searchCm.ts   # 문서 내 검색(증분 매치 갱신)
 │  ├─ export/html.ts       # 자체 완결형 HTML 빌더 + DOCX 매니페스트
-│  ├─ components/          # TabBar·Sidebar·TocPanel·SearchPanel·모달·시트
-│  └─ api.ts               # Tauri 명령/이벤트 래퍼
+│  ├─ components/          # TabBar·Sidebar·TocPanel·SearchPanel·Toolbar·MiniToolbar
+│  │  ├─ CommandPalette.tsx # ⌘⇧P — 모든 명령 퍼지 검색
+│  │  ├─ WorkspaceSearch.tsx # ⇧⌘F — 폴더 전체 검색 + 모두 바꾸기
+│  │  ├─ DiffPanel.tsx     # 문서 비교
+│  │  ├─ VersionsPanel.tsx # 버전 기록(스냅숏)
+│  │  ├─ BacklinksPanel.tsx# 백링크
+│  │  ├─ ImageViewer.tsx   # 확대 뷰어
+│  │  ├─ ExportSheet.tsx   # HTML/PDF/DOCX 내보내기 옵션
+│  │  ├─ StylePanel.tsx    # 문서별 스타일(프리셋 포함)
+│  │  └─ PrintPreview.tsx  # 인쇄 미리보기
+│  └─ i18n.ts              # ko/en 문구
 ├─ scripts/                # tauri.mjs(안정 서명)·macos-sign-runner.sh·generate_icon.py
 └─ .github/workflows/ci.yml
 ```
@@ -33,93 +50,86 @@ iyagi-markdown/
 - 자동 검증 3종(vitest `src/preservation.test.ts`):
   (a) 무수정 저장 no-op, (b) 랜덤 편집 200회 역적용 → 원문 복원,
   (c) 모드 전환 왕복 시 내용·선택 불변. 이 실패는 릴리스 차단.
+- **모든 기능이 이 원칙 위에서 동작한다**: 서식·표 편집·위키링크·이미지 크기·
+  책갈피·스타일 — 전부 텍스트 편집이거나 SQLite 사이드카.
+
+## 사이드카 데이터(SQLite styles.db)
+
+원문을 건드리지 않고 문서별로 저장되는 것:
+
+| 테이블 | 내용 |
+|---|---|
+| `doc_style` | 폰트·크기·행간·간격·정렬·들여쓰기·강조색·이미지 폭·표 열 폭 |
+| `doc_bookmark` | 책갈피 줄 번호 |
 
 ## 라이브 프리뷰(§4-1)
 
-- 구문 트리(lezer-markdown + GFM + `$…$`/`$$…$$` 커스텀 확장)는 **표시용 읽기 전용**.
-- `livePreview.ts`가 장식을 계산해 StateField에 반영한다.
-  블록 장식(표·수식·다이어그램 위젯)은 규칙상 StateField에서 제공해야 한다.
-- **청크 단위 증분 계산(스크롤 부드러움의 핵심)**: 문서를 블록 경계로 자른
-  청크(약 12k 문자)별로 장식을 계산·캐시한다. 스크롤은 스캔 창에 새로 들어온
-  청크만, 커서 이동은 선택이 걷친 청크만, 편집·설정 변경은 캐시 폐기 후 재계산.
-  청크 경계는 항상 블록 경계(표·코드펜스·수식 등 reveal 단위 블록은 절대 쪼개지
-  않고, 긴 List·Blockquote·ListItem만 자식 경계로 분할)라 장식이 두 청크에
-  겹치지 않는다. 한 갱신 주기의 계산량은 예산(12ms)으로 제한.
-- 수식 위젯의 첫 KaTeX 렌더는 프레임 예산 큐(프레임당 ≤5ms)로 나눠 그린다.
-- 커서/선택/조합 중인 줄은 `revealed` 집합에 들어가 장식이 풀린다.
-- 읽기 모드 = `editable:false` + behavior "render"(항상 장식). 소스 모드는 프리뷰 확장 제거.
-- 위젯: Math(KaTeX)·Diagram(mermaid, strict + htmlLabels:false)·Table·Task·Image·HRule.
-  체크박스 클릭은 `[ ]`↔`[x]` **텍스트 편집**으로 번역된다.
+- 구문 트리(lezer-markdown + GFM + `$…$`/`$$…$$` + `[^각주]` + `[[위키링크]]` +
+  `#태그` + `==하이라이트==`)는 **표시용 읽기 전용**.
+- **청크 증분 렌더**: 문서를 ~4k자 청크로 나눠 각 청크를 정확히 한 번만 계산.
+  커서 이동당 재계산 = 청크 1~2개(문서 크기와 무관한 상수 비용).
+- 블록(표·수식·다이어그램·제목)은 커서 줄 기준 노출, 인라인(`**`·`` ` ``·링크·
+  `$…$`)은 **스팬 단위**(±1자) 노출(Typora 모델).
+- 빈 줄은 0.42배 높이로 축소.
+- 위젯: Math(KaTeX)·Diagram(mermaid)·Table·Task·Image(폭 드래그)·HRule·
+  Bullet(깊이별 글리프)·Highlight.
 
-## 감시(외부 변경)
+## 집필 모드(src/editor/writing.ts)
 
-`src-tauri/src/watcher.rs` — notify. 열린 문서는 **부모 디렉터리**(비재귀)를 감시해
-원자적 rename을 놓치지 않고, 워크스페이스는 재귀 감시한다. 자기 저장(1.5초 창)과
-`.iyagi-tmp` 임시 파일 이벤트는 무시, 150ms 디바운스. 프런트는 남은 전체 목록으로
-`watch_paths`를 다시 부른다(선언적 동기화).
+- **타이프라이터 스크롤**: 입력 시에만 커서 줄을 세로 중앙으로.
+- **포커스 모드**: 커서가 속한 최상위 블록 외 흐림(iA Writer).
+- **문장 포커스**: 현재 문장만 또렷하게(선택적).
+
+## 노트 체계
+
+- **위키링크** `[[이름]]`: 구문 인식 → 라이브 프리뷰 링크색 → 클릭 이동 →
+  대상 없으면 새 파일 생성. `[[이름|표시]]`, `[[이름#앵커]]` 지원.
+- **자동완성**: `[[` 입력 시 워크스페이스 문서 목록 팝업(서브시퀀스 퍼지).
+- **백링크**: 이 문서를 `[[참조]]`하는 문서들 — 상태 줄 "🔗 N" 클릭 → 패널.
+- **태그** `#태그`: pill 표시 → 클릭 → 워크스페이스 태그 검색.
+- **빠른 열기**(명령 팔레트에서 파일 퍼지 검색), **폴더 전체 검색**(⇧⌘F) +
+  **모두 바꾸기**(원자적 저장·메타 보존).
+- **버전 기록**: 저장 직전 상태를 스냅숏(30개·60초 간격) — diff 미리보기 후 복원.
 
 ## 내보내기(§4-3/§4-4)
 
 ### HTML(프런트 `src/export/html.ts`)
 markdown-it + KaTeX + highlight.js + mermaid(인라인 `<svg>`) + 각주.
-이미지는 data URI로 인라인, KaTeX CSS+폰트도 문서 안에. DOMPurify로 sanitize.
-스크립트는 포함하지 않는다.
+이미지 data URI, KaTeX CSS+폰트 인라인, DOMPurify sanitize.
+문서별 스타일(폰트·크기·행간·정렬·들여쓰기·강조색) 반영.
 
-### PDF(src-tauri/src/pdf.rs) — 2026-10-11 실험으로 확정된 방식
-1. HTML을 `loadHTMLString:`으로 메모리에서 로드(임시 파일 없음).
-2. **CSS 다단 컬럼 페이지네이션 주입**: 래퍼를 페이지 폭·높이의 `column-width`로
-   흘려 보내면 문서가 가로 컬럼들로 이어진다. `column-gap = 2×여백`으로 두면 페이지
-   폭 창이 정확히 타일링되고, **컬럼 경계 = 페이지 경계라 줄이 중간에 잘리지 않는다.**
-3. `createPDF`로 전체 폭을 한 넓은 페이지로(전부 벡터).
-4. CoreGraphics로 페이지 폭마다 잘라 물리 크기(pt) 문서로 재조립 — 소스 페이지를
-   그대로 삽입하므로 2차 전부 벡터. `CGPDFContextCreateWithURL`로 최종 파일에 직접.
-
-(`createPDF`의 rect만으로는 분할이 일어나지 않음을 실험으로 확인하고 이 방식을
-택했다. `printOperation`은 대화상자가 필요해 기각.)
+### PDF(src-tauri/src/pdf.rs)
+CSS 다단 컬럼 페이지네이션(`column-gap = 2×여백`) → createPDF로 넓은
+한 페이지 → CoreGraphics로 슬라이스. 전부 벡터. 페이지 번호(N / M) 옵션.
 
 ### DOCX(crates/md-export)
-comrak AST → OOXML을 직접 작성(docx-rs에 없는 OMML/DrawingML 때문). Word 기본
-스타일(Heading1-6)·번호 매기기·표·하이퍼링크·이미지(헤더 파싱으로 크기 추출).
+comrak AST → OOXML 직접 작성. Word 기본 스타일(제목·번호·표·하이퍼링크) +
+문서별 스타일(폰트·크기·행간·정렬·들여쓰기·강조색).
+- **SVG→DrawingML**(custGeom·그룹·편집 가능 텍스트 상자·화살표).
+- **MathML→OMML**(m:nary·m:acc·m:bar 등 Presentation MathML 부분집합).
+- 표: 셀 여백·헤더 음영·정렬 지정. 래스터 폴백 없음.
 
-- **SVG→DrawingML**(svg2dml.rs): usvg(시스템 폰트 로드)로 정규화 → 각 경로를
-  custGeom으로, 텍스트를 `wps:txbx`(편집 가능)로, 그룹을 `wpg:wgp`로. 화살표
-  마커는 열린 선에 `a:tailEnd` 장식. 그라디언트는 중간색 단색으로 단순화.
-  래스터 폴백 없음.
-- **MathML→OMML**(mathml2omml.rs): KaTeX `output:'mathml'` 결과를 Presentation
-  부분집합으로 변환(mfrac→m:f, msup→m:sSup, mroot→m:rad, ∑ 극한→m:nary, …).
-  지원 밖은 수식 안의 텍스트 실행으로 — 여전히 Word 수식 편집기에서 편집 가능.
+## 성능 — 실측(§1-2 달성)
 
-수식·다이어그램의 원본(LaTeX·mermaid 코드)→MathML·SVG 변환은 프런트(KaTeX·mermaid
-청크)가 미리 계산해 **매니페스트**로 넘긴다(키 = 원본 코드 원문).
+| 지표 | 목표 | 실측 |
+|---|---|---|
+| .app 크기 | ≤ 20MB | 13MB (DMG 8.1MB) |
+| 유휴 메모리(RSS) | ≤ 120MB | 102MB |
+| 커서 이동 재계산 | — | 청크 1~2개(상수 비용) |
+| KaTeX·mermaid·highlight | 지연 로딩 | 별도 청크 — 문서에 있을 때만 |
 
-## 문서별 스타일(SQLite 사이드카 — 2026-10-11 추가)
+## 테스트(2026-10-12 기준)
 
-`.md` 원문은 절대 수정하지 않으면서(§4-2) 문서마다 폰트(시스템/세리프/라운드/
-고정폭)·글자 크기·행간·문단 간격·강조색을 저장한다. 저장소는 앱 데이터 디렉터리의
-`styles.db`(rusqlite, WAL) — `doc_style(path PK, style_json, updated_at)`. 적용은
-에디터 컨테이너의 CSS 변수 덮어쓰기로 즉시 반영되고, 상태 줄의 `Aa`로 연다.
-
-## 라이브 프리뷰 상세 보기 모델
-
-- 블록(표·수식·다이어그램·펜스·제목·HR): 커서 줄 기준 노출(Obsidian 방식).
-- 인라인(**·`·링크·$…$·[ ]): 커서·선택이 **그 스팬 자체**(±1자)에 닿을 때만
-  노출(Typora 방식) — 같은 줄을 편집해도 볼드 마커는 숨겨진 채 유지.
-- 파싱이 덜 끝난 문서는 트리가 덮은 청크부터 순차 장식(각 청크는 한 번만
-  계산 — 파싱 한 조각마다 전체 재계산하지 않는다).
-- 빈 줄은 0.42배 높이로 축소해 블록 사이를 붙인다(불렛↔표 등).
+- **프런트 147개**(vitest): 원문 보존 3종·렌더링 회귀·링크/슬러그·i18n 무결성·
+  math/wiki/tags/highlight 구문·표 편집·정렬·들여쓰기·diff·HTML 붙여넣기·
+  검색 증분 갱신·스크롤 성능·입력 지연 프로파일·스토어·빠른 열기.
+- **Rust 63개**(cargo test): md-core(IO 왕복·링크·트리·세션·설정·검색·
+  바꾸기·스냅숏) + md-export(DOCX 생성·SVG 변환·MathML 변환·이미지 포함).
+- clippy 0 경고.
 
 ## 보안(§4-6)
 
-- CSP: `default-src 'self'`, 이미지는 asset 프로토콜 + 원격 허용(설정으로 차단),
-  스크립트 포함 없음.
-- raw HTML은 원문 그대로 두고 회색으로만 표시. 내보내기 시에만 DOMPurify.
+- CSP: `default-src 'self'`, 스크립트 포함 없음.
+- raw HTML: 원문 그대로 두고 회색으로만 표시. 내보내기 시에만 DOMPurify.
 - mermaid `securityLevel:'strict'`, KaTeX `trust:false`.
-- 링크는 항상 가로채 처리(내부 `.md` → 앱 내 열기, 외부 → opener).
-
-## 테스트
-
-- Rust: md-core 32개(IO 왕복·링크·트리·세션·설정·i18n), md-export 25개
-  (SVG 변환·MathML 변환·DOCX 생성·이미지 포함).
-- vitest 30개: 원문 보존 3종, 링크/슬러그(Rust 벡터와 동일 사례), i18n 무결성,
-  math 문법, 표 파서, 검색 매칭, 위젯 DOM.
-- 수동 QA 대상(§6): 한글 IME, 5MB 문서, CRLF/BOM, 외부 충돌, 다크/라이트.
+- 링크는 항상 가로채 처리(내부 `.md` → 앱 내, 외부 → opener).
