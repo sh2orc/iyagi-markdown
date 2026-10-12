@@ -12,6 +12,7 @@ import footnote from "markdown-it-footnote";
 import { ensureHighlight, escapeHtml, highlightHtml } from "../plugins/highlight";
 import { ensureKatex, renderMathMl } from "../plugins/katex";
 import { renderMermaidForExport } from "../plugins/mermaid";
+import { stripFrontMatter } from "../editor/frontmatter";
 
 export interface ExportHtmlOptions {
   title: string;
@@ -268,7 +269,9 @@ async function inlineKatexCss(): Promise<string> {
 // — 전체 문서 조립 —
 
 export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions): Promise<string> {
-  const [{ body }, katexCss] = await Promise.all([renderMarkdownBody(markdown, opts), inlineKatexCss()]);
+  // 프론트매터는 메타 — 인쇄·HTML 본문에서 제외한다(모든 호출 경로의 공통 끝점).
+  const body0 = stripFrontMatter(markdown);
+  const [{ body }, katexCss] = await Promise.all([renderMarkdownBody(body0, opts), inlineKatexCss()]);
   const withImages = opts.inlineImages === false
     ? body
     : await inlineImages(body, opts.baseDir, opts.readBytes);

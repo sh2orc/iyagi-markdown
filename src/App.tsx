@@ -19,6 +19,7 @@ import {
 } from "./api";
 import { AppStore, resolveTheme, type ExportKind, type Tab } from "./app/store";
 import { replaceDoc, setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
+import { stripFrontMatter } from "./editor/frontmatter";
 import { collectHeadings, resolveLink } from "./links";
 import { makeT, type Lang } from "./i18n";
 import { TabBar } from "./components/TabBar";
@@ -327,7 +328,8 @@ export function App(): JSX.Element {
     async (kind: ExportKind, opts: PdfExportOptions) => {
       const tab = store.active;
       if (!tab) return;
-      const text = tab.state.doc.toString();
+      // 내보내기 본문은 메타가 아니다 — 프론트매터는 제외하고 내보낸다.
+      const text = stripFrontMatter(tab.state.doc.toString());
       const name = (tab.path ? tab.title : "untitled").replace(/\.(md|markdown)$/i, "");
       const ext = kind === "html" ? "html" : kind === "pdf" ? "pdf" : "docx";
       const out = await pickSave(`${name}.${ext}`, ext);

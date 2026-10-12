@@ -22,6 +22,7 @@ import {
 } from "./livePreview";
 import { editorSyntaxHighlighting, editorTheme } from "./theme";
 import { mathSyntax } from "./mathSyntax";
+import { frontMatterSyntax } from "./frontmatter";
 import { htmlToMarkdown } from "./htmlPaste";
 import { isInApp } from "../api";
 import { relPath } from "../paths";
@@ -133,7 +134,7 @@ function baseExtensions(): Extension[] {
     ]),
     markdown({
       base: markdownLanguage,
-      extensions: [GFM, mathSyntax],
+      extensions: [GFM, mathSyntax, frontMatterSyntax],
       codeLanguages: languages,
       addKeymap: false,
     }),

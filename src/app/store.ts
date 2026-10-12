@@ -20,6 +20,7 @@ import type {
 import { applyDocStyle, DEFAULT_DOC_STYLE as DEFAULT_DOC_STYLE_T } from "./docStyle";
 import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, type ViewMode } from "../editor/cm";
 import { applyWriting } from "../editor/writing";
+import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
 import { dirname } from "../paths";
 
 export interface Tab {
@@ -228,8 +229,9 @@ export class AppStore {
       selChars: 0,
       bookmarks: [],
       dirty: false,
-      words: countWords(doc.text),
-      chars: doc.text.length,
+      // 통계는 본문만(프론트매터는 메타 — Obsidian 방식).
+      words: countWords(stripFrontMatter(doc.text)),
+      chars: stripFrontMatter(doc.text).length,
     };
     this.state.tabs.push(tab);
     // 책갈피 사이드카 로드.
@@ -404,12 +406,26 @@ export class AppStore {
     if (update.docChanged) {
       // 통계는 편집 델타로 증분 갱신 — 키 입력마다 문서 전체를 훑지 않는다.
       const prevDoc = update.startState.doc;
+      const fmLen = frontMatterLen(prevDoc.toString());
+      let touchedFm = false;
       update.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+        if (fromA < fmLen) {
+          // 프론트매터 영역(닫는 --- 포함 경계)의 편집 — 통계에 넣지 않는다.
+          touchedFm = true;
+          return;
+        }
         const removed = toA > fromA ? prevDoc.sliceString(fromA, toA) : "";
         const text = inserted.toString();
         tab.words += countWords(text) - countWords(removed);
         tab.chars += text.length - removed.length;
       });
+      if (touchedFm) {
+        // 프론트매터 편집 중에만 전체 재계산(O(문서)지만 드문 경로 — 본문
+        // 타이핑은 여전히 증분만).
+        const body = stripFrontMatter(this.view.state.doc.toString());
+        tab.words = countWords(body);
+        tab.chars = body.length;
+      }
       // dirty: 길이가 다르면 무조건 dirty, 같을 때만(되돌리기 복귀 등) 문자열로 확정.
       const doc = this.view.state.doc;
       if (doc.length !== tab.savedText.length) tab.dirty = true;
@@ -516,8 +532,8 @@ export class AppStore {
       tab.meta = doc.meta;
       tab.savedMtime = doc.mtime;
       tab.dirty = false;
-      tab.words = countWords(doc.text);
-      tab.chars = doc.text.length;
+      tab.words = countWords(stripFrontMatter(doc.text));
+      tab.chars = stripFrontMatter(doc.text).length;
       tab.conflict = null;
       this.emit();
     } catch (e) {
@@ -744,8 +760,8 @@ export class AppStore {
         selChars: 0,
         bookmarks: [],
         dirty: false,
-        words: countWords(doc.text),
-        chars: doc.text.length,
+        words: countWords(stripFrontMatter(doc.text)),
+        chars: stripFrontMatter(doc.text).length,
       };
       this.state.tabs.push(tab);
       // 커서 복원 — update는 Transaction을 돌려주고 그 .state가 새 상태다.

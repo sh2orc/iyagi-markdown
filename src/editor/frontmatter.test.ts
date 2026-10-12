@@ -42,9 +42,9 @@ describe("frontMatterSyntax", () => {
     const tree = parse(DOC);
     const first = tree.topNode.firstChild;
     expect(first?.name).toBe("FrontMatter");
-    // 닫는 --- 까지 포함(그 뒤 개행은 제외)
+    // 닫는 --- 까지 포함(노드는 그 뒤 개행 직전까지 — 스트립 정규식은 개행까지)
     expect(DOC.slice(first!.from, first!.to).endsWith("---")).toBe(true);
-    expect(first!.to).toBe(DOC.indexOf("\n\n# 본문") + 1);
+    expect(first!.to).toBe(DOC.indexOf("\n\n# 본문"));
     // 그 뒤 문서는 그대로(ATXHeading이 살아 있다)
     expect(first?.nextSibling?.name).toBe("ATXHeading1");
   });

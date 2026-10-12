@@ -2,7 +2,7 @@
 // 문법만 여기서 만들고 표시는 livePreview 장식, 통계·내보내기는
 // stripFrontMatter로 본문만 남겨 쓴다(Obsidian 방식).
 
-import { MarkdownExtension } from "@lezer/markdown";
+import type { MarkdownExtension } from "@lezer/markdown";
 
 /** 문서 시작 프론트매터 정규식 — 앞 2KB만 대상으로 스캔한다(항상 문서 첫머리). */
 const FM_SCAN = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/;

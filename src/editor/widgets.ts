@@ -8,6 +8,7 @@ import { EditorView, WidgetType } from "@codemirror/view";
 import { convertFileSrc, isInApp } from "../api";
 import { renderMathInto } from "../plugins/katex";
 import { renderMermaid } from "../plugins/mermaid";
+import { parseFrontMatter } from "./frontmatter";
 
 // — 수식 —
 
@@ -564,6 +565,38 @@ export class HRuleWidget extends WidgetType {
 
   ignoreEvent() {
     return true;
+  }
+}
+
+// — 프론트매터(YAML 메타) 패널 —
+
+export class FrontMatterWidget extends WidgetType {
+  constructor(readonly yaml: string) {
+    super();
+  }
+
+  eq(other: FrontMatterWidget) {
+    return other.yaml === this.yaml;
+  }
+
+  toDOM() {
+    const wrap = document.createElement("div");
+    wrap.className = "md-frontmatter-panel";
+    for (const [k, v] of parseFrontMatter(this.yaml)) {
+      const row = wrap.appendChild(document.createElement("div"));
+      row.className = "fm-row";
+      const key = row.appendChild(document.createElement("span"));
+      key.className = "fm-key";
+      key.textContent = k;
+      const val = row.appendChild(document.createElement("span"));
+      val.className = "fm-value";
+      val.textContent = v;
+    }
+    return wrap;
+  }
+
+  ignoreEvent() {
+    return false;
   }
 }
 

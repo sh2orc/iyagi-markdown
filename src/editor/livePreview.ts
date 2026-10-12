@@ -38,6 +38,7 @@ import { lexicallyClean, percentDecode } from "../links";
 import {
   BulletWidget,
   DiagramWidget,
+  FrontMatterWidget,
   HRuleWidget,
   ImageWidget,
   MathWidget,
@@ -584,6 +585,16 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
               ),
               block: true,
             }).range(from, to),
+          );
+          return;
+        }
+
+        // — 프론트매터(YAML 메타) —
+        if (name === "FrontMatter") {
+          addLineClasses(from, to, "md-frontmatter");
+          if (isRevealed(from, to)) return;
+          ranges.push(
+            replace({ widget: new FrontMatterWidget(slice(from, to)), block: true }).range(from, to),
           );
           return;
         }

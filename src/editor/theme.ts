@@ -215,6 +215,31 @@ export const editorTheme = EditorView.theme({
   ".md-codeblock.md-code-first.md-code-last": { borderRadius: "9px" },
   ".md-codeblock-indented": { paddingLeft: "18px" },
 
+  // — 프론트매터: 원문(커서로 드러날 때)은 흐린 메타 톤, 렌더는 키·값 패널 —
+  ".md-frontmatter": {
+    color: "var(--md-fg-dim)",
+    backgroundColor: "var(--md-code-bg)",
+    fontFamily: "var(--md-code-font)",
+    fontSize: "0.84em",
+  },
+  ".md-frontmatter.cm-line": { padding: "0 18px" },
+  ".md-frontmatter-panel": {
+    margin: "0.1em 0 0.75em",
+    padding: "8px 14px",
+    borderRadius: "9px",
+    backgroundColor: "var(--md-code-bg)",
+    border: "1px solid var(--md-border)",
+    display: "table",
+  },
+  ".fm-row": { display: "flex", gap: "10px", fontSize: "0.84em", lineHeight: "1.7" },
+  ".fm-key": {
+    color: "var(--md-fg-dim)",
+    flex: "none",
+    minWidth: "52px",
+    fontFamily: "var(--md-code-font)",
+  },
+  ".fm-value": { color: "var(--md-fg)", wordBreak: "break-word" },
+
   // — 수평선 —
   ".md-hr": {
     border: "none",
