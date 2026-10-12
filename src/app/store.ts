@@ -20,6 +20,7 @@ import type {
 import { applyDocStyle, DEFAULT_DOC_STYLE as DEFAULT_DOC_STYLE_T } from "./docStyle";
 import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, type ViewMode } from "../editor/cm";
 import { applyWriting } from "../editor/writing";
+import { applySmartPunct } from "../editor/smartPunct";
 import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
 import { phrases } from "./phrases";
 import { buildWikiIndex } from "../editor/wiki";
@@ -776,6 +777,7 @@ export class AppStore {
       tableWidths: tab?.docStyle?.tableWidths ?? {},
       wikiIndex: this.wikiIndex,
     });
+    applySmartPunct(this.view, this.state.settings.smartPunctuation);
     applyWriting(this.view, {
       typewriter: this.state.settings.typewriter,
       focus: this.state.settings.focusMode,
@@ -1172,6 +1174,7 @@ export function defaultSettings(): Settings {
     autosave: false,
     typewriter: false,
     focusMode: false,
+    smartPunctuation: true,
     focusSentence: false,
     ttsRate: 175,
     ttsVoice: "",

@@ -96,6 +96,7 @@ import { relPath } from "../paths";
 import * as fmt from "./format";
 import { resetSearch, searchHighlight } from "../search/searchCm";
 import { writingComp, writingConf, writingExtension } from "./writing";
+import { smartPunctComp, smartPunctExtension } from "./smartPunct";
 
 export type ViewMode = "edit" | "read" | "source";
 
@@ -435,6 +436,7 @@ function modeValues(mode: ViewMode): Extension[] {
     previewEnabledComp.of(preview),
     // 자리만 잡는다 — 상태 생성 직후 applyConfig가 실제 설정으로 바꾼다.
     writingComp.of(writingExtension({ typewriter: false, focus: false, sentence: false, active: mode !== "read" })),
+    smartPunctComp.of(smartPunctExtension(true)),
   ];
 }
 

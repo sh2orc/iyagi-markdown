@@ -45,6 +45,8 @@ export interface Settings {
   focusSentence: boolean;
   /** TTS 읽기 속도(기준 175). */
   ttsRate: number;
+  /** 스마트 문장부호 — 입력 시 문맥 변환(Word 자동 교정). */
+  smartPunctuation: boolean;
   /** 읽기 목소리(빈 값 = 시스템 기본). */
   ttsVoice: string;
 }
