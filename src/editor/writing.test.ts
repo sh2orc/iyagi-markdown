@@ -20,7 +20,8 @@ const parse = (doc: string) => {
       markdown({ base: markdownLanguage, extensions: [GFM, mathSyntax], codeLanguages: languages, addKeymap: false }),
     ],
   });
-  ensureSyntaxTree(state, doc.length + 100, 1000);
+  // 파싱 예산 5초 — 동시 빌드 등 시스템 부하 속에서도 트리가 완성되게(플래키 방지).
+  ensureSyntaxTree(state, doc.length + 100, 5000);
   return syntaxTree(state);
 };
 

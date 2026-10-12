@@ -43,6 +43,7 @@ $$x^2 + \frac{1}{2}$$
             table_widths: &std::collections::HashMap::new(),
             title: Some("예제 문서"),
             author: Some("iyagi"),
+            toc: true,
         },
         std::path::Path::new("/tmp/iyagi-e2e.docx"),
     )

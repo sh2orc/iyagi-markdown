@@ -115,3 +115,12 @@ DATE: 2026-10-12
     expect(m?.author).toBe("김작가 · 이작가");
   });
 });
+
+describe("frontMatterMeta toc", () => {
+  it("toc: true/yes/1을 참으로, 그 외는 거짓·미설정", () => {
+    expect(frontMatterMeta("---\ntoc: true\n---\n")?.toc).toBe(true);
+    expect(frontMatterMeta("---\ntoc: yes\n---\n")?.toc).toBe(true);
+    expect(frontMatterMeta("---\ntoc: 1\n---\n")?.toc).toBe(true);
+    expect(frontMatterMeta("---\ntitle: 문서\ntoc: false\n---\n")?.toc).toBeUndefined();
+  });
+});

@@ -459,6 +459,9 @@ pub struct DocxManifest {
     pub title: Option<String>,
     #[serde(default)]
     pub author: Option<String>,
+    /// 네이티브 목차(TOC 필드) 삽입 — 프런트매터 toc: true.
+    #[serde(default)]
+    pub toc: bool,
     /// 문서별 기본 서체(라이브 프리뷰 스타일 반영).
     pub style: Option<DocxStyleSpec>,
 }
@@ -519,6 +522,7 @@ pub fn export_docx(
             table_widths: &manifest.table_widths,
             title: manifest.title.as_deref(),
             author: manifest.author.as_deref(),
+            toc: manifest.toc,
         },
         Path::new(&out_path),
     )

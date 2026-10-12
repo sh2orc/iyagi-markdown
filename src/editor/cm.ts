@@ -11,7 +11,27 @@ import { defaultKeymap, history, historyField, historyKeymap } from "@codemirror
 import { GFM } from "@lezer/markdown";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
-import { indentUnit } from "@codemirror/language";
+import { foldGutter, foldKeymap, foldService, indentUnit } from "@codemirror/language";
+
+/** 제목 접기 — 헤딩 줄에서 같거나 낮은 단계의 다음 제목 전까지.
+ *  lang-markdown은 블록(표·코드)만 접어준다(제목·목록은 범위 계산이 필요해
+ *  제외됨) — 여기서 제목 범위를 채운다. */
+const headingFoldService = foldService.of((state, from, to) => {
+  void to;
+  const line = state.doc.lineAt(from);
+  if (from !== line.from) return null;
+  const m = /^(#{1,6})\s/.exec(line.text);
+  if (!m) return null;
+  const level = m[1].length;
+  let end = line.to;
+  for (let n = line.number + 1; n <= state.doc.lines; n++) {
+    const l = state.doc.line(n);
+    const t = /^(#{1,6})\s/.exec(l.text);
+    if (t && t[1].length <= level) break;
+    end = l.to;
+  }
+  return end > line.to ? { from: line.to, to: end } : null;
+});
 
 import {
   findLinkAt,
@@ -167,6 +187,10 @@ function baseExtensions(): Extension[] {
     }),
     editorSyntaxHighlighting(),
     wikiAutocompletion(),
+    headingFoldService,
+    foldGutter(),
+    // ⇧⌘[·] 는 탭 전환 — 폴드 키맵에서 뺀다(거터 클릭으로 접기).
+    keymap.of(foldKeymap.filter((b) => b.key !== "Mod-Shift-[" && b.key !== "Mod-Shift-]")),
     livePreviewExtension(),
     searchHighlight(),
     editorTheme,

@@ -517,6 +517,7 @@ export function App(): JSX.Element {
           manifest.tableWidths = tableWidths;
           if (metaTitle) manifest.title = metaTitle;
           if (metaAuthor) manifest.author = metaAuthor;
+          if (fm?.toc) manifest.toc = true;
           await api.exportDocx(text, manifest, out, baseDir);
         }
         store.setBusy(null);

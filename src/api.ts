@@ -111,6 +111,8 @@ export interface DocxManifest {
   /** 프런트매터 메타 — core.xml(dc:title·dc:creator). */
   title?: string;
   author?: string;
+  /** 네이티브 목차(TOC 필드). */
+  toc?: boolean;
 }
 
 /** 문서별 스타일(SQLite 사이드카 — .md 원문은 불변). */

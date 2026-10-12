@@ -591,6 +591,8 @@ export async function buildDocxManifest(
   /** 프런트매터 메타 — core.xml(dc:title·dc:creator). */
   title?: string;
   author?: string;
+  /** 네이티브 목차(TOC 필드) — 프런트매터 toc: true. */
+  toc?: boolean;
 }> {
   const math: Record<string, string> = {};
   const diagrams: Record<string, string> = {};
