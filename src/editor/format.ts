@@ -4,6 +4,8 @@
 import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { formatTableText } from "./tableFormat";
+import { collectHeadings, tocMarkdown } from "../links";
+import { stripFrontMatter } from "./frontmatter";
 import { syntaxTree } from "@codemirror/language";
 
 /** 선택 각 줄의 앞뒤에 마커를 넣는다(굵게/기울임/취소선/코드). */
@@ -566,6 +568,23 @@ export function formatTable(view: EditorView): boolean {
   view.dispatch({
     changes: { from: table.from, to: table.to, insert: formatted },
     userEvent: "format.table",
+  });
+  return true;
+}
+
+
+/** 목차 삽입 — 제목에서 마크다운 목차를 커서에(GitHub식 앵커). 원문 무손실:
+ *  순수 텍스트 삽입일 뿐이고 내보내기·렌더 모두 표준 링크로 동작한다. */
+export function insertToc(view: EditorView): boolean {
+  const doc = view.state.doc.toString();
+  const headings = collectHeadings(stripFrontMatter(doc));
+  const md = tocMarkdown(headings);
+  if (!md) return false;
+  const sel = view.state.selection.main;
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert: `${md}\n` },
+    selection: { anchor: sel.from },
+    userEvent: "input.insertToc",
   });
   return true;
 }
