@@ -181,6 +181,8 @@ export class ImageWidget extends WidgetType {
         img.dataset.ratio = (img.naturalHeight / img.naturalWidth).toFixed(4);
       }
     });
+    // 클릭 → 확대 뷰어(App이 등록한 콜백 — 원문 불변, 보기만).
+    img.addEventListener("click", () => imageViewerHandler?.(this.src, this.alt));
     wrap.append(img);
     // 크기 조절 핸들(편집 중에만) — 드래그로 폭(%)을 정하고 놓으면 문서
     // 스타일 사이드카에 저장한다. **원문은 전혀 수정되지 않는다.**
@@ -241,6 +243,12 @@ export class ImageWidget extends WidgetType {
 
 /** 이미지 폭 저장 콜백 — App이 스토어와 연결한다(원문 불변 사이드카). */
 export let imageResizeHandler: ((src: string, pct: number) => void) | null = null;
+
+/** 이미지 클릭 → 확대 뷰어 콜백(App이 등록). */
+export let imageViewerHandler: ((src: string, alt: string) => void) | null = null;
+export function setImageViewerHandler(fn: ((src: string, alt: string) => void) | null): void {
+  imageViewerHandler = fn;
+}
 export function setImageResizeHandler(fn: ((src: string, pct: number) => void) | null): void {
   imageResizeHandler = fn;
 }
@@ -459,6 +467,29 @@ export function toggleTaskAt(view: EditorView, pos: number) {
     // 사용자 편집으로 취소 가능하게.
     userEvent: "input.taskToggle",
   });
+}
+
+// — 목록 글머리(Word 글머리 기호 — 깊이별 글리프) —
+
+export class BulletWidget extends WidgetType {
+  constructor(readonly glyph: string) {
+    super();
+  }
+
+  eq(other: BulletWidget) {
+    return other.glyph === this.glyph;
+  }
+
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = "md-bullet";
+    el.textContent = this.glyph;
+    return el;
+  }
+
+  ignoreEvent() {
+    return true;
+  }
 }
 
 // — 수평선 —

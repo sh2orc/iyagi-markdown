@@ -31,13 +31,14 @@ import { ExportSheet } from "./components/ExportSheet";
 import { Toolbar } from "./components/Toolbar";
 import { MiniToolbar } from "./components/MiniToolbar";
 import { ContextMenu } from "./components/ContextMenu";
-import { setImageResizeHandler } from "./editor/widgets";
+import { setImageResizeHandler, setImageViewerHandler } from "./editor/widgets";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { StylePanel } from "./components/StylePanel";
 import { PrintPreview } from "./components/PrintPreview";
 import { ShortcutsPanel } from "./components/ShortcutsPanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { CommandPalette } from "./components/CommandPalette";
+import { ImageViewer } from "./components/ImageViewer";
 
 const ioAdapter = {
   readDocument: (path: string) => api.readDocument(path),
@@ -97,6 +98,7 @@ export function App(): JSX.Element {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -168,10 +170,14 @@ export function App(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 이미지 폭 조절 → 문서 스타일 사이드카(원문 불변).
+  // 이미지 폭 조절 → 사이드카 / 이미지 클릭 → 확대 뷰어(원문 불변).
   useEffect(() => {
     setImageResizeHandler((src, pct) => store.setImageWidth(src, pct));
-    return () => setImageResizeHandler(null);
+    setImageViewerHandler((src, alt) => setViewer({ src, alt }));
+    return () => {
+      setImageResizeHandler(null);
+      setImageViewerHandler(null);
+    };
   }, [store]);
 
   // — 에디터 뷰 수명(탭 전환은 setState) —
@@ -641,6 +647,7 @@ export function App(): JSX.Element {
         />
       )}
       <ContextMenu store={store} t={t} />
+      {viewer && <ImageViewer src={viewer.src} alt={viewer.alt} t={t} onClose={() => setViewer(null)} />}
       <div className="toasts">
         {state.toasts.map((toast) => (
           <div key={toast.id} className={`toast ${toast.kind} ${toast.leaving ? "is-leaving" : ""}`}>

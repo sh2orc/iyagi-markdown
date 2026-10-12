@@ -36,6 +36,7 @@ import {
 
 import { lexicallyClean, percentDecode } from "../links";
 import {
+  BulletWidget,
   DiagramWidget,
   HRuleWidget,
   ImageWidget,
@@ -199,6 +200,9 @@ function scanRange(view: EditorView): { from: number; to: number } {
 // — 장식 빌더 —
 
 const replace = Decoration.replace;
+
+/** 불릿 글리프 — 깊이별(Word의 글머리 기호 갤러리 순서). */
+const BULLET_GLYPHS = ["•", "◦", "▪", "·"];
 const NO_RANGES: readonly { from: number; to: number }[] = [];
 
 /** 한 청크 [chunkFrom, chunkTo)의 장식을 계산한다.
@@ -532,7 +536,18 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
 
         // — 목록 —
         if (name === "ListMark") {
-          ranges.push(Decoration.mark({ class: "md-listmark" }).range(from, to));
+          const mark = slice(from, to);
+          const isBullet = mark === "-" || mark === "*" || mark === "+";
+          // 불릿(- * +)은 Word처럼 글리프로 표시 — 깊이별 • ◦ ▪ ·.
+          // 번호 목록(1. / 1))은 원문 그대로 강조만. 커서가 닿으면 원문 노출.
+          if (isBullet && !isTouched(from, to)) {
+            const line = doc.lineAt(from);
+            const depth = Math.min(3, Math.floor((from - line.from) / 2));
+            const glyph = BULLET_GLYPHS[depth] ?? "•";
+            ranges.push(replace({ widget: new BulletWidget(glyph) }).range(from, to));
+          } else {
+            ranges.push(Decoration.mark({ class: "md-listmark" }).range(from, to));
+          }
           return;
         }
         if (name === "TaskMarker") {

@@ -1602,3 +1602,72 @@ body.resizing .toc {
   font-size: 13px;
   color: var(--md-fg-dim);
 }
+
+/* 이미지 확대 뷰어 */
+
+.imgviewer {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  flex-direction: column;
+  animation: fade-in 0.14s ease;
+}
+
+.imgviewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.imgviewer-name {
+  flex: 1;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.75);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.imgviewer .mtb-btn {
+  color: #fff;
+}
+.imgviewer .mtb-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.imgviewer-zoom {
+  font-size: 12px;
+  min-width: 44px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.8);
+  font-variant-numeric: tabular-nums;
+}
+
+.imgviewer-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.imgviewer-stage img {
+  max-width: 92%;
+  max-height: 92%;
+  transition: transform 0.08s ease;
+  border-radius: 4px;
+  box-shadow: 0 6px 40px rgba(0, 0, 0, 0.5);
+}
+
+.imgviewer-hint {
+  position: absolute;
+  bottom: 12px;
+  right: 16px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.5);
+}

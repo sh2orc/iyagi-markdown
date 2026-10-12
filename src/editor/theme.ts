@@ -114,6 +114,18 @@ export const editorTheme = EditorView.theme({
   // 체크박스 항목: 상자+간격 폭만큼 걸침.
   ".md-task-line": { "--md-hang": "1.7em" },
   ".md-listmark": { color: "var(--md-accent)", fontWeight: "600" },
+  ".md-bullet": {
+    color: "var(--md-accent)",
+    display: "inline-block",
+    width: "0.95em",
+    textAlign: "center",
+    fontWeight: "700",
+    fontSize: "0.9em",
+    lineHeight: "1",
+    // 한글 글자의 시각 중앙(약 0.36em 위)에 점을 맞춘다 — 기준선(0.24em)에
+    // 그대로 두면 점이 살짝 아래로 처 보인다.
+    verticalAlign: "0.12em",
+  },
 
   // — 인용: 막대 + 옅은 배경 —
   ".md-quote": {
