@@ -1575,6 +1575,11 @@ body.resizing .toc {
 .status-check {
   font-variant-numeric: tabular-nums;
 }
+
+.status-backlinks {
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
 .status-check.status-check-done {
   color: var(--md-accent);
 }

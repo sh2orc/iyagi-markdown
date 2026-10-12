@@ -9,9 +9,10 @@ interface Props {
   onOpenSettings: () => void;
   onOpenStyle: () => void;
   onOpenStats: () => void;
+  onOpenBacklinks: () => void;
 }
 
-export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats }: Props): JSX.Element {
+export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, onOpenBacklinks }: Props): JSX.Element {
   const state = store.getSnapshot();
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
   // 통계는 스토어가 증분 유지한다 — 여기서 문서를 다시 훑지 않는다.
@@ -68,6 +69,15 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats }
                   {t.f.words(words)} · {t.f.chars(chars)}
                 </button>
               </>
+            )}
+            {tab.backlinks !== null && tab.backlinks > 0 && (
+              <button
+                className="status-cell status-backlinks"
+                title={t.backlinksTitle}
+                onClick={onOpenBacklinks}
+              >
+                🔗 {tab.backlinks}
+              </button>
             )}
             {tab.checkbox && tab.checkbox.total > 0 && (
               <span

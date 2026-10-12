@@ -66,6 +66,7 @@ const ioAdapter = {
   bookmarkAdd: (path: string, lineNo: number) => api.bookmarkAdd(path, lineNo),
   bookmarkRemove: (path: string, lineNo: number) => api.bookmarkRemove(path, lineNo),
   setSettings: (settings: Parameters<typeof api.setSettings>[0]) => api.setSettings(settings),
+  backlinks: (root: string, path: string) => api.backlinks(root, path),
 };
 
 export interface PdfExportOptions {
@@ -785,7 +786,7 @@ export function App(): JSX.Element {
               </div>
             )}
           </div>
-          <StatusBar store={store} t={t} onOpenSettings={() => setSettingsOpen(true)} onOpenStyle={() => setStyleOpen(true)} onOpenStats={() => setStatsOpen(true)} />
+          <StatusBar store={store} t={t} onOpenSettings={() => setSettingsOpen(true)} onOpenStyle={() => setStyleOpen(true)} onOpenStats={() => setStatsOpen(true)} onOpenBacklinks={() => setBacklinksOpen(true)} />
         </main>
         <TocPanel store={store} t={t} open={state.tocOpen} />
       </div>

@@ -47,6 +47,8 @@ export interface Tab {
   selChars: number;
   /** 작업 항목 진행률(없으면 null — 상태 줄 숨김). 디바운스 재계산. */
   checkbox: { done: number; total: number } | null;
+  /** 이 문서를 가리키는 백링크 수(null=아직 모름/폴더 없음). */
+  backlinks: number | null;
   /** 책갈피 줄 번호(SQLite 사이드카 — 원문 불변). */
   bookmarks: number[];
   /** 저장 안 됨 표시 — 입력마다 O(문서) 비교 대신 증분 유지(정확성: 길이가
@@ -101,6 +103,7 @@ export interface StoreIO {
   bookmarkAdd?(path: string, lineNo: number): Promise<void>;
   bookmarkRemove?(path: string, lineNo: number): Promise<void>;
   setSettings?(settings: Settings): Promise<void>;
+  backlinks?(root: string, path: string): Promise<unknown[]>;
 }
 
 let nextTabId = 1;
@@ -231,6 +234,7 @@ export class AppStore {
       marks: { bold: false, italic: false, strike: false, code: false, link: false },
       selChars: 0,
       checkbox: checkboxOf(doc.text),
+      backlinks: null,
       bookmarks: [],
       dirty: false,
       // 통계는 본문만(프론트매터는 메타 — Obsidian 방식).
@@ -313,6 +317,7 @@ export class AppStore {
       this.restoreScroll(tab.scroll);
       this.applyConfig();
       if (this.state.searchOpen) this.emitSearchRefresh();
+      this.scheduleBacklinks();
     }
     this.emit();
     this.scheduleSessionSave();
@@ -598,7 +603,9 @@ export class AppStore {
     try {
       this.state.tree = await this.io.scanWorkspace(this.state.workspace);
       this.wikiIndex = buildWikiIndex(this.state.tree);
+      this.backlinksCache.clear(); // 다른 파일이 바뀌었을 수 있다
       this.applyConfig();
+      this.scheduleBacklinks();
       this.emit();
     } catch {
       // 폴더가 사라졌을 수 있다 — 조용히 둔다.
@@ -674,6 +681,36 @@ export class AppStore {
   /** 문서별 스타일을 에디터 컨테이너 CSS 변수로(호스트는 App이 등록한다). */
   hostEl: HTMLElement | null = null;
   private checkboxTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 백링크 수 캐시(경로→개수) — 트리가 바뀌면 다 지운다(다른 파일이 고쳐졌을 수 있음). */
+  private backlinksCache = new Map<string, number>();
+  private backlinksTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** 활성 문서 백링크 수 — 캐시 우선, 없으면(폴더 열림+커맨드 가능 시) 스캔.
+   *  탭 전환마다 디바운스(400ms)해 워크스페이스 스캔을 아낀다. */
+  private scheduleBacklinks(): void {
+    if (this.backlinksTimer) clearTimeout(this.backlinksTimer);
+    const tab = this.active;
+    if (!tab?.path || !this.state.workspace || !this.io.backlinks) return;
+    const cached = this.backlinksCache.get(tab.path);
+    if (cached !== undefined) {
+      tab.backlinks = cached;
+      this.emit();
+      return;
+    }
+    const path = tab.path;
+    const root = this.state.workspace;
+    this.backlinksTimer = setTimeout(() => {
+      this.backlinksTimer = null;
+      void this.io.backlinks?.(root, path).then((hits) => {
+        this.backlinksCache.set(path, hits.length);
+        const t = this.state.tabs.find((x) => x.path === path);
+        if (t && t === this.active) {
+          t.backlinks = hits.length;
+          this.emit();
+        }
+      }).catch(() => {});
+    }, 400);
+  }
 
   applyDocStyleVars(): void {
     if (!this.hostEl) return;
@@ -787,6 +824,7 @@ export class AppStore {
         marks: { bold: false, italic: false, strike: false, code: false, link: false },
         selChars: 0,
         checkbox: checkboxOf(doc.text),
+        backlinks: null,
         bookmarks: [],
         dirty: false,
         words: countWords(stripFrontMatter(doc.text)),
