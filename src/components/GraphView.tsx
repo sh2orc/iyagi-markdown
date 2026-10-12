@@ -2,7 +2,7 @@
 // 간단한 힘 기반 배치(3~4회 반복) — 대규모 그래프는 원형 폴백.
 // 노드 크기 = 연결 수(차수), 활성 문서는 강조.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
@@ -33,7 +33,6 @@ interface GraphEdge {
  *  간선: 문서 A가 [[B]]를 참조하면 A→B 간선. */
 function buildGraph(store: AppStore): { nodes: GraphNode[]; edges: GraphEdge[] } {
   const tree = store.state.tree;
-  const wikiIndex = store.wikiIndex;
   const edges: GraphEdge[] = [];
   const nodeSet = new Set<string>();
   const nameOf = new Map<string, string>();

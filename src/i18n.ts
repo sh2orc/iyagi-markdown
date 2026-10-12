@@ -17,7 +17,7 @@ export function detectLang(tags: readonly string[]): Lang {
 }
 
 const en = {
-  appName: "IYAGI Markdown",
+
   loading: "Loading…",
   untitled: "Untitled",
   save: "Save",
@@ -33,7 +33,7 @@ const en = {
 
   cancel: "Cancel",
   close: "Close",
-  error: "Error",
+
   emptyNoDoc: "No document open",
   emptyNoDocHint: "Open a file (⌘O), a folder (⇧⌘O), or drop a Markdown file here.",
   newTab: "New tab",
@@ -62,7 +62,7 @@ const en = {
   dirtySave: "Save",
   dirtyDiscard: "Discard",
   extChangedTitle: "File changed on disk",
-  extChangedReload: "The file was changed outside the app.",
+
   extChangedConflict: "The file was changed outside the app while you were editing.",
   extReload: "Reload",
   extKeepMine: "Keep my version",
@@ -84,7 +84,7 @@ const en = {
   exportFailed: "Export failed",
   printPreviewTitle: "Print Preview",
   printPreviewHint: "This is how the document will be printed. Export from the buttons below.",
-  exportReveal: "Show in Finder",
+
   exportVectorHint: "Diagrams and formulas are exported as editable vector objects.",
   settingsTitle: "Settings",
   setAppearance: "Appearance",
@@ -220,7 +220,7 @@ export type Key = keyof typeof en;
 type Dict = Record<Key, string>;
 
 const ko: Dict = {
-  appName: "IYAGI Markdown",
+
   loading: "불러오는 중…",
   untitled: "제목 없음",
   save: "저장",
@@ -236,7 +236,7 @@ const ko: Dict = {
 
   cancel: "취소",
   close: "닫기",
-  error: "오류",
+
   emptyNoDoc: "열린 문서가 없습니다",
   emptyNoDocHint: "파일(⌘O) 또는 폴더(⇧⌘O)를 열거나 마크다운 파일을 여기에 끌어 놓으세요.",
   newTab: "새 탭",
@@ -265,7 +265,7 @@ const ko: Dict = {
   dirtySave: "저장",
   dirtyDiscard: "버리기",
   extChangedTitle: "디스크의 파일이 바뀌었습니다",
-  extChangedReload: "앱 밖에서 파일이 수정되었습니다.",
+
   extChangedConflict: "편집 중인 파일이 앱 밖에서 수정되었습니다.",
   extReload: "다시 읽기",
   extKeepMine: "내 버전 유지",
@@ -287,7 +287,7 @@ const ko: Dict = {
   exportFailed: "내보내기 실패",
   printPreviewTitle: "인쇄 미리보기",
   printPreviewHint: "인쇄될 모습입니다. 아래 버튼으로 내보내세요.",
-  exportReveal: "Finder에서 보기",
+
   exportVectorHint: "다이어그램·수식은 편집 가능한 벡터 객체로 내보내진다.",
   settingsTitle: "설정",
   setAppearance: "외관",

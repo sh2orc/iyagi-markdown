@@ -49,6 +49,7 @@ export function CommandPalette({
   onOpenPrint,
   onOpenExport,
   onOpenDiff,
+  onOpenGraph,
   onOpenWsSearch,
   onOpenVersions,
   onOpenBacklinks,
