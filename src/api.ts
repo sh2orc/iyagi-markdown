@@ -96,6 +96,8 @@ export interface DocStyle {
   accent: string | null;
   /** 문단 첫 줄 들여쓰기(한국어 문서 관례). */
   firstLineIndent: boolean;
+  /** 문단 정렬 — left | center | right | justify(양쪽). */
+  textAlign: "left" | "center" | "right" | "justify";
   /** 이미지 표시 폭(원본 경로 기준 퍼센트) — 원문은 불변, 사이드카에만. */
   imageWidths: Record<string, number>;
 }

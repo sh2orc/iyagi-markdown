@@ -72,7 +72,7 @@ pub fn export_docx(
     diagrams: &HashMap<String, String>,
     images: &ImageSource,
     out: &Path,
-    style: Option<(&str, f64, f64, bool, String)>, // (font, pt, 행간, 들여쓰기, 강조색)
+    style: Option<(&str, f64, f64, bool, String, String)>, // (font, pt, 행간, 들여쓰기, 강조색, 정렬)
 ) -> Result<(), DocxError> {
     let mut options = Options::default();
     options.extension.table = true;
@@ -628,7 +628,7 @@ fn write_docx_zip(
     out: &Path,
     body: &str,
     ctx: &Ctx,
-    style: Option<(&str, f64, f64, bool, String)>,
+    style: Option<(&str, f64, f64, bool, String, String)>,
 ) -> Result<(), DocxError> {
     let file = std::fs::File::create(out)?;
     let mut zip = zip::ZipWriter::new(file);
@@ -752,41 +752,34 @@ fn document_rels(ctx: &Ctx) -> String {
 }
 
 /// 문서별 서체(라이브 프리뷰 스타일) — 폰트·크기·행간·첫 줄 들여쓰기·강조색.
-fn styles_xml(style: Option<(&str, f64, f64, bool, String)>) -> String {
-    let (ascii, east_asia, half_points, line, indent, accent) = match style {
-        Some(("serif", pt, lh, fi, ac)) => (
-            "Georgia",
-            "AppleMyungjo",
-            (pt * 2.0).round() as i64,
-            if lh > 0.0 { lh } else { 1.15 },
-            fi,
-            ac.to_string(),
-        ),
-        Some(("mono", pt, lh, fi, ac)) => (
-            "Menlo",
-            "Apple SD Gothic Neo",
-            (pt * 2.0).round() as i64,
-            if lh > 0.0 { lh } else { 1.15 },
-            fi,
-            ac.to_string(),
-        ),
-        Some(("round", pt, lh, fi, ac)) => (
-            "Helvetica Neue",
-            "Apple SD Gothic Neo",
-            (pt * 2.0).round() as i64,
-            if lh > 0.0 { lh } else { 1.15 },
-            fi,
-            ac.to_string(),
-        ),
-        Some((_, pt, lh, fi, ac)) => (
+fn styles_xml(style: Option<(&str, f64, f64, bool, String, String)>) -> String {
+    let (ascii, east_asia, half_points, line, indent, accent, align) = match style {
+        Some((font, pt, lh, fi, ac, al)) => {
+            let (ascii, east_asia) = match font {
+                "serif" => ("Georgia", "AppleMyungjo"),
+                "mono" => ("Menlo", "Apple SD Gothic Neo"),
+                "round" => ("Helvetica Neue", "Apple SD Gothic Neo"),
+                _ => ("-apple-system", "Apple SD Gothic Neo"),
+            };
+            (
+                ascii,
+                east_asia,
+                (pt * 2.0).round() as i64,
+                if lh > 0.0 { lh } else { 1.15 },
+                fi,
+                ac.to_string(),
+                al.to_string(),
+            )
+        }
+        None => (
             "-apple-system",
             "Apple SD Gothic Neo",
-            (pt * 2.0).round() as i64,
-            if lh > 0.0 { lh } else { 1.15 },
-            fi,
-            ac.to_string(),
+            22i64,
+            1.15f64,
+            false,
+            String::new(),
+            String::new(),
         ),
-        None => ("-apple-system", "Apple SD Gothic Neo", 22, 1.15, false, String::new()),
     };
     let heading_scale = |mult: f64, base: i64| ((base as f64 * mult).round() as i64).to_string();
     let base = half_points;
@@ -796,11 +789,15 @@ fn styles_xml(style: Option<(&str, f64, f64, bool, String)>) -> String {
     // 행간(240 = 단일)과 첫 줄 들여쓰기(1.25em ≈ 폰트 크기의 1.25배 twip).
     let line_rule = format!("{:.0}", (line * 240.0).round());
     let indent_tw = format!("{:.0}", (base as f64 / 2.0) * 1.25 * 20.0);
-    let para_extra = if indent {
+    let mut para_extra = if indent {
         format!("<w:ind w:firstLine=\"{indent_tw}\"/>")
     } else {
         String::new()
     };
+    // 문단 정렬(jc) — Word 문단 정렬과 같은 값.
+    if !align.is_empty() && align != "left" {
+        para_extra.push_str(&format!("<w:jc w:val=\"{align}\"/>"));
+    }
     // 강조색 — 링크색(hyperlink 스타일)으로 반영.
     let hyperlink_color = if accent.is_empty() {
         "0563C1".to_string()

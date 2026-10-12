@@ -24,6 +24,7 @@ export const DEFAULT_DOC_STYLE: DocStyle = {
   paraSpace: "normal",
   accent: null,
   firstLineIndent: false,
+  textAlign: "left",
   imageWidths: {},
 };
 
@@ -50,6 +51,7 @@ export function applyDocStyle(el: HTMLElement, style: DocStyle | null, globalFon
     "--md-text-indent",
     s.firstLineIndent ? "1.25em" : "0em",
   );
+  el.style.setProperty("--md-text-align", s.textAlign);
 }
 
 /** 문서가 저장된 스타일을 갖고 있는가(전부 기본이면 저장할 게 없다). */
@@ -61,6 +63,7 @@ export function isDefaultStyle(style: DocStyle): boolean {
     style.paraSpace === "normal" &&
     !style.accent &&
     !style.firstLineIndent &&
+    style.textAlign === "left" &&
     Object.keys(style.imageWidths ?? {}).length === 0
   );
 }

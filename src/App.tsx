@@ -253,6 +253,10 @@ export function App(): JSX.Element {
           manifest.style = {
             font: ds?.font ?? "system",
             sizePt: ds && ds.fontSize > 0 ? ds.fontSize : 11,
+            lineHeight: ds?.lineHeight ?? 0,
+            firstLineIndent: ds?.firstLineIndent ?? false,
+            textAlign: ds?.textAlign ?? "left",
+            accent: ds?.accent ?? null,
           };
           await api.exportDocx(text, manifest, out, baseDir);
         }
@@ -638,6 +642,7 @@ function exportStyleOf(tab: {
     fontSize: number;
     lineHeight: number;
     firstLineIndent: boolean;
+    textAlign: "left" | "center" | "right" | "justify";
     accent: string | null;
   } | null;
 }): {
@@ -645,6 +650,7 @@ function exportStyleOf(tab: {
   sizePt: number;
   lineHeight: number;
   firstLineIndent: boolean;
+  textAlign: "left" | "center" | "right" | "justify";
   accent: string | null;
 } {
   const ds = tab.docStyle;
@@ -653,6 +659,7 @@ function exportStyleOf(tab: {
     sizePt: ds && ds.fontSize > 0 ? ds.fontSize : 11,
     lineHeight: ds?.lineHeight ?? 0,
     firstLineIndent: ds?.firstLineIndent ?? false,
+    textAlign: ds?.textAlign ?? "left",
     accent: ds?.accent ?? null,
   };
 }

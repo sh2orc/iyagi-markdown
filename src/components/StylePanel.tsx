@@ -117,6 +117,20 @@ export function StylePanel({ store, onClose, t }: Props): JSX.Element | null {
           />
           {t.styleIndent}
         </label>
+        <label className="settings-label">
+          {t.styleAlign}
+          <div className="style-font-row">
+            {(["left", "center", "right", "justify"] as const).map((a) => (
+              <button
+                key={a}
+                className={`style-font-btn ${style.textAlign === a ? "is-on" : ""}`}
+                onClick={() => update({ textAlign: a })}
+              >
+                {a === "left" ? t.alignLeft : a === "center" ? t.alignCenter : a === "right" ? t.alignRight : t.alignJustify}
+              </button>
+            ))}
+          </div>
+        </label>
         <p className="modal-hint">스타일은 앱 데이터베이스에 저장됩니다 — .md 원문은 수정되지 않습니다.</p>
         <div className="modal-actions">
           <button className="btn" onClick={reset}>

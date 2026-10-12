@@ -255,6 +255,9 @@ pub struct DocxStyleSpec {
     pub first_line_indent: bool,
     /// 강조색(RRGGBB, # 없음).
     pub accent: Option<String>,
+    /// 문단 정렬(left|center|right|justify) — docDefaults의 jc로.
+    #[serde(default)]
+    pub text_align: Option<String>,
 }
 
 fn default_size_pt() -> f64 {
@@ -283,6 +286,7 @@ pub fn export_docx(
             s.line_height,
             s.first_line_indent,
             s.accent.clone().unwrap_or_default(),
+            s.text_align.clone().unwrap_or_default(),
         )
     }),
     )

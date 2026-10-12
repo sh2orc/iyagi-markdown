@@ -17,12 +17,13 @@ export interface ExportHtmlOptions {
   title: string;
   baseDir: string;
   theme: "light" | "dark";
-  /** 문서별 스타일(라이브 프리뷰와 동일 반영 — 폰트·크기·행간·들여쓰기·강조색). */
+  /** 문서별 스타일(라이브 프리뷰와 동일 반영 — 폰트·크기·행간·들여쓰기·정렬·강조색). */
   style?: {
     font: "system" | "serif" | "round" | "mono";
     sizePt: number;
     lineHeight: number;
     firstLineIndent: boolean;
+    textAlign: "left" | "center" | "right" | "justify";
     accent: string | null;
   };
   /** PDF용: 본문 여백(mm)과 배율을 CSS에 반영한다. */
@@ -291,6 +292,7 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
       (st.lineHeight > 0 ? `line-height:${st.lineHeight};` : "") +
       `}` +
       (st.firstLineIndent ? `.markdown-body p{text-indent:1.25em;}` : ``) +
+      (st.textAlign && st.textAlign !== "left" ? `.markdown-body p{text-align:${st.textAlign};}` : ``) +
       (st.accent
         ? `.markdown-body a{color:${st.accent};}.markdown-body a:hover{text-decoration-color:${st.accent};}`
         : ``)
@@ -394,6 +396,7 @@ export async function buildDocxManifest(
     sizePt: number;
     lineHeight?: number;
     firstLineIndent?: boolean;
+    textAlign?: "left" | "center" | "right" | "justify";
     accent?: string | null;
   };
 }> {
