@@ -67,12 +67,14 @@ export function Sidebar({ store, tree, workspace, activePath, t, open }: Props):
     if (innerRef.current) innerRef.current.inert = !open;
   }, [open]);
 
-  const toggle = (path: string) => {
-    const next = new Set(collapsed);
-    if (next.has(path)) next.delete(path);
-    else next.add(path);
-    setCollapsed(next);
-  };
+  const toggle = useCallback((path: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
 
   const width = state.sidebarWidth;
 

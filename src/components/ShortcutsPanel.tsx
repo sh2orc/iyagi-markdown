@@ -38,8 +38,11 @@ const GROUPS = (t: Translate): Array<{ title: string; items: [string, string][] 
       ["⌘B", t.tbBold],
       ["⌘I", t.tbItalic],
       ["⇧⌘X", t.tbStrike],
-      ["⇧⌘K", t.tbCode],
+      ["⌘⇧C", t.tbCode],
       ["⇧⏎", t.hardBreak],
+      ["⌥↑ / ⌥↓", t.scMoveLines],
+      ["⌘D", t.scDuplicateLine],
+      ["⌘⇧K", t.scDeleteLines],
     ],
   },
   {

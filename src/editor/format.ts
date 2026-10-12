@@ -476,3 +476,65 @@ export function typePair(view: EditorView, ch: string): boolean {
   }
   return false;
 }
+
+/** 줄(또는 선택 줄들) 이동 — Alt+↑/↓. 이동은 줄 단위 잘라내기+붙여넣기로,
+ *  이동한 줄의 원문 바이트는 그대로다(§4-2). */
+export function moveLines(view: EditorView, up: boolean): boolean {
+  const doc = view.state.doc;
+  const sel = view.state.selection.main;
+  const fromLine = doc.lineAt(sel.from);
+  const toLine = doc.lineAt(sel.to);
+  if (up ? fromLine.number === 1 : toLine.number === doc.lines) return false;
+  const text = doc.sliceString(fromLine.from, toLine.to);
+  if (up) {
+    const above = doc.line(fromLine.number - 1);
+    view.dispatch({
+      changes: [
+        { from: above.from, to: toLine.to, insert: `${text}\n${above.text}` },
+      ],
+      selection: { anchor: sel.from - above.text.length - 1, head: sel.to - above.text.length - 1 },
+      userEvent: "input.moveLines",
+      scrollIntoView: true,
+    });
+  } else {
+    const below = doc.line(toLine.number + 1);
+    view.dispatch({
+      changes: [
+        { from: fromLine.from, to: below.to, insert: `${below.text}\n${text}` },
+      ],
+      selection: { anchor: sel.from + below.text.length + 1, head: sel.to + below.text.length + 1 },
+      userEvent: "input.moveLines",
+      scrollIntoView: true,
+    });
+  }
+  return true;
+}
+
+/** 커서 줄 복제 — ⌘D(아래에 사본). 원문은 같은 줄이 반복될 뿐이다. */
+export function duplicateLine(view: EditorView): boolean {
+  const doc = view.state.doc;
+  const sel = view.state.selection.main;
+  const line = doc.lineAt(sel.head);
+  view.dispatch({
+    changes: { from: line.to, insert: `\n${line.text}` },
+    selection: { anchor: sel.head + line.text.length + 1 },
+    userEvent: "input.duplicateLine",
+    scrollIntoView: true,
+  });
+  return true;
+}
+
+/** 선택 줄들 삭제 — ⌘⇧K(VS Code 표준). */
+export function deleteLines(view: EditorView): boolean {
+  const doc = view.state.doc;
+  const sel = view.state.selection.main;
+  const fromLine = doc.lineAt(sel.from);
+  const toLine = doc.lineAt(sel.to);
+  const from = fromLine.from;
+  const to = toLine.number < doc.lines ? toLine.to + 1 : Math.max(from - 1, fromLine.from);
+  view.dispatch({
+    changes: { from, to },
+    userEvent: "delete.deleteLines",
+  });
+  return true;
+}

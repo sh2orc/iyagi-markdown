@@ -249,3 +249,54 @@ describe("입력 보조(쌍·감싸기)", () => {
     document.body.innerHTML = "";
   });
 });
+
+// 줄 편집(19차).
+import { moveLines, duplicateLine, deleteLines } from "./format";
+
+describe("줄 편집(이동·복제·삭제)", () => {
+  it("Alt+↑ — 줄 위로 이동", () => {
+    const view = new EditorView({ state: createDocState("a\nb\nc\n", "edit"), parent: document.body });
+    view.dispatch({ selection: { anchor: 4 } }); // "c" 줄
+    moveLines(view, true);
+    expect(view.state.doc.toString()).toBe("a\nc\nb\n");
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("Alt+↓ — 선택 두 줄 아래로 이동", () => {
+    const view = new EditorView({ state: createDocState("a\nb\nc\nd\n", "edit"), parent: document.body });
+    view.dispatch({ selection: { anchor: 0, head: 3 } }); // a,b
+    moveLines(view, false);
+    expect(view.state.doc.toString()).toBe("c\na\nb\nd\n");
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("첫 줄 위로·마지막 줄 아래로 — 무동작", () => {
+    const view = new EditorView({ state: createDocState("a\nb\n", "edit"), parent: document.body });
+    view.dispatch({ selection: { anchor: 0 } });
+    expect(moveLines(view, true)).toBe(false);
+    view.dispatch({ selection: { anchor: 4 } });
+    expect(moveLines(view, false)).toBe(false);
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("⌘D — 줄 복제", () => {
+    const view = new EditorView({ state: createDocState("본문\n", "edit"), parent: document.body });
+    view.dispatch({ selection: { anchor: 2 } });
+    duplicateLine(view);
+    expect(view.state.doc.toString()).toBe("본문\n본문\n");
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("⌘⇧K — 선택 줄들 삭제", () => {
+    const view = new EditorView({ state: createDocState("a\nb\nc\n", "edit"), parent: document.body });
+    view.dispatch({ selection: { anchor: 0, head: 3 } }); // a,b
+    deleteLines(view);
+    expect(view.state.doc.toString()).toBe("c\n");
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+});

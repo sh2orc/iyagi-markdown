@@ -92,9 +92,14 @@ function baseExtensions(): Extension[] {
       { key: "Mod-b", run: (v) => fmt.toggleBold(v), preventDefault: true },
       { key: "Mod-i", run: (v) => fmt.toggleItalic(v), preventDefault: true },
       { key: "Mod-Shift-x", run: (v) => fmt.toggleStrikethrough(v), preventDefault: true },
-      { key: "Mod-Shift-k", run: (v) => fmt.toggleInlineCode(v), preventDefault: true },
+      { key: "Mod-Shift-c", run: (v) => fmt.toggleInlineCode(v), preventDefault: true },
       // 목록 자동 계속 — 항목 끝에서 Enter면 다음 마커를 잇는다(빈 항목은 종료).
       { key: "Enter", run: (v) => fmt.continueListOnEnter(v) },
+      // 줄 편집 — Alt+↑↓ 이동·⌘D 복제·⌘⇧K 삭제(Word/VS Code 표준).
+      { key: "Alt-ArrowUp", run: (v) => fmt.moveLines(v, true) },
+      { key: "Alt-ArrowDown", run: (v) => fmt.moveLines(v, false) },
+      { key: "Mod-d", run: (v) => fmt.duplicateLine(v), preventDefault: true },
+      { key: "Mod-Shift-k", run: (v) => fmt.deleteLines(v), preventDefault: true },
       // 입력 보조 — 괄호 쌍·마커 감싸기(선택 있을 때). 개별 문자 키.
       { key: "(", run: (v) => fmt.typePair(v, "(") },
       { key: "[", run: (v) => fmt.typePair(v, "[") },
