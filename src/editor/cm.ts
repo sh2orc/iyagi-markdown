@@ -11,7 +11,7 @@ import { defaultKeymap, history, historyField, historyKeymap } from "@codemirror
 import { GFM } from "@lezer/markdown";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
-import { foldGutter, foldKeymap, foldService, indentUnit } from "@codemirror/language";
+import { foldGutter, foldKeymap, foldService, indentUnit, syntaxTree } from "@codemirror/language";
 
 /** 제목 접기 범위 — 헤딩 줄에서 같거나 낮은 단계의 다음 제목 전까지.
  *  순수 함수(테스트 대상). lang-markdown은 블록(표·코드)만 접어준다
@@ -35,9 +35,30 @@ export function headingFoldOf(
   return end > line.to ? { from: line.to, to: end } : null;
 }
 
+/** 목록 항목 접기 범위 — 마커 줄에서 항목 끝(하위 항목 포함)까지.
+ *  구문 트리의 ListItem 노드 범위를 그대로 쓴다. 순수 함수(테스트 대상). */
+export function listItemFoldOf(
+  state: EditorState,
+  from: number,
+): { from: number; to: number } | null {
+  const line = state.doc.lineAt(from);
+  if (from !== line.from) return null;
+  if (!/^\s*(?:[-*+]|\d+[.)])\s/.test(line.text)) return null;
+  // from이 속한 ListItem 노드 — 트리에서 찾아 항목 전체 범위를 얻는다.
+  let node: { name: string; to: number; parent: unknown } | null =
+    syntaxTree(state).resolveInner(from, 1) as unknown as { name: string; to: number; parent: unknown } | null;
+  while (node && node.name !== "ListItem") {
+    node = (node.parent ?? null) as typeof node;
+    if (node && node.name === "Document") return null;
+  }
+  if (!node) return null;
+  const to = node.to;
+  return to > line.to ? { from: line.to, to } : null;
+}
+
 const headingFoldService = foldService.of((state, from, to) => {
   void to;
-  return headingFoldOf(state, from);
+  return headingFoldOf(state, from) ?? listItemFoldOf(state, from);
 });
 
 import {

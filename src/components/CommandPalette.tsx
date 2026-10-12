@@ -10,6 +10,7 @@ import type { AppStore } from "../app/store";
 import { flattenFiles, scoreFile, subsequence, type FileEntry } from "../app/quickOpen";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
+import { foldAll, unfoldAll } from "@codemirror/language";
 import { DOC_TEMPLATES } from "../app/templates";
 
 interface Cmd {
@@ -162,6 +163,8 @@ export function CommandPalette({
       { id: "export-docx", label: `${t.exportTitle} — ${t.exportDocx}`, run: () => onOpenExport("docx") },
       { id: "bookmark", label: `${t.ctxAddBookmark} / ${t.ctxRemoveBookmark}`, run: () => store.toggleBookmark() },
       { id: "bm-next", label: `${t.bookmarksSection}: ${t.bmNext}`, run: () => store.cycleBookmark(true) },
+      { id: "fold-all", label: `${t.scView}: ${t.foldAll}`, run: go(() => foldAll(store.view!)) },
+      { id: "unfold-all", label: `${t.scView}: ${t.unfoldAll}`, run: go(() => unfoldAll(store.view!)) },
       { id: "bm-prev", label: `${t.bookmarksSection}: ${t.bmPrev}`, run: () => store.cycleBookmark(false) },
       { id: "tw-toggle", label: `${t.scView}: ${t.setTypewriter}`, run: () => store.toggleTypewriter() },
       { id: "focus-toggle", label: `${t.scView}: ${t.setFocusMode}`, run: () => store.toggleFocusMode() },

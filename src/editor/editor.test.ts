@@ -13,7 +13,7 @@ import { languages } from "@codemirror/language-data";
 import { mathSyntax } from "./mathSyntax";
 import { parseTable } from "./widgets";
 import { computeMatches, updateMatchesForChanges } from "../search/searchCm";
-import { createDocState, headingFoldOf } from "./cm";
+import { createDocState, headingFoldOf, listItemFoldOf } from "./cm";
 
 const parse = (doc: string) => {
   const state = EditorState.create({
@@ -310,5 +310,20 @@ describe("제목 접기 (foldService)", () => {
       to: doc.indexOf("## B2") - 1,
     });
     expect(headingFoldOf(state, doc.indexOf("본문"))).toBeNull(); // 제목 아님
+  });
+});
+
+describe("목록 항목 접기", () => {
+  it("마커 줄에서 항목 전체(하위 포함)까지", () => {
+    const doc = "- 항목 A\n  - 하위\n    - 더 하위\n- 항목 B\n";
+    const state = EditorState.create({
+      doc,
+      extensions: [markdown({ base: markdownLanguage, extensions: [GFM, mathSyntax], codeLanguages: languages, addKeymap: false })],
+    });
+    ensureSyntaxTree(state, doc.length + 100, 5000);
+    const first = listItemFoldOf(state, 0);
+    expect(first).toEqual({ from: 6, to: doc.indexOf("- 항목 B") - 1 }); // 줄 끝(6)
+    expect(listItemFoldOf(state, doc.indexOf("- 항목 B"))).toBeNull(); // 하위 없음 → 접히지 않음
+    expect(listItemFoldOf(state, doc.indexOf("항목 A"))).toBeNull(); // 줄 시작 아님
   });
 });
