@@ -827,6 +827,16 @@ export class AppStore {
     smoothScrollIntoView(this.view, l.from);
   }
 
+  /** 다음/이전 책갈피로 순환(끝에서 반대편 — 랩). 커서 뒤 첫 책갈피. */
+  cycleBookmark(forward: boolean): void {
+    const tab = this.active;
+    if (!tab || !this.view || tab.bookmarks.length === 0) return;
+    const cur = this.view.state.doc.lineAt(this.view.state.selection.main.head).number;
+    const marks = forward ? tab.bookmarks : [...tab.bookmarks].reverse();
+    const next = marks.find((l) => (forward ? l > cur : l < cur)) ?? marks[0];
+    this.gotoBookmark(next);
+  }
+
   /** 표 표시 폭 저장 — 헤더 내용 키로(줄 이동에 불변), 구 줄 번호 키는 제거.
    *  원문 불변 사이드카. */
   setTableWidths(lineNo: number, key: string, widths: number[]): void {

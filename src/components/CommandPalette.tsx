@@ -161,6 +161,8 @@ export function CommandPalette({
       { id: "export-pdf", label: `${t.exportTitle} — ${t.exportPdf}`, run: () => onOpenExport("pdf") },
       { id: "export-docx", label: `${t.exportTitle} — ${t.exportDocx}`, run: () => onOpenExport("docx") },
       { id: "bookmark", label: `${t.ctxAddBookmark} / ${t.ctxRemoveBookmark}`, run: () => store.toggleBookmark() },
+      { id: "bm-next", label: `${t.bookmarksSection}: ${t.bmNext}`, run: () => store.cycleBookmark(true) },
+      { id: "bm-prev", label: `${t.bookmarksSection}: ${t.bmPrev}`, run: () => store.cycleBookmark(false) },
       { id: "tw-toggle", label: `${t.scView}: ${t.setTypewriter}`, run: () => store.toggleTypewriter() },
       { id: "focus-toggle", label: `${t.scView}: ${t.setFocusMode}`, run: () => store.toggleFocusMode() },
       { id: "sentence-toggle", label: `${t.scView}: ${t.setFocusSentence}`, run: () => store.toggleSentenceFocus() },

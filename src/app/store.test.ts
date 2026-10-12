@@ -254,3 +254,30 @@ describe("큰 문서 증분 통계(수동 QA '5MB 문서'의 자동화 근사)",
     expect(t.dirty).toBe(true);
   });
 });
+
+describe("책갈피 순환", () => {
+  it("커서 위치 기준 다음/이전, 끝에서 반대편으로 랩", async () => {
+    const store = new AppStore(fakeIo());
+    const view = mount(store);
+    await openTab(store, "/tmp/bm.md");
+    // 문서: 줄 1..5. 책갈피 2·4(토글은 커서 줄 기준 — 커서 옮기며 토글).
+    const t = store.active!;
+    for (const ln of [2, 4]) {
+      const pos = view.state.doc.line(ln).from;
+      view.dispatch({ selection: { anchor: pos } });
+      store.toggleBookmark();
+    }
+    expect(t.bookmarks).toEqual([2, 4]);
+    // 커서 1행 → 다음 = 2 → 다음 = 4 → 다음(랩) = 2.
+    view.dispatch({ selection: { anchor: 0 } });
+    store.cycleBookmark(true);
+    expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(2);
+    store.cycleBookmark(true);
+    expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(4);
+    store.cycleBookmark(true);
+    expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(2);
+    // 커서 2행 → 이전(랩) = 4.
+    store.cycleBookmark(false);
+    expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(4);
+  });
+});
