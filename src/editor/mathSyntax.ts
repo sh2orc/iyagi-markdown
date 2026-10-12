@@ -81,9 +81,8 @@ export const mathSyntax: MarkdownExtension = {
   parseBlock: [
     {
       // 각주 정의 [^label]: … — 문서 끝의 각주 영역을 블록으로. 연속 줄은
-      // 4칸 들여쓰기. 정지 규칙은 lezer IndentedCode와 같다: 브레이커 줄
-      // 위에서 멈추고(요소에 포함하지 않음) 반환 — 메인 루프가 그 줄부터
-      // 다음 블록을 파싱한다.
+      // 4칸 이상 들여쓰기. 빈 줄·들여쓰기 없는 줄에서 멈춘다(브레이커 줄은
+      // 요소에 포함하지 않는다 — 다음 블록이 파싱된다).
       name: "iyagiFootnoteDef",
       before: "HorizontalRule",
       parse(cx, line) {
@@ -91,13 +90,11 @@ export const mathSyntax: MarkdownExtension = {
         if (!/^\[\^[^\]\s]+\]:/.test(t)) return false;
         const from = cx.lineStart + line.pos;
         let to = cx.lineStart + line.text.length;
-        // line.depth/cx.stack는 공개 타입에 없는 lezer 내부 필드(IndentedCode
-        // 같은 정지 규칙용) — 최소 캐스트로 사용.
-        const li = line as unknown as { depth: number };
-        const ci = cx as unknown as { stack: unknown[] };
-        while (cx.nextLine() && li.depth >= ci.stack.length) {
-          if (line.pos === line.text.length) break; // 빈 줄 — 정의 끝
-          if (line.indent - line.baseIndent < 4) break; // 들여쓰기 연속 아님
+        while (cx.nextLine()) {
+          // 빈 줄 — 정의 끝.
+          if (line.text.trim().length === 0) break;
+          // 4칸 미만 들여쓰기 — 다음 블록.
+          if (line.indent - line.baseIndent < 4) break;
           to = cx.lineStart + line.text.length;
         }
         cx.addElement(cx.elt("FootnoteDef", from, to));
@@ -142,9 +139,3 @@ export const mathSyntax: MarkdownExtension = {
     },
   ],
 };
-
-/** DOCX 경로용 ==하이라이트== 강등 — comrak이 모르는 문법을 굵게로.
- *  (HTML·PDF는 <mark>로 그대로, DOCX만 이 변환을 쓴다.) 순수 함수. */
-export function highlightToBold(text: string): string {
-  return text.replace(/==([^=\n]+)==/g, "**$1**");
-}

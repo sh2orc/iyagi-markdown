@@ -10,7 +10,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import { languages } from "@codemirror/language-data";
 
-import { mathSyntax, highlightToBold } from "./mathSyntax";
+import { mathSyntax } from "./mathSyntax";
 import { parseTable } from "./widgets";
 import { computeMatches, updateMatchesForChanges } from "../search/searchCm";
 import { createDocState } from "./cm";
@@ -253,13 +253,7 @@ describe("하이라이트 문법 (lezer 확장)", () => {
   });
 });
 
-describe("highlightToBold (DOCX 강등)", () => {
-  it("==x== → **x**, 빈/여러 줄 안전", () => {
-    expect(highlightToBold("a ==b== c")).toBe("a **b** c");
-    expect(highlightToBold("==\nx==")).toBe("==\nx==");
-    expect(highlightToBold("==a== and ==b==")).toBe("**a** and **b**");
-  });
-});
+);
 
 describe("각주 정의 블록 (lezer 확장)", () => {
   it("[^label]: 줄을 FootnoteDef로, 이어 다른 블록 보존", () => {

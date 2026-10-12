@@ -22,7 +22,6 @@ import { replaceDoc, setLinkClickHandler, setViewListener, smoothScrollIntoView 
 import { stripFrontMatter } from "./editor/frontmatter";
 import { relPath } from "./paths";
 import { resolveWikiLink, wikiLinksToMarkdown } from "./editor/wiki";
-import { highlightToBold } from "./editor/mathSyntax";
 import { collectHeadings, resolveLink } from "./links";
 import { makeT, type Lang } from "./i18n";
 import { TabBar } from "./components/TabBar";
@@ -391,9 +390,7 @@ export function App(): JSX.Element {
           });
           await api.exportPdf(html, { ...opts, pageNumbers: pdfPageNumbers }, out);
         } else {
-          // ==하이라이트==는 comrak가 모른다 — 굵게로 강등(HTML/PDF는 mark 유지).
-          const docxText = highlightToBold(text);
-          const manifest = await buildDocxManifest(docxText);
+          const manifest = await buildDocxManifest(text);
           // 문서별 스타일 → DOCX 기본 서체(폰트·크기).
           const ds = tab.docStyle;
           manifest.style = {
@@ -404,7 +401,7 @@ export function App(): JSX.Element {
             textAlign: ds?.textAlign ?? "left",
             accent: ds?.accent ?? null,
           };
-          await api.exportDocx(docxText, manifest, out, baseDir);
+          await api.exportDocx(text, manifest, out, baseDir);
         }
         store.setBusy(null);
         store.toast(t.f.exportDone(`${name}.${ext}`));

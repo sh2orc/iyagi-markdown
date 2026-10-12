@@ -389,16 +389,57 @@ fn rpr(style: &RunStyle) -> String {
     }
 }
 
+fn plain_run(text: &str, style: &RunStyle) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+    format!("<w:r>{}<w:t{}>{}</w:t></w:r>", rpr(style), PRESERVE, esc(text))
+}
+
+/// 형광펜 런 — 노란 배경 shading(w:shd). 편집기·HTML의 ==하이라이트==와
+/// 같은 의미(15차의 굵게 강등을 대체하는 Word 네이티브 표현).
+fn highlight_run(text: &str, style: &RunStyle) -> String {
+    const SHD: &str = r#"<w:shd w:val="clear" w:color="auto" w:fill="FFF3A3"/>"#;
+    let base = rpr(style);
+    let rpr_with = if base.is_empty() {
+        format!("<w:rPr>{SHD}</w:rPr>")
+    } else {
+        // "</w:rPr>"를 떼고 shd를 끼운다.
+        let inner = &base[..base.len() - "</w:rPr>".len()];
+        format!("{inner}{SHD}</w:rPr>")
+    };
+    format!("<w:r>{rpr_with}<w:t{}>{}</w:t></w:r>", PRESERVE, esc(text))
+}
+
 fn text_run(text: &str, style: &RunStyle) -> String {
     if text.is_empty() {
         return String::new();
     }
-    format!(
-        "<w:r>{}<w:t{}>{}</w:t></w:r>",
-        rpr(style),
-        PRESERVE,
-        esc(text)
-    )
+    if !text.contains("==") {
+        return plain_run(text, style);
+    }
+    // 텍스트 노드 안의 ==…== 를 shaded 런으로(노드를 가로지르는 하이라이트는
+    // comrak가 이미 다른 인라인 노드로 쪼갠 경우 — v1에서는 순수 텍스트만).
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("==") {
+        match rest[start + 2..].find("==").map(|e| start + 2 + e) {
+            Some(end)
+                if !rest[start + 2..end].is_empty() && !rest[start + 2..end].contains('\n') =>
+            {
+                out.push_str(&plain_run(&rest[..start], style));
+                out.push_str(&highlight_run(&rest[start + 2..end], style));
+                rest = &rest[end + 2..];
+            }
+            _ => {
+                // 닫는 짝 없음 — 여는 ==까지 일반 텍스트로 내보내고 계속.
+                out.push_str(&plain_run(&rest[..start + 2], style));
+                rest = &rest[start + 2..];
+            }
+        }
+    }
+    out.push_str(&plain_run(rest, style));
+    out
 }
 
 fn inline_children<'a>(
@@ -968,6 +1009,30 @@ mod tests {
         assert!(doc.contains("<w:b/>"));
         assert!(doc.contains("w:tbl"));
         assert!(doc.contains("Menlo"));
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn highlight_becomes_shading() {
+        let md = "서론 ==여기가 핵심== 결론. 짝 없는 == 는 그대로.\n";
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let out = tmp("hl");
+        export_docx(md, &math, &diagrams, &images, &out, None).unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let cursor = std::io::Cursor::new(&bytes);
+        let mut zip = zip::ZipArchive::new(cursor).unwrap();
+        let doc = {
+            let mut s = String::new();
+            use std::io::Read;
+            zip.by_name("word/document.xml").unwrap().read_to_string(&mut s).unwrap();
+            s
+        };
+        assert!(doc.contains(r#"w:fill="FFF3A3""#));
+        assert!(doc.contains("여기가 핵심"));
+        // 닫는 짝이 없는 == 는 평문으로 남는다(텍스트 소실 없음).
+        assert!(doc.contains("그대로"));
         let _ = std::fs::remove_file(&out);
     }
 
