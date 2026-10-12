@@ -298,7 +298,7 @@ export const editorTheme = EditorView.theme({
   },
 
   // — 표(Word 라이트 그리드) —
-  ".md-table-wrap": { margin: "0.2em 0", overflowX: "auto", contain: "layout style" },
+  ".md-table-wrap": { margin: "0.25em 0 0.8em", overflowX: "auto", contain: "layout style" },
   ".md-table": { borderCollapse: "collapse", fontSize: "0.95em", lineHeight: "1.45" },
   ".md-table th, .md-table td": {
     border: "1px solid var(--md-table-line)",
