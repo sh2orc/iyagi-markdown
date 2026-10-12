@@ -399,12 +399,15 @@ export function App(): JSX.Element {
         const baseDir = tab.path
           ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/"
           : store.state.workspace ?? "";
+        // 사이드카 이미지 폭(%) — 편집기 드래그 값과 동일하게 4경로 모두 반영.
+        const imageWidths = tab.docStyle?.imageWidths ?? {};
         if (kind === "html") {
           const html = await buildExportHtml(text, {
             title: tab.path ? tab.title : name,
             baseDir,
             theme: store.state.theme,
             style: exportStyleOf(tab),
+            imageWidths,
             readBytes: readBytesForExport,
             wikiResolve,
           });
@@ -418,6 +421,7 @@ export function App(): JSX.Element {
             marginMm: opts.marginMm,
             scale: opts.scale,
             style: exportStyleOf(tab),
+            imageWidths,
             readBytes: readBytesForExport,
             wikiResolve,
           });
@@ -431,8 +435,9 @@ export function App(): JSX.Element {
             baseDir,
             theme: store.state.theme,
           });
+          const { applyImageWidths } = await import("./export/html");
           // 전체를 한 번 렌더한 HTML을 <h1> 경계로 챕터 분할(각주는 마지막 챕터에).
-          const chapters = epubChapterInputs(splitEpubChapters(body));
+          const chapters = epubChapterInputs(splitEpubChapters(applyImageWidths(body, imageWidths)));
           // 표지 — 문서의 첫 로컬 이미지(없으면 생략).
           const coverPath = firstLocalImage(text, baseDir);
           await api.exportEpub(
@@ -457,6 +462,7 @@ export function App(): JSX.Element {
             accent: ds?.accent ?? null,
             pageNumbers: exportPageNumbers,
           };
+          manifest.imageWidths = imageWidths;
           await api.exportDocx(text, manifest, out, baseDir);
         }
         store.setBusy(null);

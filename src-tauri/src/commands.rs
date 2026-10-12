@@ -380,6 +380,9 @@ pub struct DocxManifest {
     pub math: std::collections::HashMap<String, String>,
     /// mermaid 코드 원문 → SVG(순수 벡터, foreignObject 없음).
     pub diagrams: std::collections::HashMap<String, String>,
+    /// 문서별 이미지 폭(%) — 마크다운 src 키(사이드카 imageWidths).
+    #[serde(default)]
+    pub image_widths: std::collections::HashMap<String, u32>,
     /// 문서별 기본 서체(라이브 프리뷰 스타일 반영).
     pub style: Option<DocxStyleSpec>,
 }
@@ -418,7 +421,8 @@ pub fn export_docx(
     out_path: String,
     base_dir: String,
 ) -> Result<(), String> {
-    let images = md_export::ImageSource::new(base_dir);
+    let mut images = md_export::ImageSource::new(base_dir);
+    images.set_widths(manifest.image_widths);
     md_export::docx::export_docx(
         &markdown,
         &manifest.math,

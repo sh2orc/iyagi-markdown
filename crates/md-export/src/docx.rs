@@ -847,18 +847,20 @@ fn inline<'a>(
 
 /// 이미지 → 인라인 그림(비트맵) 또는 도형 그룹(SVG, §4-3).
 fn image_drawing(ctx: &mut Ctx, url: &str) -> Option<String> {
+    // 사이드카 폭(%) — 편집기에서 드래그한 값과 동일하게 축소.
+    let pct = ctx.images.width(url).unwrap_or(100).clamp(5, 100) as f64 / 100.0;
     let lower = url.to_ascii_lowercase();
     if lower.ends_with(".svg") || lower.contains(".svg?") {
         let svg = ctx.images.read(url)?;
         let svg = String::from_utf8(svg).ok()?;
-        let drawing = svg_to_drawingml(&svg, PAGE_TEXT_WIDTH_EMU).ok()?;
+        let drawing = svg_to_drawingml(&svg, (PAGE_TEXT_WIDTH_EMU as f64 * pct) as i64).ok()?;
         return Some(format!("<w:p>{drawing}</w:p>"));
     }
     let bytes = ctx.images.read(url)?;
     let ext = detect_image(&bytes)?;
     // 크기: 이미지 헤더에서 추출, 실패 시 4x3in.
     let (w_px, h_px) = image_dimensions(&bytes).unwrap_or((384, 288));
-    let scale = (PAGE_TEXT_WIDTH_EMU as f64 / (w_px as f64 * 9525.0)).min(1.0);
+    let scale = (PAGE_TEXT_WIDTH_EMU as f64 / (w_px as f64 * 9525.0)).min(1.0) * pct;
     let cx = (w_px as f64 * 9525.0 * scale).round() as i64;
     let cy = (h_px as f64 * 9525.0 * scale).round() as i64;
     let name = ctx.add_media(bytes, ext);
@@ -1503,6 +1505,53 @@ mod tests {
             "미디어 포함: {names:?}"
         );
         let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn image_width_pct_shrinks_extent() {
+        // 100x40 PNG — 폭 지정 없으면 페이지 폭(6in)에 맞춰 확대되는 크기.
+        let png: Vec<u8> = vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0, 0, 0, 100, 0, 0, 0, 40, 8, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x0A, 0x49,
+            0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0, 1, 0, 0, 5, 0, 1, 0x0D, 0x0A, 0x2D, 0xB4, 0,
+            0, 0, 0, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        let dir = std::env::temp_dir().join(format!("md-export-docx-w-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.png"), &png).unwrap();
+        let md = "![](a.png)\n";
+
+        let read_doc = |widths: Option<u32>| -> (String, String) {
+            let math = HashMap::new();
+            let diagrams = HashMap::new();
+            let mut images = ImageSource::new(dir.to_string_lossy().into_owned());
+            if let Some(p) = widths {
+                images.set_widths([("a.png".to_string(), p)].into_iter().collect());
+            }
+            let out = tmp("imgw");
+            export_docx(md, &math, &diagrams, &images, &out, None, false).unwrap();
+            let bytes = std::fs::read(&out).unwrap();
+            let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+            use std::io::Read;
+            let mut doc = String::new();
+            zip.by_name("word/document.xml").unwrap().read_to_string(&mut doc).unwrap();
+            let _ = std::fs::remove_file(&out);
+            (doc, String::new())
+        };
+
+        let (full, _) = read_doc(None);
+        let (half, _) = read_doc(Some(50));
+        let ext_of = |doc: &str| -> i64 {
+            let m = doc.split("cx=\"").nth(1).unwrap().split('"').next().unwrap();
+            m.parse().unwrap()
+        };
+        let f = ext_of(&full);
+        let h = ext_of(&half);
+        assert!(f > 0);
+        // 50% 지정이면 폭이 정확히 절반(반올림 ±1 EMU).
+        assert!((f as f64 / 2.0 - h as f64).abs() <= 1.0, "full={f} half={h}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

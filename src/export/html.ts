@@ -34,6 +34,8 @@ export interface ExportHtmlOptions {
   scale?: number;
   /** PDF 하단 페이지 번호(N / M — WebKit 인쇄에서 매 페이지 반복). */
   pageNumbers?: boolean;
+  /** 사이드카 이미지 폭(%) — 마크다운 src 키. 인라인化 전 <img>에 style로. */
+  imageWidths?: Record<string, number>;
   /** 로컬 이미지를 data URI로 인라인할지(HTML 내보내기 기본 켬). */
   inlineImages?: boolean;
   /** 이미지 바이너리 읽기(앱: Tauri 명령). 없으면 인라인 생략. */
@@ -182,6 +184,44 @@ function cleanMermaidSvg(svg: string): string {
 
 // — 이미지 인라인 —
 
+/** 사이드카 이미지 폭(%)을 <img> style로 반영. 원본 src를 키로 쓰므로
+ *  data URI 인라인化 전에 호출한다. 퍼센트 디코딩한 표기도 같이 매칭. */
+export function applyImageWidths(html: string, widths: Record<string, number>): string {
+  const keys = Object.keys(widths);
+  if (keys.length === 0) return html;
+  const norm = new Map<string, number>();
+  for (const k of keys) {
+    const pct = Math.min(100, Math.max(5, Math.round(widths[k] ?? 100)));
+    norm.set(k, pct);
+    try {
+      norm.set(decodeURIComponent(k), pct);
+    } catch {
+      /* 원본 키만 */
+    }
+  }
+  const pctOf = (src: string): number | undefined => {
+    if (norm.has(src)) return norm.get(src);
+    try {
+      return norm.get(decodeURIComponent(src));
+    } catch {
+      return undefined;
+    }
+  };
+  return html.replace(/<img\b[^>]*>/gi, (tag) => {
+    const m = / src="([^"]*)"/.exec(tag);
+    if (!m) return tag;
+    const pct = pctOf(m[1]);
+    if (pct === undefined) return tag;
+    const decl = `width:${pct}%;height:auto`;
+    const style = / style="([^"]*)"/.exec(tag);
+    if (style) {
+      const cleaned = style[1].replace(/(?:^|;)\s*(?:width|height):[^;"]*/g, "").replace(/^;\s*/, "").trim();
+      return tag.replace(style[0], `style="${cleaned ? `${cleaned};` : ""}${decl}"`);
+    }
+    return tag.replace(m[0], `${m[0]} style="${decl}"`);
+  });
+}
+
 async function inlineImages(html: string, baseDir: string, readBytes?: (p: string) => Promise<Uint8Array | null>): Promise<string> {
   if (!readBytes) return html;
   const seen = new Map<string, string>();
@@ -300,9 +340,11 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
     opts.baseDir,
   );
   const [{ body }, katexCss] = await Promise.all([renderMarkdownBody(body0, opts), inlineKatexCss()]);
+  // 사이드카 폭은 원본 src 키로 매칭 — data URI 인라인化 전에 적용한다.
+  const withWidths = applyImageWidths(body, opts.imageWidths ?? {});
   const withImages = opts.inlineImages === false
-    ? body
-    : await inlineImages(body, opts.baseDir, opts.readBytes);
+    ? withWidths
+    : await inlineImages(withWidths, opts.baseDir, opts.readBytes);
   const sanitized = await sanitize(withImages);
   const marginCss = opts.forPdf
     ? `body{margin:${opts.marginMm ?? 14}mm !important;}` +
@@ -476,6 +518,8 @@ export async function buildDocxManifest(
     accent?: string | null;
     pageNumbers?: boolean;
   };
+  /** 사이드카 이미지 폭(%) — 마크다운 src 키 → 그림 extent 축소. */
+  imageWidths?: Record<string, number>;
 }> {
   const math: Record<string, string> = {};
   const diagrams: Record<string, string> = {};

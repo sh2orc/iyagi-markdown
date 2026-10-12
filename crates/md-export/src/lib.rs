@@ -12,13 +12,26 @@ use std::path::PathBuf;
 /// 문서 기준 상대 경로에서 이미지 바이너리를 읽어 주는 소스.
 pub struct ImageSource {
     pub base_dir: PathBuf,
+    /// 문서별 이미지 폭(%) — 마크다운 src 키(사이드카). 내보내기 축소용.
+    widths: std::collections::HashMap<String, u32>,
 }
 
 impl ImageSource {
     pub fn new(base_dir: String) -> Self {
         Self {
             base_dir: PathBuf::from(base_dir),
+            widths: std::collections::HashMap::new(),
         }
+    }
+
+    /// 사이드카 이미지 폭 등록(마크다운 src → 퍼센트).
+    pub fn set_widths(&mut self, widths: std::collections::HashMap<String, u32>) {
+        self.widths = widths;
+    }
+
+    /// 해당 src의 지정 폭(%) — 없으면 None(100%).
+    pub fn width(&self, url: &str) -> Option<u32> {
+        self.widths.get(url).copied()
     }
 
     /// 경로(절대 또는 base_dir 상대)를 어휘적으로 정규화한 절대경로.
