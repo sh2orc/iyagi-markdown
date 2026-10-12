@@ -26,6 +26,7 @@ export const DEFAULT_DOC_STYLE: DocStyle = {
   firstLineIndent: false,
   textAlign: "left",
   imageWidths: {},
+  tableWidths: {},
 };
 
 /** 스타일을 호스트 요소의 CSS 변수로 반영한다. */
@@ -64,6 +65,7 @@ export function isDefaultStyle(style: DocStyle): boolean {
     !style.accent &&
     !style.firstLineIndent &&
     style.textAlign === "left" &&
-    Object.keys(style.imageWidths ?? {}).length === 0
+    Object.keys(style.imageWidths ?? {}).length === 0 &&
+    Object.keys(style.tableWidths ?? {}).length === 0
   );
 }

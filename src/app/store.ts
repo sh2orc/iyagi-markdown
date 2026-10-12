@@ -601,6 +601,7 @@ export class AppStore {
       theme: this.state.theme,
       imageWidths: tab?.docStyle?.imageWidths ?? {},
       bookmarks: tab?.bookmarks ?? [],
+      tableWidths: tab?.docStyle?.tableWidths ?? {},
     });
     this.applyDocStyleVars();
   }
@@ -636,6 +637,17 @@ export class AppStore {
     const doc = this.view.state.doc;
     const l = doc.line(Math.min(Math.max(line, 1), doc.lines));
     smoothScrollIntoView(this.view, l.from);
+  }
+
+  /** 표 표시 폭 저장(표 시작 줄 → 열 px 배열) — 원문 불변 사이드카. */
+  setTableWidths(lineNo: number, widths: number[]): void {
+    const tab = this.active;
+    if (!tab) return;
+    const style: DocStyle = {
+      ...(tab.docStyle ?? DEFAULT_DOC_STYLE_T),
+      tableWidths: { ...(tab.docStyle?.tableWidths ?? {}), [String(lineNo)]: widths },
+    };
+    this.setDocStyle(style);
   }
 
   /** 이미지 표시 폭 변경(원문 불변 — 사이드카에만 저장). */

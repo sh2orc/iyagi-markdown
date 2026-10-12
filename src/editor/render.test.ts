@@ -41,6 +41,7 @@ async function makeView(mode: "read" | "edit"): Promise<EditorView> {
       theme: "light",
       imageWidths: {},
       bookmarks: [],
+      tableWidths: {},
     }),
   });
   await new Promise((r) => setTimeout(r, 120));
@@ -95,6 +96,7 @@ describe("샘플 문서 라이브 프리뷰", () => {
           theme: "dark",
           imageWidths: {},
           bookmarks: [],
+          tableWidths: {},
         }),
       });
     }

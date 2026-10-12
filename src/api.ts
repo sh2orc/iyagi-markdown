@@ -100,6 +100,8 @@ export interface DocStyle {
   textAlign: "left" | "center" | "right" | "justify";
   /** 이미지 표시 폭(원본 경로 기준 퍼센트) — 원문은 불변, 사이드카에만. */
   imageWidths: Record<string, number>;
+  /** 표 표시 폭(표 시작 줄 번호 → 열 px 배열) — 원문 불변 사이드카. */
+  tableWidths: Record<string, number[]>;
 }
 
 export interface AppInfo {

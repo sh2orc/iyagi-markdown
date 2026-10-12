@@ -53,6 +53,7 @@ export interface PreviewConfigParam {
   theme: "light" | "dark";
   imageWidths: Record<string, number>;
   bookmarks: number[];
+  tableWidths: Record<string, number[]>;
 }
 
 /** 서식 복사용 markdown-it(지연 로드, 선택 시 예열). */
@@ -309,6 +310,7 @@ function currentPreviewConfig(view: EditorView): PreviewConfigParam {
       theme: "light",
       imageWidths: {},
       bookmarks: [],
+      tableWidths: {},
     }
   );
 }

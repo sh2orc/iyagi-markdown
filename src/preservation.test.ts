@@ -148,6 +148,7 @@ function setPreviewConfigOf(view: EditorView): void {
       theme: "light",
       imageWidths: {},
       bookmarks: [],
+      tableWidths: {},
     }),
   });
 }

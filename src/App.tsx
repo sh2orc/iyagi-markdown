@@ -32,6 +32,7 @@ import { Toolbar } from "./components/Toolbar";
 import { MiniToolbar } from "./components/MiniToolbar";
 import { ContextMenu } from "./components/ContextMenu";
 import { setImageResizeHandler, setImageViewerHandler, setTableHeaderClickHandler } from "./editor/widgets";
+import { setTableWidthsSaveHandler } from "./editor/livePreview";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { StylePanel } from "./components/StylePanel";
 import { PrintPreview } from "./components/PrintPreview";
@@ -212,6 +213,7 @@ export function App(): JSX.Element {
   useEffect(() => {
     setImageResizeHandler((src, pct) => store.setImageWidth(src, pct));
     setImageViewerHandler((src, alt) => setViewer({ src, alt }));
+    setTableWidthsSaveHandler((lineNo, widths) => store.setTableWidths(lineNo, widths));
     setTableHeaderClickHandler((col, reset) => {
       const view = store.view;
       const tab = store.active;
@@ -255,6 +257,7 @@ export function App(): JSX.Element {
       setImageResizeHandler(null);
       setImageViewerHandler(null);
       setTableHeaderClickHandler(null);
+      setTableWidthsSaveHandler(null);
     };
   }, [store]);
 

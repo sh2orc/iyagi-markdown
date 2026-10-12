@@ -345,10 +345,15 @@ const tableCellText = (raw: string): DocumentFragment => {
 };
 
 export class TableWidget extends WidgetType {
-  #widths: number[] | null = null;
+  #widths: number[] | null;
 
-  constructor(readonly src: string) {
+  constructor(
+    readonly src: string,
+    initialWidths?: number[],
+    readonly onWidthsSaved?: (widths: number[]) => void,
+  ) {
     super();
+    this.#widths = initialWidths ? [...initialWidths] : null;
   }
 
   eq(other: TableWidget) {
@@ -403,6 +408,8 @@ export class TableWidget extends WidgetType {
             this.#widths = Array.from(colgroup.children).map(
               (c) => (c as HTMLElement).getBoundingClientRect().width,
             );
+            // 사이드카 저장 — 원문 불변.
+            this.onWidthsSaved?.(this.#widths);
           };
           window.addEventListener("pointermove", move);
           window.addEventListener("pointerup", up);

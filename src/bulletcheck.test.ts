@@ -12,7 +12,7 @@ describe("불릿 글리프", () => {
     // 커서를 문서 끝으로 — 기본 커서(0)가 첫 마커를 원문으로 만들지 않게.
     view.dispatch({ selection: { anchor: doc.length } });
     view.dispatch({
-      effects: setPreviewConfig.of({ baseDir: "/tmp", remoteImages: true, showImages: true, theme: "light", imageWidths: {}, bookmarks: [] }),
+      effects: setPreviewConfig.of({ baseDir: "/tmp", remoteImages: true, showImages: true, theme: "light", imageWidths: {}, bookmarks: [], tableWidths: {} }),
     });
     await new Promise((r) => setTimeout(r, 150));
     const field = view.state.field(__testing.decorationField, false);

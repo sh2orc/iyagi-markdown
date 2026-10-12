@@ -57,6 +57,8 @@ export interface PreviewConfig {
   imageWidths: Record<string, number>;
   /** 책갈피 줄 번호 — SQLite 사이드카. */
   bookmarks: number[];
+  /** 표 표시 폭(시작 줄 번호 문자열 → 열 px) — 문서 스타일 사이드카. */
+  tableWidths: Record<string, number[]>;
 }
 
 export const setPreviewConfig = StateEffect.define<PreviewConfig>();
@@ -69,6 +71,7 @@ export const previewConfigField = StateField.define<PreviewConfig>({
     theme: "light",
     imageWidths: {},
     bookmarks: [],
+    tableWidths: {},
   }),
   update(value, tr) {
     for (const e of tr.effects) {
@@ -109,6 +112,14 @@ export type PreviewBehavior = "render" | "reveal";
 export const previewBehavior = Facet.define<PreviewBehavior, PreviewBehavior>({
   combine: (values) => values[0] ?? "reveal",
 });
+
+/** 표 폭 저장 콜백 — App이 스토어와 연결(원문 불변 사이드카). */
+export let tableWidthsSaveHandler: ((lineNo: number, widths: number[]) => void) | null = null;
+export function setTableWidthsSaveHandler(
+  fn: ((lineNo: number, widths: number[]) => void) | null,
+): void {
+  tableWidthsSaveHandler = fn;
+}
 
 // — 장식 상태 필드 —
 // 블록 장식(표·수식·다이어그램 위젯처럼 줄 높이를 바꾸는 것)은 ViewPlugin이
@@ -212,7 +223,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
   const ranges: Range<Decoration>[] = [];
   const doc = view.state.doc;
   const behavior = view.state.facet(previewBehavior);
-  const { baseDir, remoteImages, showImages, theme, imageWidths, bookmarks } =
+  const { baseDir, remoteImages, showImages, theme, imageWidths, bookmarks, tableWidths } =
     view.state.field(previewConfigField);
 
   // 노출할 줄 = 편집 모드에서 커서·선택(·조합)이 걸친 줄.
@@ -563,8 +574,16 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
         // — 표(GFM) —
         if (name === "Table") {
           if (isRevealed(from, to)) return;
+          const startLine = doc.lineAt(from).number;
           ranges.push(
-            replace({ widget: new TableWidget(slice(from, to)), block: true }).range(from, to),
+            replace({
+              widget: new TableWidget(
+                slice(from, to),
+                tableWidths[String(startLine)],
+                (widths) => tableWidthsSaveHandler?.(startLine, widths),
+              ),
+              block: true,
+            }).range(from, to),
           );
           return;
         }
