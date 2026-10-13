@@ -45,6 +45,22 @@ export function Sidebar({ store, tree, workspace, activePath, t, open }: Props):
     })();
   };
 
+  // 현재 파일 드러내기 — 접힌 조상을 펼치고 활성 행으로 스크롤.
+  const revealActive = () => {
+    if (!activePath) return;
+    const parts = activePath.split("/");
+    for (let i = 2; i <= parts.length; i++) {
+      const dir = parts.slice(0, i - 1).join("/");
+      if (dir && collapsed.has(dir)) toggle(dir);
+    }
+    requestAnimationFrame(() => {
+      innerRef.current?.querySelector(".tree-file.is-active")?.scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+    });
+  };
+
   // 메뉴 바깥 포인터 다운이면 닫기(메뉴 자체는 제외).
   useEffect(() => {
     if (!fileCtx) return;
@@ -154,6 +170,11 @@ export function Sidebar({ store, tree, workspace, activePath, t, open }: Props):
         <div className="sidebar-head">
           <span className="sidebar-title">{t.sidebarTitle}</span>
           <div className="sidebar-actions">
+            {workspace && activePath && (
+              <button title={t.sidebarRevealActive} onClick={revealActive}>
+                ⇱
+              </button>
+            )}
             {workspace && (
               <button title={t.closeFolder} onClick={() => store.closeWorkspace()}>
                 ✕

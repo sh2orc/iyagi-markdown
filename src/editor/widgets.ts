@@ -214,6 +214,19 @@ export class ImageWidget extends WidgetType {
     // 클릭 → 확대 뷰어(App이 등록한 콜백 — 원문 불변, 보기만).
     img.addEventListener("click", () => imageViewerHandler?.(this.src, this.alt));
     wrap.append(img);
+    // alt가 비었으면 호버 칩 '설명 추가' — 캡션·접근성의 진입점(63차 퍼널).
+    if (!this.alt.trim() && imageCaptionHandler) {
+      const chip = document.createElement("button");
+      chip.className = "md-img-caption-add";
+      chip.textContent = "＋ 설명";
+      chip.title = "이미지 설명(대체 텍스트) 추가 — 캡션·접근성";
+      chip.addEventListener("mousedown", (e: Event) => {
+        e.preventDefault();
+        e.stopPropagation();
+        imageCaptionHandler!(this.src, view.posAtDOM(wrap));
+      });
+      wrap.append(chip);
+    }
     // 캡션 후보 alt면 이미지 아래 설명 — 내보내기 figcaption과 같은 규칙.
     if (captionWorthy(this.alt)) {
       const cap = document.createElement("span");
@@ -715,4 +728,10 @@ export class WikiLinkWidget extends WidgetType {
 export let frontMatterEditHandler: (() => void) | null = null;
 export function setFrontMatterEditHandler(fn: (() => void) | null): void {
   frontMatterEditHandler = fn;
+}
+
+/** 이미지 설명 추가 칩 → 대화상자 — App이 등록(src와 클릭 위치 전달). */
+export let imageCaptionHandler: ((src: string, pos: number) => void) | null = null;
+export function setImageCaptionHandler(fn: ((src: string, pos: number) => void) | null): void {
+  imageCaptionHandler = fn;
 }

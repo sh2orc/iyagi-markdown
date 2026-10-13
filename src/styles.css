@@ -2481,3 +2481,13 @@ body.resizing .toc {
 .fm-dialog { min-width: 400px; }
 .fm-dialog .settings-label { padding: 4px 20px 0; }
 .fm-toggles { display: flex; gap: 14px; flex-wrap: wrap; padding: 12px 20px 0; }
+
+/* — 이미지 설명 추가 칩(alt 비었을 때 호버) — */
+.md-image { position: relative; }
+.md-img-caption-add {
+  position: absolute; top: 6px; right: 6px; z-index: 3;
+  display: none; border: none; cursor: pointer;
+  font-size: 11px; padding: 3px 9px; border-radius: 99px;
+  background: rgba(28, 28, 30, 0.75); color: #fff;
+}
+.md-image:hover .md-img-caption-add { display: inline-block; }

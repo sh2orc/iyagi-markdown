@@ -37,7 +37,7 @@ import { ExportSheet } from "./components/ExportSheet";
 import { Toolbar } from "./components/Toolbar";
 import { MiniToolbar } from "./components/MiniToolbar";
 import { ContextMenu } from "./components/ContextMenu";
-import { setImageResizeHandler, setImageViewerHandler, setTableHeaderClickHandler, setFrontMatterEditHandler } from "./editor/widgets";
+import { setImageResizeHandler, setImageViewerHandler, setTableHeaderClickHandler, setFrontMatterEditHandler, setImageCaptionHandler } from "./editor/widgets";
 import { setTableWidthsSaveHandler } from "./editor/livePreview";
 import { setTagClickHandler } from "./editor/cm";
 import { setWikiDocsProvider, setTagListProvider, type WikiDoc } from "./editor/wikiComplete";
@@ -50,6 +50,8 @@ import { SymbolPanel } from "./components/SymbolPanel";
 import { TableDialog } from "./components/TableDialog";
 import { CommentsPanel } from "./components/CommentsPanel";
 import { FrontMatterDialog } from "./components/FrontMatterDialog";
+import { findImageAt } from "./editor/livePreview";
+import { LinkDialog } from "./components/LinkDialog";
 import { ReviewPanel } from "./components/ReviewPanel";
 import { Welcome } from "./components/Welcome";
 import { CommandPalette } from "./components/CommandPalette";
@@ -147,6 +149,8 @@ export function App(): JSX.Element {
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [fmOpen, setFmOpen] = useState(false);
+  /** 이미지 설명 편집(칩 클릭 위치 → 그 이미지). */
+  const [imgEditPos, setImgEditPos] = useState<number | null>(null);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -308,6 +312,8 @@ export function App(): JSX.Element {
     setImageResizeHandler((src, pct) => store.setImageWidth(src, pct));
     setImageViewerHandler((src, alt) => setViewer({ src, alt }));
     setFrontMatterEditHandler(() => setFmOpen(true));
+    // 이미지 '설명 추가' 칩 — 그 이미지의 대체 텍스트 편집(69차 대화상자 재사용).
+    setImageCaptionHandler((_src, pos) => setImgEditPos(pos));
     setTableWidthsSaveHandler((lineNo, key, widths) => store.setTableWidths(lineNo, key, widths));
     setTagClickHandler((tag) => {
       setWsSearchQuery(tag);
@@ -356,6 +362,7 @@ export function App(): JSX.Element {
       setImageResizeHandler(null);
       setImageViewerHandler(null);
       setFrontMatterEditHandler(null);
+      setImageCaptionHandler(null);
       setTableHeaderClickHandler(null);
       setTableWidthsSaveHandler(null);
       setTagClickHandler(null);
@@ -1141,6 +1148,31 @@ export function App(): JSX.Element {
       {statsOpen && <StatsPanel store={store} t={t} onClose={() => setStatsOpen(false)} />}
       {commentsOpen && <CommentsPanel store={store} t={t} onClose={() => setCommentsOpen(false)} />}
       {fmOpen && <FrontMatterDialog store={store} t={t} onClose={() => setFmOpen(false)} />}
+      {imgEditPos !== null && (() => {
+        const view = editorView.current;
+        const img = view ? findImageAt(view.state, imgEditPos) : null;
+        if (!img) return null;
+        return (
+          <LinkDialog
+            kind="image"
+            initial={{ text: img.alt, url: img.url, from: img.from, to: img.to }}
+            t={t}
+            onCancel={() => setImgEditPos(null)}
+            onConfirm={(next) => {
+              const v = editorView.current;
+              setImgEditPos(null);
+              if (!v) return;
+              v.dispatch({
+                changes: { from: img.from, to: img.to, insert: `![${next.text}](${next.url})` },
+                selection: { anchor: img.from + next.text.length + 4 },
+                userEvent: "input.editImage",
+              });
+              v.focus();
+              store.toast(t.imageEdited);
+            }}
+          />
+        );
+      })()}
       {reviewOpen && (
         <ReviewPanel
           store={store}
