@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 import { api, isInApp } from "../api";
 import type { AppStore } from "../app/store";
 import { sentenceLengthStats } from "../editor/writing";
+import { brokenWikiLinks } from "../editor/brokenLinks";
+import { resolveWikiLink } from "../editor/wiki";
 import { stripFrontMatter } from "../editor/frontmatter";
 import type { Translate } from "../i18n";
 
@@ -31,6 +33,13 @@ export function ReviewPanel({ store, t, onClose, onOpenBrokenLinks, onOpenStats 
   // 긴 문장 수 — 통계 모듈 재사용(본문만).
   const body = tab ? stripFrontMatter(tab.state.doc.toString()) : "";
   const longSentences = sentenceLengthStats(body).longCount;
+  // 끊긴 위키링크 수 — 패널과 같은 판정(워크스페이스 인덱스로).
+  const raw = tab ? tab.state.doc.toString() : "";
+  const dir = tab?.path ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/" : store.state.workspace ?? "";
+  const brokenCount =
+    tab && store.state.workspace
+      ? brokenWikiLinks(stripFrontMatter(raw), (name) => resolveWikiLink(name, dir, store.wikiIndex)).length
+      : -1; // -1 = 워크스페이스 없음(판정 불가)
 
   // 고아 이미지 — 워크스페이스 루트 대상, 열 때 1회 스캔.
   useEffect(() => {
@@ -89,7 +98,8 @@ export function ReviewPanel({ store, t, onClose, onOpenBrokenLinks, onOpenStats 
         <div className="review-grid">
           <section className="review-card">
             <h3>{t.reviewLinks}</h3>
-            <button className="review-open" onClick={onOpenBrokenLinks}>
+            {brokenCount >= 0 && <p className="review-count">{brokenCount}</p>}
+            <button className="review-open" onClick={onOpenBrokenLinks} disabled={brokenCount === -1}>
               {t.reviewOpenLinks}
             </button>
           </section>

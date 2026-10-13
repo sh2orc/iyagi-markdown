@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { resolveWikiLink } from "../editor/wiki";
 import type { AppStore } from "../app/store";
+import { frontMatterMeta } from "../editor/frontmatter";
 import type { Translate } from "../i18n";
 import type { PdfOptions } from "./ExportSheet";
 
@@ -46,13 +47,28 @@ export function PrintPreview({
     void (async () => {
       // markdown-it은 여기서만 필요 — 동적 로드로 메인 청크를 가볍게 유지.
       const { buildExportHtml } = await import("../export/html");
+      // 프런트매터 메타·사이드카 — 실제 내보내기(App.runExport)와 같은 옵션으로
+      // 미리보기=결과를 보장(그동안 목차·이미지 폭이 미리보기에만 빠졌음).
+      const fm = frontMatterMeta(text);
+      const ds = tab.docStyle;
       const built = await buildExportHtml(text, {
-        title: tab.path ? tab.title : name,
+        title: fm?.title || (tab.path ? tab.title : name),
         baseDir: tab.path ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/" : store.state.workspace ?? "",
         theme: store.state.theme,
         forPdf: true,
         marginMm: margin,
         scale,
+        imageWidths: ds?.imageWidths ?? {},
+        tableWidths: ds?.tableWidths ?? {},
+        frontLists: { toc: !!fm?.toc, lof: !!fm?.lof, lot: !!fm?.lot },
+        style: {
+          font: ds?.font ?? "system",
+          sizePt: ds && ds.fontSize > 0 ? ds.fontSize : 11,
+          lineHeight: ds?.lineHeight ?? 0,
+          firstLineIndent: ds?.firstLineIndent ?? false,
+          textAlign: ds?.textAlign ?? "left",
+          accent: ds?.accent ?? null,
+        },
         wikiResolve: (name) =>
           resolveWikiLink(
             name,
