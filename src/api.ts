@@ -241,6 +241,8 @@ export const api = {
   fileRename: (from: string, to: string) => invoke<void>("file_rename", { from, to }),
   fileDuplicate: (path: string) => invoke<string>("file_duplicate", { path }),
   newFileIn: (dir: string) => invoke<string>("new_file_in", { dir }),
+  updateWikiLinks: (root: string, from: string, to: string) =>
+    invoke<number>("update_wiki_links", { root, from, to }),
   openInNewWindow: (path: string) => invoke<void>("open_in_new_window", { path }),
   saveClipboardImage: (dir: string) => invoke<string>("save_clipboard_image", { dir }),
   wikiEdges: (root: string) =>

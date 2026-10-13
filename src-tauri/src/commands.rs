@@ -837,3 +837,13 @@ pub async fn new_file_in(dir: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// 이름 변경 전파 — 워크스페이스의 [[from]] 링크를 [[to]]로(메타 보존·원자적).
+#[tauri::command]
+pub async fn update_wiki_links(root: String, from: String, to: String) -> Result<u32, String> {
+    // 워크스페이스 전체 파일을 읽고 다시 쓰는 무거운 전파 — 반드시 워커에서.
+    tauri::async_runtime::spawn_blocking(move || {
+        md_core::search::update_wiki_links(Path::new(&root), &from, &to).map_err(err)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

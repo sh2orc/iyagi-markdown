@@ -70,6 +70,15 @@ export function Sidebar({ store, tree, workspace, activePath, t, open }: Props):
         store.closeTab(open.id);
         void store.openPath(to);
       }
+      // 위키링크 전파 — [[옛이름]]을 새 이름으로(워크스페이스 있을 때만).
+      if (store.state.workspace) {
+        const oldStem = r.path.split("/").pop()?.replace(/\.md$/i, "") ?? "";
+        const newStem = next.trim().replace(/[/\\?%*:|"<>.]/g, "-");
+        if (oldStem && newStem && oldStem !== newStem) {
+          const n = await api.updateWikiLinks(store.state.workspace, oldStem, newStem);
+          if (n > 0) store.toast(t.f.wikiLinksUpdated(n));
+        }
+      }
     } catch (e) {
       store.toast(e instanceof Error ? e.message : String(e), "error");
     }

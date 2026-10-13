@@ -654,7 +654,7 @@ pub fn update_wiki_links(root: &Path, from: &str, to: &str) -> std::io::Result<u
             out.push_str(&replace_line_wiki_links(line, from, to, &mut changed));
         }
         if changed > 0 {
-            if let Err(e) = crate::io::write_doc_atomic(&path, &out, meta.clone()) {
+            if let Err(e) = crate::io::write_doc_atomic(&path, &out, meta) {
                 return Err(std::io::Error::other(e.to_string()));
             }
             total += changed;

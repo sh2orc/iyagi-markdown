@@ -99,6 +99,7 @@ pub fn run() {
             commands::file_rename,
             commands::file_duplicate,
             commands::new_file_in,
+            commands::update_wiki_links,
             style_db::bookmark_add,
             style_db::bookmark_remove,
         ])
