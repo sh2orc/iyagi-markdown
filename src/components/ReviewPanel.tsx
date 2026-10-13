@@ -17,6 +17,7 @@ interface Props {
   onClose: () => void;
   onOpenBrokenLinks: () => void;
   onOpenStats: () => void;
+  onOpenTrack: () => void;
 }
 
 interface Orphan {
@@ -24,7 +25,7 @@ interface Orphan {
   size: number;
 }
 
-export function ReviewPanel({ store, t, onClose, onOpenBrokenLinks, onOpenStats }: Props): JSX.Element | null {
+export function ReviewPanel({ store, t, onClose, onOpenBrokenLinks, onOpenStats, onOpenTrack }: Props): JSX.Element | null {
   const tab = store.active;
   const [orphans, setOrphans] = useState<Orphan[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -96,6 +97,15 @@ export function ReviewPanel({ store, t, onClose, onOpenBrokenLinks, onOpenStats 
         </div>
 
         <div className="review-grid">
+          <section className="review-card">
+            <h3>{t.reviewTrack}</h3>
+            <p className="review-count">
+              {tab.trackStats ? `+${tab.trackStats.added} −${tab.trackStats.removed}` : "—"}
+            </p>
+            <button className="review-open" onClick={onOpenTrack}>
+              {t.reviewOpenTrack}
+            </button>
+          </section>
           <section className="review-card">
             <h3>{t.reviewLinks}</h3>
             {brokenCount >= 0 && <p className="review-count">{brokenCount}</p>}

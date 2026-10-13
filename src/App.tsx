@@ -1212,6 +1212,7 @@ export function App(): JSX.Element {
           onClose={() => setReviewOpen(false)}
           onOpenBrokenLinks={() => { setReviewOpen(false); setBrokenOpen(true); }}
           onOpenStats={() => { setReviewOpen(false); setStatsOpen(true); }}
+          onOpenTrack={() => { setReviewOpen(false); setTrackOpen(true); }}
         />
       )}
       {tableDialogOpen && (

@@ -49,11 +49,11 @@ export function StylePanel({ store, onClose, t }: Props): JSX.Element | null {
         </div>
         <div className="settings-label" style={{ marginBottom: 2 }}>
           {t.stylePresets}
-          <div className="style-font-row" style={{ flexWrap: "wrap" }}>
+          <div className="style-preset-row">
             {STYLE_PRESETS.map((p) => (
               <button
                 key={p.id}
-                className="style-font-btn"
+                className="style-preset-card"
                 onClick={() => {
                   // 프리셋 적용 — 이미지·표 폭은 그 문서의 기존 배치를 유지.
                   update({
@@ -63,7 +63,29 @@ export function StylePanel({ store, onClose, t }: Props): JSX.Element | null {
                   });
                 }}
               >
-                {store.state.settings.language === "ko" ? p.nameKo : p.nameEn}
+                {/* 미리보기 — 프리셋 값 그대로(폰트·행간·정렬·들여쓰기) */}
+                <span
+                  className="style-preset-sample"
+                  style={{
+                    fontFamily:
+                      p.style.font === "mono"
+                        ? "var(--md-code-font)"
+                        : p.style.font === "serif"
+                          ? '"New York",Georgia,serif'
+                          : p.style.font === "round"
+                        ? "ui-rounded,-apple-system,sans-serif"
+                        : undefined,
+                    fontSize: `${Math.max(10, Math.min(12, p.style.fontSize || 11))}px`,
+                    lineHeight: p.style.lineHeight,
+                    textAlign: p.style.textAlign === "justify" ? "justify" : p.style.textAlign,
+                    textIndent: p.style.firstLineIndent ? "1.2em" : 0,
+                  }}
+                >
+                  {t.styleSampleText}
+                </span>
+                <span className="style-preset-name">
+                  {store.state.settings.language === "ko" ? p.nameKo : p.nameEn}
+                </span>
               </button>
             ))}
           </div>
