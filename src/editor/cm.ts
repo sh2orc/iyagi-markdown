@@ -5,6 +5,7 @@
 // "보기"일 뿐이므로 전환에 변환이 없다(§0 D4/D5).
 
 import { searchKeymap } from "@codemirror/search";
+import { occurrenceHighlight } from "./occurrences";
 import { copyFormat, pasteFormat } from "./formatPainter";
 import { Compartment, EditorState, Extension } from "@codemirror/state";
 import { EditorView, keymap, type ViewUpdate } from "@codemirror/view";
@@ -239,6 +240,7 @@ function baseExtensions(): Extension[] {
     keymap.of(foldKeymap.filter((b) => b.key !== "Mod-Shift-[" && b.key !== "Mod-Shift-]")),
     livePreviewExtension(),
     searchHighlight(),
+    occurrenceHighlight(),
     editorTheme,
     EditorView.lineWrapping,
     previewConfigField,

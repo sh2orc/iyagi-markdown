@@ -293,6 +293,10 @@ export const editorTheme = EditorView.theme({
   },
   ".md-image:hover .md-img-handle": { display: "block" },
   ".md-image img": { maxWidth: "100%", borderRadius: "6px", display: "block" },
+  ".md-occurrence": {
+    background: "color-mix(in srgb, var(--md-accent, #4f46e5) 14%, transparent)",
+    borderRadius: "2px",
+  },
   ".md-long-sentence": {
     textDecoration: "underline dotted rgba(210, 130, 30, 0.55)",
     textUnderlineOffset: "3px",
