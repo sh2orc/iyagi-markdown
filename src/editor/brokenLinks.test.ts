@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { brokenWikiLinks } from "./brokenLinks";
+import { brokenFileLinks, brokenWikiLinks } from "./brokenLinks";
 
 const IDX = new Map<string, string[]>([["존재".toLowerCase(), ["/w/존재.md"]]]);
 const resolve = (name: string) => (IDX.has(name.toLowerCase()) ? "/w/존재.md" : null);
@@ -24,5 +24,30 @@ describe("brokenWikiLinks", () => {
     const text = "```md\n[[펜스안]]\n```\n[[밖]]\n";
     const broken = brokenWikiLinks(text, resolve);
     expect(broken.map((b) => b.name)).toEqual(["밖"]);
+  });
+});
+
+describe("brokenFileLinks", () => {
+  const files = new Set(["/docs/a.md", "/docs/img/pic.png"]);
+  const exists = (p: string) => files.has(p);
+
+  it("상대 링크·이미지 중 없는 대상만", () => {
+    const md = "[있음](a.md) [없음](b.md) ![그림](img/pic.png) ![깨짐](x.png)\n";
+    const r = brokenFileLinks(md, exists, "/docs");
+    expect(r.map((x) => x.name)).toEqual(["b.md", "x.png"]);
+    expect(r[0]!.line).toBe(1);
+  });
+
+  it("http·data·앵커·절대경로는 판단 제외", () => {
+    const md = "[웹](https://x.y) [앵커](#sec) [절대](/root.md) [data](data:image/png;base64,x)\n";
+    expect(brokenFileLinks(md, exists, "/docs")).toEqual([]);
+  });
+
+  it("펜스 안은 무시·줄 번호 정확", () => {
+    const md = "서론\n\n\`\`\`\n[없음](b.md)\n\`\`\`\n\n[없음2](c.md)\n";
+    const r = brokenFileLinks(md, exists, "/docs");
+    expect(r).toHaveLength(1);
+    expect(r[0]!.name).toBe("c.md");
+    expect(r[0]!.line).toBe(7);
   });
 });

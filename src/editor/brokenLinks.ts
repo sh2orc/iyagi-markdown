@@ -50,3 +50,49 @@ export function brokenWikiLinks(
   }
   return out;
 }
+
+
+/** 끊긴 파일 링크·이미지 — [텍스트](rel)·![alt](rel) 중 워크스페이스에
+ *  없는 상대 경로 대상. http(s)·data:·mailto:·#앵커·절대 경로는 건너뛴다.
+ *  exists(path)는 패널이 트리/인덱스로 공급. 순수 함수(테스트 대상). */
+export function brokenFileLinks(
+  text: string,
+  exists: (path: string) => boolean,
+  baseDir: string,
+): BrokenLink[] {
+  const out: BrokenLink[] = [];
+  let inFence = false;
+  let fence = "";
+  let pos = 0;
+  let lineNo = 0;
+  for (const line of text.split("\n")) {
+    lineNo += 1;
+    const lineStart = pos;
+    pos += line.length + 1;
+    const t = line.trimStart();
+    if ((t.startsWith("\`\`\`") || t.startsWith("~~~")) && t.length >= 3) {
+      const f = t.slice(0, 3);
+      if (!inFence) {
+        inFence = true;
+        fence = f;
+      } else if (f === fence) {
+        inFence = false;
+      }
+      continue;
+    }
+    if (inFence) continue;
+    const re = /!?\[((?:[^\[\]]|\\.)*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
+    for (const m of line.matchAll(re)) {
+      const raw = m[2]!;
+      if (/^(https?:|data:|mailto:|#|tel:)/i.test(raw)) continue;
+      if (raw.startsWith("/")) continue; // 절대 경로 — 판단 보류
+      const clean = raw.split("#")[0]!.split("?")[0]!;
+      if (!clean) continue;
+      const full = baseDir ? `${baseDir}/${clean.replace(/^\.\//, "")}` : clean;
+      if (!exists(full)) {
+        out.push({ line: lineNo, name: raw, from: lineStart + (m.index ?? 0) });
+      }
+    }
+  }
+  return out;
+}

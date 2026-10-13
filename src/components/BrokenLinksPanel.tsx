@@ -1,10 +1,11 @@
-// 끊긴 링크 패널 — 현재 문서의 [[이름]] 중 워크스페이스에 없는 것들
+// 끊긴 링크 패널 — [[위키링크]]·[파일](rel)·![이미지](rel) 중 대상이 없는 것
 // (Obsidian "broken links"). 클릭하면 해당 줄로.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { AppStore } from "../app/store";
-import { brokenWikiLinks } from "../editor/brokenLinks";
+import type { TreeNode } from "../api";
+import { brokenFileLinks, brokenWikiLinks } from "../editor/brokenLinks";
 import { resolveWikiLink } from "../editor/wiki";
 import { stripFrontMatter } from "../editor/frontmatter";
 import type { Translate } from "../i18n";
@@ -42,10 +43,21 @@ export function BrokenLinksPanel({ store, t, onClose, onGoto, onCreate }: Props)
     const dir = tab.path ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/" : "";
     // 프론트매터의 태그 등은 제외 — 본문만 검사.
     const offset = text.length - stripFrontMatter(text).length;
-    return brokenWikiLinks(stripFrontMatter(text), (name) =>
+    // 트리 파일 집합 — 상대 링크·이미지 존재 판정.
+    const fileSet = new Set<string>();
+    const walkTree = (nodes: TreeNode[]): void => {
+      for (const n of nodes) {
+        fileSet.add(n.path);
+        if (n.kind === "dir") walkTree(n.children ?? []);
+      }
+    };
+    walkTree(store.state.tree);
+    const wiki = brokenWikiLinks(stripFrontMatter(text), (name) =>
       resolveWikiLink(name, dir, store.wikiIndex),
-    ).map((b) => ({ ...b, from: b.from + offset }));
-  }, [tab, tab?.state.doc, store.wikiIndex]);
+    );
+    const files = brokenFileLinks(stripFrontMatter(text), (p) => fileSet.has(p), dir);
+    return [...wiki, ...files].map((b) => ({ ...b, from: b.from + offset }));
+  }, [tab, tab?.state.doc, store.wikiIndex, store.state.tree]);
 
   useEffect(() => {
     setSel(0);
