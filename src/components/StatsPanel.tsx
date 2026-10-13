@@ -3,6 +3,7 @@
 
 import type { AppStore } from "../app/store";
 import { sentenceLengthStats, sentenceSpans } from "../editor/writing";
+import { smoothScrollIntoView } from "../editor/cm";
 import { stripFrontMatter } from "../editor/frontmatter";
 import type { Translate } from "../i18n";
 import { collectHeadings } from "../links";
@@ -35,6 +36,11 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
   const avgSentenceLen = sentences > 0 ? body.replace(/\s+/g, " ").length / sentences : 0;
   // 문장 길이 분포(가독성 진단 — Word 읽기 쉬운 정도 지표의 대응물).
   const sls = sentenceLengthStats(body);
+  // 긴 문장(60자+) 목록 — 클릭하면 그 자리로(글쓰기 검토).
+  const longSentences = spans
+    .map(([a, b]) => ({ pos: a, text: body.slice(a, b).replace(/\s+/g, " ").trim() }))
+    .filter((x) => x.text.replace(/\s+/g, "").length >= 60)
+    .slice(0, 30);
   const bucketMax = Math.max(1, ...sls.buckets);
   const bucketRows: Array<[string, number, string]> = [
     [t.statShort, sls.buckets[0], "b-short"],
@@ -89,6 +95,27 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
               {t.statLongMost} {sls.longest}{t.statChars}
               {sls.longCount > 0 && ` · ${sls.longCount} ${t.statLongWarn}`}
             </div>
+            {longSentences.length > 0 && (
+              <div className="sd-long-list">
+                {longSentences.map((ls, i) => (
+                  <button
+                    key={`${ls.pos}-${i}`}
+                    className="sd-long-item"
+                    title={ls.text}
+                    onClick={() => {
+                      const view = store.view;
+                      if (!view) return;
+                      onClose();
+                      const fmLen = text.length - body.length; // 프런트매터 오프셋 보정
+                      smoothScrollIntoView(view, Math.min(ls.pos + fmLen, view.state.doc.length));
+                    }}
+                  >
+                    <span className="sd-long-num">{i + 1}</span>
+                    <span className="sd-long-text">{ls.text}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         <div className="modal-actions">
