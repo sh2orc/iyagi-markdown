@@ -21,6 +21,7 @@ import { applyDocStyle, DEFAULT_DOC_STYLE as DEFAULT_DOC_STYLE_T } from "./docSt
 import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, type ViewMode } from "../editor/cm";
 import { applyWriting, spellcheckComp, spellcheckExtension } from "../editor/writing";
 import { applySmartPunct } from "../editor/smartPunct";
+import { setCommentsProvider } from "../editor/cm";
 import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
 import { invalidateLinkPreviews, ttsTextOf } from "../editor/linkPreview";
 import { phrases } from "./phrases";
@@ -153,6 +154,7 @@ export class AppStore {
   private lastSavedAt = 0;
 
   constructor(io: StoreIO) {
+    setCommentsProvider(() => this.active?.comments ?? []);
     this.io = io;
   }
 

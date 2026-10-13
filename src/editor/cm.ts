@@ -86,6 +86,13 @@ import {
 
 /** 위키 호버 머무름 타이머 — mouseout에서 취소(지나갈 때 팝오버 방지). */
 let wikiHoverTimer: number | null = null;
+
+/** 메모 제공자 — App이 스토어와 연결(호버 팝오버용). */
+export type CommentEntry = { id: number; lineNo: number; text: string; resolved: boolean };
+let commentsProvider: (() => CommentEntry[]) | null = null;
+export function setCommentsProvider(fn: (() => CommentEntry[]) | null): void {
+  commentsProvider = fn;
+}
 function clearWikiHoverTimer(): void {
   if (wikiHoverTimer !== null) {
     window.clearTimeout(wikiHoverTimer);
@@ -244,6 +251,20 @@ function baseExtensions(): Extension[] {
       mouseover(event, view) {
         const el = (event.target as HTMLElement | null)?.closest?.(".md-wikilink, .md-link");
         clearWikiHoverTimer();
+        // 메모 줄 호버 — 그 줄의 메모들을 팝오버(각주·위키와 같은 350ms).
+        const hovPos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        if (hovPos != null) {
+          const line = view.state.doc.lineAt(hovPos);
+          const comments = commentsProvider?.().filter((c) => c.lineNo === line.number) ?? [];
+          if (comments.length > 0) {
+            const { x: cx, y: cy } = event;
+            wikiHoverTimer = window.setTimeout(() => {
+              const body = comments.map((c) => (c.resolved ? `✓ ${c.text}` : c.text)).join("\n");
+              showLinkPreview(cx, cy, `메모 · ${line.number}줄`, body);
+            }, 350);
+            return;
+          }
+        }
         // 각주 참조 호버 — 같은 문서의 정의를 팝오버(정의 찾기: 순수 스캔).
         const fn = (event.target as HTMLElement | null)?.closest?.(".md-footnote-ref");
         if (fn?.isConnected) {
