@@ -121,6 +121,54 @@ export function toggleHeading(view: EditorView, level: number): boolean {
 }
 
 /** 블록 수평선/수식/코드블록 삽입(빈 줄 하나를 만들어 넣는다). */
+/** 줄 합치기(⌘J) — 현재 줄과 다음 줄을 한 줄로(이어붙임 규칙:
+ *  하이픈으로 끝나면 그대로 잇고, 아니면 공백 하나). */
+export function joinCurrentLine(view: EditorView): boolean {
+  const doc = view.state.doc;
+  const line = doc.lineAt(view.state.selection.main.head);
+  if (line.number >= doc.lines) return false;
+  const next = doc.line(line.number + 1);
+  const a = line.text;
+  const b = next.text;
+  const join = a.endsWith("-") ? a + b : `${a} ${b}`.replace(/\s+$/, "");
+  const cursor = Math.min(line.from + join.length - b.length, line.from + join.length);
+  view.dispatch({
+    changes: [{ from: line.from, to: next.to, insert: join }],
+    selection: { anchor: cursor },
+    userEvent: "input.joinLines",
+  });
+  return true;
+}
+
+/** 대소문자 순환(Shift+F3) — lower → UPPER → Title. 라틴에만 의미.
+ *  선택 없으면 커서 단어. 순수 판정은 wordCaseOf(테스트 대상). */
+export function wordCaseOf(text: string): "lower" | "upper" | "title" | "mixed" {
+  if (!/[A-Za-z]/.test(text)) return "mixed";
+  if (text === text.toLowerCase()) return "lower";
+  if (text === text.toUpperCase()) return "upper";
+  const title = text.replace(/\S+/g, (w) => w[0]!.toUpperCase() + w.slice(1).toLowerCase());
+  if (text === title) return "title";
+  return "mixed";
+}
+
+export function cycleCase(view: EditorView): boolean {
+  const sel = view.state.selection.main;
+  if (sel.empty) return false;
+  const text = view.state.sliceDoc(sel.from, sel.to);
+  const next =
+    wordCaseOf(text) === "upper"
+      ? text.replace(/\S+/g, (w) => w[0]!.toUpperCase() + w.slice(1).toLowerCase())
+      : wordCaseOf(text) === "title"
+        ? text.toLowerCase()
+        : text.toUpperCase();
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert: next },
+    selection: { anchor: sel.from, head: sel.from + next.length },
+    userEvent: "input.cycleCase",
+  });
+  return true;
+}
+
 /** 선택 줄 들여쓰기/내어쓰기(2칸) — 표·목록이 아닌 곳의 Tab.
  *  여러 줄 선택 시에만 동작(한 줄은 커서 이동 우선). */
 export function indentLines(view: EditorView, outdent: boolean): boolean {

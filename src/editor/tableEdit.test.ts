@@ -486,3 +486,41 @@ describe("indentLines", async () => {
     v2.destroy();
   });
 });
+
+// — 대소문자 순환·줄 합치기 —
+describe("cycleCase / joinCurrentLine", async () => {
+  const { EditorState } = await import("@codemirror/state");
+  const { EditorView } = await import("@codemirror/view");
+  const { cycleCase, joinCurrentLine, wordCaseOf } = await import("./format");
+
+  function mount(doc: string, a: number, b?: number): EditorView {
+    const host = document.createElement("div");
+    document.body.append(host);
+    return new EditorView({ state: EditorState.create({ doc, selection: { anchor: a, head: b ?? a } }), parent: host });
+  }
+
+  it("대소문자 순환 — lower→UPPER→Title→lower", () => {
+    expect(wordCaseOf("hello world")).toBe("lower");
+    expect(wordCaseOf("HELLO WORLD")).toBe("upper");
+    expect(wordCaseOf("Hello World")).toBe("title");
+    const v = mount("hello world", 0, 11);
+    cycleCase(v);
+    expect(v.state.doc.toString()).toBe("HELLO WORLD");
+    cycleCase(v); // UPPER → Title
+    expect(v.state.doc.toString()).toBe("Hello World");
+    cycleCase(v); // Title → lower
+    expect(v.state.doc.toString()).toBe("hello world");
+    v.destroy();
+  });
+
+  it("줄 합치기 — 공백 하나로, 하이픈 뒤는 그대로", () => {
+    const v = mount("hello-\nworld", 3);
+    joinCurrentLine(v);
+    expect(v.state.doc.toString()).toBe("hello-world");
+    v.destroy();
+    const v2 = mount("가나\n다라", 2);
+    joinCurrentLine(v2);
+    expect(v2.state.doc.toString()).toBe("가나 다라");
+    v2.destroy();
+  });
+});
