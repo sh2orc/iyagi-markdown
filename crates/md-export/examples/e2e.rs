@@ -46,6 +46,7 @@ $$x^2 + \frac{1}{2}$$
             toc: true,
             header_title: Some("예제 문서"),
             highlight: Some("FFD60A"),
+            comments: &[(2, "예제 메모".into())],
         },
         std::path::Path::new("/tmp/iyagi-e2e.docx"),
     )

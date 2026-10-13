@@ -110,20 +110,6 @@ export function StylePanel({ store, onClose, t }: Props): JSX.Element | null {
             />
           </label>
           <label className="settings-label">
-            {t.styleSpacing}
-            <div className="style-font-row">
-              {(["tight", "normal", "relaxed"] as const).map((p) => (
-                <button
-                  key={p}
-                  className={`style-font-btn ${style.paraSpace === p ? "is-on" : ""}`}
-                  onClick={() => update({ paraSpace: p })}
-                >
-                  {p === "tight" ? t.styleTight : p === "normal" ? t.styleNormal : t.styleRelaxed}
-                </button>
-              ))}
-            </div>
-          </label>
-          <label className="settings-label">
             {t.styleAccent}
             <div className="style-accent-row">
               <input

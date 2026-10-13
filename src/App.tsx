@@ -21,7 +21,7 @@ import { AppStore, resolveTheme, type ExportKind, type Tab } from "./app/store";
 import { replaceDoc, setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
 import { setPhrases } from "./app/phrases";
 import { invalidateLinkPreviews } from "./editor/linkPreview";
-import { frontMatterMeta, stripFrontMatter } from "./editor/frontmatter";
+import { frontMatterLen, frontMatterMeta, stripFrontMatter } from "./editor/frontmatter";
 import { EPUB_CSS, epubChapterInputs, splitEpubChapters } from "./export/epub";
 import { relPath } from "./paths";
 import { resolveWikiLink, wikiLinksToMarkdown } from "./editor/wiki";
@@ -533,6 +533,15 @@ export function App(): JSX.Element {
           };
           manifest.imageWidths = imageWidths;
           manifest.tableWidths = tableWidths;
+          // 문서 메모 — 편집기 줄 번호를 프런트매터 제거 본문 기준으로 보정.
+          if (tab.comments && tab.comments.length > 0) {
+            const fmLen = frontMatterLen(tab.state.doc.toString());
+            const fmLines = fmLen > 0 ? tab.state.doc.sliceString(0, fmLen).split("\n").length - 1 : 0;
+            manifest.comments = tab.comments
+              .filter((c) => !c.resolved)
+              .map((c) => [c.lineNo - fmLines, c.text] as [number, string])
+              .filter(([l]) => l > 0);
+          }
           if (metaTitle) manifest.title = metaTitle;
           if (metaAuthor) manifest.author = metaAuthor;
           if (fm?.toc) manifest.toc = true;

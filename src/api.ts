@@ -126,6 +126,8 @@ export interface DocxManifest {
   toc?: boolean;
   /** 머리글 문서 제목(Some이면 매 페이지 상단). */
   headerTitle?: string;
+  /** 문서 메모(본문 기준 줄 번호) — Word 원생 메모로. */
+  comments?: Array<[number, string]>;
 }
 
 /** 문서별 스타일(SQLite 사이드카 — .md 원문은 불변). */

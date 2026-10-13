@@ -50,6 +50,8 @@ struct Ctx<'a> {
     figures: u32,
     /// 표 캡션 번호(SEQ Table).
     tables: u32,
+    /// 문서 메모 — 시작 줄 → (id, 텍스트). 문단 sourcepos로 대응.
+    comments: std::collections::HashMap<u32, (u64, String)>,
     footnote_ids: std::collections::HashMap<String, usize>,
     /// 북마크 슬러그 중복 카운터(GitHub식 -1 접미 — 프런트 tocMarkdown과 같은 규칙).
     slug_seen: std::collections::HashMap<String, usize>,
@@ -108,6 +110,8 @@ pub struct DocxExportOptions<'a> {
     pub header_title: Option<&'a str>,
     /// 형광펜 색(RRGGBB — 없으면 기본 노랑).
     pub highlight: Option<&'a str>,
+    /// 문서 메모(줄 앵커 — 편집기 사이드카)를 Word 원생 메모로 내보냄.
+    pub comments: &'a [(u32, String)],
 }
 
 /// 진입점: 마크다운 → .docx 파일.
@@ -116,7 +120,7 @@ pub fn export_docx(
     opts: &DocxExportOptions<'_>,
     out: &Path,
 ) -> Result<(), DocxError> {
-    let DocxExportOptions { math, diagrams, images, style, page_numbers, table_widths, toc, header_title, highlight, .. } = opts;
+    let DocxExportOptions { math, diagrams, images, style, page_numbers, table_widths, toc, header_title, highlight, comments, .. } = opts;
     let mut options = Options::default();
     options.extension.table = true;
     options.extension.strikethrough = true;
@@ -143,6 +147,7 @@ pub fn export_docx(
         slug_seen: std::collections::HashMap::new(),
         figures: 0,
         tables: 0,
+        comments: comments.iter().enumerate().map(|(i, (l, t))| (*l, (i as u64 + 1, t.clone()))).collect(),
     };
     set_hl_fill(highlight.filter(|h| !h.is_empty()).unwrap_or("FFF3A3"));
     // 추출한 각주 정의를 Ctx에 등록 — 각각 마크다운으로 파싱해 인라인 서식
@@ -371,7 +376,16 @@ fn block<'a>(
             } else {
                 ""
             };
-            let _ = writeln!(out, "<w:p><w:pPr><w:pStyle{quote}/></w:pPr>{runs}</w:p>");
+            // 문단 시작 줄에 메모가 있으면 Word 원생 메모로(범위+참조).
+            let line = node.data.borrow().sourcepos.start.line as u32;
+            let cmt = ctx.comments.get(&line).cloned();
+            let _ = match cmt {
+                Some((id, _)) => writeln!(
+                    out,
+                    "<w:p><w:pPr><w:pStyle{quote}/></w:pPr><w:commentRangeStart w:id=\"{id}\"/>{runs}<w:commentRangeEnd w:id=\"{id}\"/><w:r><w:rPr><w:rStyle w:val=\"CommentReference\"/></w:rPr><w:commentReference w:id=\"{id}\"/></w:r></w:p>"
+                ),
+                None => writeln!(out, "<w:p><w:pPr><w:pStyle{quote}/></w:pPr>{runs}</w:p>"),
+            };
         }
         NodeValue::Heading(h) => {
             let runs = inline_children(node, ctx, list_level)?;
@@ -1203,6 +1217,23 @@ fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
 
 // — 패키지(zip) 작성 —
 
+/// comments.xml — 메모 본문(작성자·시각 포함, Word 검토 창 그대로).
+fn comments_xml(ctx: &Ctx) -> String {
+    let mut s = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:comments xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">");
+    // 문서 순번(id)대로 정렬해 안정 출력.
+    let mut list: Vec<&(u64, String)> = ctx.comments.values().collect();
+    list.sort_by_key(|(id, _)| *id);
+    for (id, text) in list {
+        let _ = write!(
+            s,
+            "<w:comment w:id=\"{id}\" w:author=\"IYAGI Markdown\" w:initials=\"IY\"><w:p><w:pPr><w:pStyle w:val=\"CommentText\"/></w:pPr><w:r><w:t xml:space=\"preserve\">{}</w:t></w:r></w:p></w:comment>",
+            esc(text)
+        );
+    }
+    s.push_str("</w:comments>");
+    s
+}
+
 fn write_docx_zip(
     out: &Path,
     body: &str,
@@ -1226,7 +1257,12 @@ fn write_docx_zip(
     add(
         &mut zip,
         "[Content_Types].xml",
-        &content_types(ctx, page_numbers, header_title.is_some()),
+        &content_types(
+            ctx,
+            page_numbers,
+            header_title.is_some(),
+            !ctx.comments.is_empty(),
+        ),
     )?;
     add(&mut zip, "_rels/.rels", RELS_ROOT)?;
     add(&mut zip, "word/document.xml", &document(body))?;
@@ -1236,6 +1272,9 @@ fn write_docx_zip(
     if page_numbers {
         add(&mut zip, "word/footer1.xml", &footer_xml())?;
     }
+    if !ctx.comments.is_empty() {
+        add(&mut zip, "word/comments.xml", &comments_xml(ctx))?;
+    }
     if let Some(ht) = header_title {
         add(&mut zip, "word/header1.xml", &header_xml(ht))?;
         add(&mut zip, "word/headerFirst.xml", &header_first_xml())?;
@@ -1243,7 +1282,7 @@ fn write_docx_zip(
     add(
         &mut zip,
         "word/_rels/document.xml.rels",
-        &document_rels(ctx, page_numbers, header_title.is_some()),
+        &document_rels(ctx, page_numbers, header_title.is_some(), !ctx.comments.is_empty()),
     )?;
     add(&mut zip, "word/styles.xml", &styles_xml(style))?;
     add(&mut zip, "word/numbering.xml", NUMBERING)?;
@@ -1259,7 +1298,7 @@ fn write_docx_zip(
     Ok(())
 }
 
-fn content_types(ctx: &Ctx, page_numbers: bool, has_header: bool) -> String {
+fn content_types(ctx: &Ctx, page_numbers: bool, has_header: bool, has_comments: bool) -> String {
     let mut media_defaults = String::new();
     let mut seen = std::collections::HashSet::new();
     for (_, bytes) in &ctx.media {
@@ -1291,6 +1330,7 @@ fn content_types(ctx: &Ctx, page_numbers: bool, has_header: bool) -> String {
             "<Override PartName=\"/word/settings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml\"/>",
             "{footer_ct}",
             "{header_ct}",
+            "{comments_ct}",
             "<Override PartName=\"/docProps/core.xml\" ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>",
             "<Override PartName=\"/docProps/app.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.extended-properties+xml\"/>",
             "</Types>",
@@ -1298,6 +1338,11 @@ fn content_types(ctx: &Ctx, page_numbers: bool, has_header: bool) -> String {
         media = media_defaults,
         footer_ct = if page_numbers {
             "<Override PartName=\"/word/footer1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml\"/>"
+        } else {
+            ""
+        },
+        comments_ct = if has_comments {
+            "<Override PartName=\"/word/comments.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml\"/>"
         } else {
             ""
         },
@@ -1340,7 +1385,7 @@ fn document(body: &str) -> String {
     )
 }
 
-fn document_rels(ctx: &Ctx, page_numbers: bool, has_header: bool) -> String {
+fn document_rels(ctx: &Ctx, page_numbers: bool, has_header: bool, has_comments: bool) -> String {
     let mut s = String::from(
         r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -1352,6 +1397,12 @@ fn document_rels(ctx: &Ctx, page_numbers: bool, has_header: bool) -> String {
         let _ = write!(
             s,
             "<Relationship Id=\"rIdFooter\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer\" Target=\"footer1.xml\"/>"
+        );
+    }
+    if has_comments {
+        let _ = write!(
+            s,
+            "<Relationship Id=\"rIdComments\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments\" Target=\"comments.xml\"/>"
         );
     }
     if has_header {
@@ -1497,6 +1548,10 @@ const STYLES_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone
 </w:tblBorders></w:tblPr></w:style>
 <w:style w:type="character" w:styleId="Hyperlink"><w:name w:val="Hyperlink"/>
 <w:rPr><w:color w:val="@LINKCLR@"/><w:u w:val="single"/></w:rPr></w:style>
+<w:style w:type="paragraph" w:styleId="CommentText"><w:name w:val="annotation text"/>
+<w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:style>
+<w:style w:type="character" w:styleId="CommentReference"><w:name w:val="annotation reference"/>
+<w:rPr><w:sz w:val="16"/><w:szCs w:val="16"/></w:rPr></w:style>
 <w:style w:type="paragraph" w:styleId="Caption"><w:name w:val="caption"/>
 <w:basedOn w:val="Normal"/><w:pPr><w:jc w:val="center"/></w:pPr>
 <w:rPr><w:i/><w:color w:val="59636E"/><w:sz w:val="18"/><w:szCs w:val="18"/></w:rPr></w:style>
@@ -1607,7 +1662,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("basic");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None, comments: &[] }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         assert!(bytes.len() > 2000);
         // zip 매직.
@@ -1647,6 +1702,7 @@ mod tests {
             table_widths: HashMap::new(),
             figures: 0,
             tables: 0,
+            comments: HashMap::new(),
         };
         let body = "x\u{E000}a\u{E000}y";
         let out = resolve_footnote_refs(body, &ctx);
@@ -1661,7 +1717,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("anchor");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None, comments: &[] }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1688,7 +1744,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("fn");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None, comments: &[] }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1723,7 +1779,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("hl");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None, comments: &[] }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1751,7 +1807,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("math");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None, comments: &[] }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1781,7 +1837,7 @@ mod tests {
         let math = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("mermaid");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None, comments: &[] }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1822,7 +1878,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(dir.to_string_lossy().into_owned());
         let out = tmp("img");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None, comments: &[] }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1862,7 +1918,7 @@ mod tests {
                 images.set_widths([("a.png".to_string(), p)].into_iter().collect());
             }
             let out = tmp("imgw");
-            export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
+            export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None, comments: &[] }, &out).unwrap();
             let bytes = std::fs::read(&out).unwrap();
             let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
             use std::io::Read;
@@ -1895,7 +1951,7 @@ mod tests {
         let mut widths: HashMap<String, Vec<u32>> = HashMap::new();
         widths.insert("이름\u{1f}값".to_string(), vec![100, 300]);
         let out = tmp("tblw");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &widths, title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &widths, title: None, author: None, toc: false, header_title: None, highlight: None, comments: &[] }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
         use std::io::Read;
@@ -1908,12 +1964,82 @@ mod tests {
         assert!(doc.contains("<w:tcW w:w=\"6480\""));
         // 지정 없는 표는 균등(4320).
         let out2 = tmp("tblw-even");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out2).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None, comments: &[] }, &out2).unwrap();
         let bytes2 = std::fs::read(&out2).unwrap();
         let mut z2 = zip::ZipArchive::new(std::io::Cursor::new(&bytes2)).unwrap();
         let mut doc2 = String::new();
         z2.by_name("word/document.xml").unwrap().read_to_string(&mut doc2).unwrap();
         assert!(doc2.contains("<w:gridCol w:w=\"4320\"/>"));
+        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_file(&out2);
+    }
+
+    #[test]
+    fn comments_export_native() {
+        // 2번째 줄 문단에 메모 — commentRangeStart/End + comments.xml.
+        let md = "첫 문단\n\n메모가 달린 문단\n";
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let comments: Vec<(u32, String)> = vec![(3, "검토 필요".into())];
+        let out = tmp("cmt");
+        export_docx(
+            md,
+            &DocxExportOptions {
+                math: &math,
+                diagrams: &diagrams,
+                images: &images,
+                style: None,
+                page_numbers: false,
+                table_widths: &HashMap::new(),
+                title: None,
+                author: None,
+                toc: false,
+                header_title: None,
+                highlight: None,
+                comments: &comments,
+            },
+            &out,
+        )
+        .unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        use std::io::Read;
+        let mut doc = String::new();
+        zip.by_name("word/document.xml").unwrap().read_to_string(&mut doc).unwrap();
+        assert!(doc.contains("<w:commentRangeStart w:id=\"1\"/>"));
+        assert!(doc.contains("<w:commentReference w:id=\"1\"/>"));
+        let mut cm = String::new();
+        zip.by_name("word/comments.xml").unwrap().read_to_string(&mut cm).unwrap();
+        assert!(cm.contains("검토 필요"));
+        assert!(cm.contains("w:author=\"IYAGI Markdown\""));
+        let mut ct = String::new();
+        zip.by_name("[Content_Types].xml").unwrap().read_to_string(&mut ct).unwrap();
+        assert!(ct.contains("/word/comments.xml"));
+        // 메모 없으면 파트도 없다.
+        let out2 = tmp("cmt-none");
+        export_docx(
+            "본문\n",
+            &DocxExportOptions {
+                math: &math,
+                diagrams: &diagrams,
+                images: &images,
+                style: None,
+                page_numbers: false,
+                table_widths: &HashMap::new(),
+                title: None,
+                author: None,
+                toc: false,
+                header_title: None,
+                highlight: None,
+                comments: &[],
+            },
+            &out2,
+        )
+        .unwrap();
+        let b2 = std::fs::read(&out2).unwrap();
+        let z2 = zip::ZipArchive::new(std::io::Cursor::new(&b2)).unwrap();
+        assert!(z2.file_names().filter_map(|n| n.ok()).all(|n| n != "word/comments.xml"));
         let _ = std::fs::remove_file(&out);
         let _ = std::fs::remove_file(&out2);
     }
@@ -1939,6 +2065,7 @@ mod tests {
                 toc: false,
                 header_title: None,
                 highlight: None,
+            comments: &[],
             },
             &out,
         )
@@ -1978,6 +2105,7 @@ mod tests {
                     toc: false,
                     header_title: None,
                     highlight: hl,
+                comments: &[],
                 },
                 &out,
             )
@@ -2017,6 +2145,7 @@ mod tests {
                 toc: false,
                 header_title: None,
                 highlight: None,
+            comments: &[],
             },
             &out,
         )
@@ -2064,6 +2193,7 @@ mod tests {
                 toc: false,
                 header_title: None,
                 highlight: None,
+            comments: &[],
             },
             &out,
         )
@@ -2106,6 +2236,7 @@ mod tests {
                     author: None,
                     toc: false,
                     highlight: None,
+                    comments: &[],
                     header_title: header,
                 },
                 &out,
@@ -2173,6 +2304,7 @@ mod tests {
                     toc,
                     header_title: None,
                     highlight: None,
+                comments: &[],
                 },
                 &out,
             )
@@ -2228,6 +2360,7 @@ mod tests {
                 toc: false,
                 header_title: None,
                 highlight: None,
+            comments: &[],
             },
             &out,
         )
@@ -2255,6 +2388,7 @@ mod tests {
                 toc: false,
                 header_title: None,
                 highlight: None,
+            comments: &[],
             },
             &out2,
         )
@@ -2275,7 +2409,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("footer");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: true, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: true, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None, comments: &[] }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -2299,7 +2433,7 @@ mod tests {
         assert!(ct.contains("/word/footer1.xml"));
         // 끄면 아예 없다.
         let out2 = tmp("footer-off");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out2).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None, comments: &[] }, &out2).unwrap();
         let bytes2 = std::fs::read(&out2).unwrap();
         let z2 = zip::ZipArchive::new(std::io::Cursor::new(&bytes2)).unwrap();
         assert!(z2.file_names().filter_map(|n| n.ok()).all(|n| n != "word/footer1.xml"));

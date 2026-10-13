@@ -623,6 +623,8 @@ export async function buildDocxManifest(
   toc?: boolean;
   /** 머리글 문서 제목. */
   headerTitle?: string;
+  /** 문서 메모(본문 기준 줄 번호) — Word 원생 메모로. [줄, 텍스트] 튜플. */
+  comments?: Array<[number, string]>;
 }> {
   const math: Record<string, string> = {};
   const diagrams: Record<string, string> = {};
