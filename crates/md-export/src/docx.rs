@@ -48,6 +48,8 @@ struct Ctx<'a> {
     table_widths: std::collections::HashMap<String, Vec<u32>>,
     /// 그림 캡션 번호(SEQ 초기값 — Word가 갱신).
     figures: u32,
+    /// 표 캡션 번호(SEQ Table).
+    tables: u32,
     footnote_ids: std::collections::HashMap<String, usize>,
     /// 북마크 슬러그 중복 카운터(GitHub식 -1 접미 — 프런트 tocMarkdown과 같은 규칙).
     slug_seen: std::collections::HashMap<String, usize>,
@@ -140,6 +142,7 @@ pub fn export_docx(
         footnote_ids: std::collections::HashMap::new(),
         slug_seen: std::collections::HashMap::new(),
         figures: 0,
+        tables: 0,
     };
     set_hl_fill(highlight.filter(|h| !h.is_empty()).unwrap_or("FFF3A3"));
     // 추출한 각주 정의를 Ctx에 등록 — 각각 마크다운으로 파싱해 인라인 서식
@@ -255,6 +258,25 @@ fn regex_like_filename(t: &str) -> bool {
         && stem
             .chars()
             .all(|c| c.is_alphanumeric() || matches!(c, ' ' | '.' | '(' | ')' | '_' | '-' | '[' | ']'))
+}
+
+/// 표 캡션 문단 — SEQ Table 필드. 그림 캡션과 같은 구조.
+fn table_caption_xml(alt: &str, n: u32) -> String {
+    format!(
+        concat!(
+            "<w:p><w:pPr><w:pStyle w:val=\"Caption\"/><w:jc w:val=\"center\"/></w:pPr>",
+            "<w:r><w:t xml:space=\"preserve\">표 </w:t></w:r>",
+            "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r>",
+            "<w:r><w:instrText xml:space=\"preserve\"> SEQ Table \\* ARABIC </w:instrText></w:r>",
+            "<w:r><w:fldChar w:fldCharType=\"separate\"/></w:r>",
+            "<w:r><w:t>{}</w:t></w:r>",
+            "<w:r><w:fldChar w:fldCharType=\"end\"/></w:r>",
+            "<w:r><w:t xml:space=\"preserve\"> — {}</w:t></w:r>",
+            "</w:p>"
+        ),
+        n,
+        esc(alt)
+    )
 }
 
 /// 그림 캡션 문단 — SEQ Figure 필드(Word가 번호를 계속 매김) + 설명.
@@ -593,9 +615,39 @@ fn table<'a>(
     }
     out.push_str("</w:tblGrid>");
 
+    // 표 캡션(Pandoc 규약 ': 텍스트') — comrak가 파이프 없는 줄을 표의
+    // 마지막 1셀 행으로 흡수하므로 여기서 뽑아낸다(원문 불변 — 해석만).
+    let rows: Vec<&AstNode> = node.children().collect();
+    let mut caption: Option<String> = None;
+    let render_rows: &[&AstNode] = match rows.last() {
+        Some(last) => {
+            // 파이프 없는 ': 캡션' 줄이 마지막 행으로 흡수된 모양: 첫 셀만
+            // 내용이 있고 ': '로 시작. (진짜 행 | : x | y | 와 구분 — 나머지
+            // 셀이 비어 있어야만 캡션으로 본다.)
+            let cells: Vec<&AstNode> = last.children().collect();
+            let mut first = String::new();
+            if let Some(c0) = cells.first() {
+                collect_text(c0, &mut first);
+            }
+            let rest_empty = cells.iter().skip(1).all(|c| {
+                let mut t = String::new();
+                collect_text(c, &mut t);
+                t.trim().is_empty()
+            });
+            match first.strip_prefix(": ") {
+                Some(cap) if !cap.trim().is_empty() && rest_empty => {
+                    caption = Some(cap.trim().to_string());
+                    &rows[..rows.len() - 1]
+                }
+                _ => &rows[..],
+            }
+        }
+        None => &rows[..],
+    };
+
     let mut col_idx;
     let mut is_header;
-    for row in node.children() {
+    for row in render_rows {
         if let NodeValue::TableRow(header) = &row.data.borrow().value {
             is_header = *header;
             col_idx = 0;
@@ -629,8 +681,12 @@ fn table<'a>(
             out.push_str("</w:tr>");
         }
     }
-    // 표 뒤 빈 문단(Word 관례).
+    // 표 뒤 빈 문단(Word 관례) + 캡션(SEQ Table — Word가 번호 갱신).
     out.push_str("</w:tbl><w:p/>");
+    if let Some(cap) = caption {
+        ctx.tables += 1;
+        out.push_str(&table_caption_xml(&cap, ctx.tables));
+    }
     Ok(())
 }
 
@@ -1590,6 +1646,7 @@ mod tests {
             slug_seen: std::collections::HashMap::new(),
             table_widths: HashMap::new(),
             figures: 0,
+            tables: 0,
         };
         let body = "x\u{E000}a\u{E000}y";
         let out = resolve_footnote_refs(body, &ctx);
@@ -1859,6 +1916,44 @@ mod tests {
         assert!(doc2.contains("<w:gridCol w:w=\"4320\"/>"));
         let _ = std::fs::remove_file(&out);
         let _ = std::fs::remove_file(&out2);
+    }
+
+    #[test]
+    fn table_caption_seq_and_consume() {
+        let md = "| a | b |\n|---|---|\n| 1 | 2 |\n: 분기 결과 요약\n\n본문 계속\n";
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let out = tmp("tblcap");
+        export_docx(
+            md,
+            &DocxExportOptions {
+                math: &math,
+                diagrams: &diagrams,
+                images: &images,
+                style: None,
+                page_numbers: false,
+                table_widths: &HashMap::new(),
+                title: None,
+                author: None,
+                toc: false,
+                header_title: None,
+                highlight: None,
+            },
+            &out,
+        )
+        .unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        use std::io::Read;
+        let mut doc = String::new();
+        zip.by_name("word/document.xml").unwrap().read_to_string(&mut doc).unwrap();
+        assert!(doc.contains(" SEQ Table \\* ARABIC "));
+        assert!(doc.contains(" — 분기 결과 요약"));
+        // 캡션 텍스트는 정확히 한 번(: 접두는 떼고 캡션으로만).
+        assert_eq!(doc.matches("분기 결과 요약").count(), 1);
+        assert!(doc.contains("본문 계속"));
+        let _ = std::fs::remove_file(&out);
     }
 
     #[test]
@@ -2211,4 +2306,5 @@ mod tests {
         let _ = std::fs::remove_file(&out);
         let _ = std::fs::remove_file(&out2);
     }
+
 }

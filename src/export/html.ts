@@ -9,6 +9,7 @@
 import MarkdownIt, { type MarkdownIt as MarkdownItType, type StateInline, type Token } from "markdown-it";
 import { htmlTableKey } from "../editor/tableKey";
 import { captionWorthy } from "../editor/caption";
+import { applyTableCaptions } from "../editor/tableCaption";
 import footnote from "markdown-it-footnote";
 
 import { ensureHighlight, escapeHtml, highlightHtml } from "../plugins/highlight";
@@ -465,7 +466,7 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
   const withImages = opts.inlineImages === false
     ? withWidths
     : await inlineImages(withWidths, opts.baseDir, opts.readBytes);
-  const withCaptions = applyFigcaptions(withImages);
+  const withCaptions = applyFigcaptions(applyTableCaptions(withImages));
   const sanitized = await sanitize(withCaptions);
   const marginCss = opts.forPdf
     ? `body{margin:${opts.marginMm ?? 14}mm !important;}` +
@@ -571,6 +572,8 @@ body{margin:0 auto;padding:24px 16px;max-width:820px;font-family:-apple-system,B
 .markdown-body img{max-width:100%;border-radius:6px;}
 .markdown-body figure{margin:1.2em 0;text-align:center;}
 .markdown-body figcaption{font-size:.85em;color:#8a919c;margin-top:.45em;}
+.markdown-body figure.tbl-fig{margin:1.2em 0;}
+.markdown-body figure.tbl-fig table{margin:0;}
 .markdown-body hr{border:none;border-top:2px solid ${c.border};margin:1.6em 0;}
 .markdown-body .task-item{margin-right:.45em;}
 .markdown-body li.task-item-done{text-decoration:line-through;opacity:.6;}

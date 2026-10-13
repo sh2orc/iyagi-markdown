@@ -93,3 +93,28 @@ describe("applyFigcaptions / captionWorthy", () => {
     expect(out).toContain("A &amp; B 구성");
   });
 });
+
+describe("applyTableCaptions / tableCaptionLines", () => {
+  it("표 다음 ': 캡션' 문단을 figcaption으로 — 순번 매김", async () => {
+    const { applyTableCaptions } = await import("../editor/tableCaption");
+    const html = `<table><tr><th>a</th></tr></table>\n<p>: 첫 표 캡션</p><table><tr><th>b</th></tr></table>\n<p>: 둘째</p>`;
+    const out = applyTableCaptions(html);
+    expect(out).toContain("<figcaption>표 1 — 첫 표 캡션</figcaption>");
+    expect(out).toContain("<figcaption>표 2 — 둘째</figcaption>");
+    expect(out).toContain('<figure class="tbl-fig">');
+    expect(out).not.toContain("<p>: ");
+  });
+
+  it("캡션 없는 표·빈 캡션은 그대로", async () => {
+    const { applyTableCaptions } = await import("../editor/tableCaption");
+    expect(applyTableCaptions("<table></table><p>일반</p>")).toBe("<table></table><p>일반</p>");
+    expect(applyTableCaptions("<table></table>\n<p>:</p>")).not.toContain("figcaption");
+  });
+
+  it("원문에서 캡션 줄 찾기 — 표 마지막 줄 기준(빈 줄 하나 허용)", async () => {
+    const { tableCaptionLines } = await import("../editor/tableCaption");
+    const md = "| a |\n|---|\n| 1 |\n: 캡션\n";
+    expect(tableCaptionLines(md)).toEqual([{ line: 4, text: "캡션" }]);
+    expect(tableCaptionLines("그냥 텍스트")).toEqual([]);
+  });
+});
