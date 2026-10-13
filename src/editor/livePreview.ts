@@ -288,6 +288,13 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
   const isTouched = (from: number, to: number): boolean =>
     selRanges.some((r) => from <= r.to + 1 && to >= r.from - 1);
 
+  // 블록 마커(#들·Setext 밑줄)는 커서가 닿는다고 보이지 않는다 — 선택이
+  // 마커를 완전히 감쌀 때만(줄 처음부터 쓸어 담을 때) 원문 노출.
+  // 클릭해 본문을 편집할 때 #가 튀어나오는 것을 막는다(2026-10-13 사용자
+  // 보고 — 텍스트 편집에 마커는 불필요, 수준 변경은 도구모음 H1/H2).
+  const coversMarks = (from: number, to: number): boolean =>
+    view.state.selection.ranges.some((r) => r.from <= from && r.to >= to);
+
   const addLineClasses = (from: number, to: number, cls: string, skipFirst = false) => {
     const first = doc.lineAt(from).number;
     const last = doc.lineAt(to).number;
@@ -410,13 +417,13 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
                 mark.to + 1 <= to && slice(mark.to, mark.to + 1) === " " ? mark.to + 1 : mark.to,
                 to,
               );
-              if (!isRevealed(from, to)) {
+              if (!coversMarks(mark.from, hideTo)) {
                 ranges.push(replace({}).range(mark.from, hideTo));
               }
             }
           } else {
             // Setext: 밑줄(===/---) 줄을 접는다.
-            if (!isRevealed(from, to)) {
+            if (!coversMarks(doc.lineAt(to).from, to)) {
               const lastLine = doc.lineAt(to);
               if (lastLine.from > from) {
                 ranges.push(replace({}).range(lastLine.from, to));

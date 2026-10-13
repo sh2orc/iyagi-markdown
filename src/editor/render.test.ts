@@ -69,13 +69,18 @@ describe("샘플 문서 라이브 프리뷰", { retry: 1 }, () => {
     document.body.innerHTML = "";
   });
 
-  it("편집 모드 — 커서(문서 시작) 줄만 원문, 나머지는 렌더", async () => {
+  it("편집 모드 — 커서가 제목에 닿아도 #는 숨김, 선택이 덮으면 노출", async () => {
     const view = await makeView("edit");
     const kinds = widgetKinds(view);
     expect(kinds["widget:TableWidget"] ?? 0).toBeGreaterThanOrEqual(1);
     expect(kinds["widget:MathWidget"] ?? 0).toBeGreaterThanOrEqual(3);
-    // 커서가 첫 줄(H1)에 있으므로 h1 줄 클래스는 있지만 # 심볼은 숨겨지지 않는다.
-    expect(document.body.textContent).toContain("# IYAGI Markdown"); // 커서 줄 원문 노출 확인
+    // 커서가 첫 줄(H1)에 있어도 # 마커는 숨겨진다(클릭=텍스트 편집, 마커 아님).
+    expect(document.body.textContent).not.toContain("# IYAGI Markdown");
+    // 줄 처음부터 쓸어 담으면(마커를 완전히 감싸면) 원문 노출.
+    const line1 = view.state.doc.line(1);
+    view.dispatch({ selection: { anchor: line1.from, head: Math.min(line1.to, line1.from + 4) } });
+    await new Promise((r) => setTimeout(r, 60));
+    expect(document.body.textContent).toContain("# IYAGI Markdown");
     view.destroy();
     document.body.innerHTML = "";
   });
