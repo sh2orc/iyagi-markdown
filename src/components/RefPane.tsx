@@ -30,6 +30,9 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
   const [editMode, setEditMode] = useState(false);
   const editHost = useRef<HTMLDivElement | null>(null);
   const editView = useRef<EditorView | null>(null);
+  /** iframe 스크롤 위치 — 재렌더(살아 있는 복제본)마다 유지. */
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const frameScroll = useRef(0);
 
   // 폭 드래그 — 커서 이동에 따라 퍼센트 갱신(놓으면 저장).
   useEffect(() => {
@@ -115,9 +118,17 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
             }
           },
         });
-        if (alive) setHtml(built);
+        if (alive) {
+          // 재렌더 전 스크롤 저장(sandbox allow-same-origin — 스크립트는 불가).
+          try {
+            frameScroll.current = frameRef.current?.contentWindow?.scrollY ?? frameScroll.current;
+          } catch {
+            /* 접근 거부 시 이전 값 */
+          }
+          setHtml(built);
+        }
       })();
-    }, 250);
+    }, 400);
     return () => {
       alive = false;
       clearTimeout(id);
@@ -158,7 +169,22 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
           <div className="spinner" />
         </div>
       ) : (
-        <iframe className="ref-pane-body" title={t.refPaneTitle} srcDoc={html} sandbox="" />
+        <iframe
+          ref={frameRef}
+          className="ref-pane-body"
+          title={t.refPaneTitle}
+          srcDoc={html}
+          sandbox="allow-same-origin"
+          onLoad={() => {
+            try {
+              if (frameScroll.current > 0) {
+                frameRef.current?.contentWindow?.scrollTo(0, frameScroll.current);
+              }
+            } catch {
+              /* 무시 */
+            }
+          }}
+        />
       )}
     </div>
   );
