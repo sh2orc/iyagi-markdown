@@ -1442,7 +1442,7 @@ export function defaultSettings(): Settings {
     language: "auto",
     showImages: true,
     logLevel: "info",
-    autosave: false,
+    autosave: true,
     typewriter: false,
     focusMode: false,
     smartPunctuation: true,

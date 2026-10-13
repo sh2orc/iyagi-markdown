@@ -10,6 +10,7 @@ import { EditorView } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import { foldEffect, foldGutter, foldState, foldable } from "@codemirror/language";
+import { fenceFoldOf } from "./cm";
 
 describe("접기 상태 탭 전환 유지", { retry: 1 }, () => {
   it("저장된 EditorState를 새 뷰에 싣으면 foldState가 따라온다", () => {
@@ -31,5 +32,27 @@ describe("접기 상태 탭 전환 유지", { retry: 1 }, () => {
     expect(v2.state.field(foldState, false)?.size).toBe(1);
     v1.destroy();
     v2.destroy();
+  });
+});
+
+describe("fenceFoldOf — 코드펜스 접기", () => {
+  const stateOf = (doc: string) => EditorState.create({ doc });
+  const DOC = "앞\n```rust\nfn a() {}\nfn b() {}\n```\n뒤\n";
+
+  it("여는 펜스 줄에서 닫는 줄 전까지", () => {
+    const st = stateOf(DOC);
+    const r = fenceFoldOf(st, st.doc.line(2).from);
+    expect(r).toEqual({ from: st.doc.line(2).to, to: st.doc.line(4).to });
+  });
+
+  it("~~~ 펜스도·펜스 밖은 null", () => {
+    const st = stateOf("~~~\ncode\n~~~\n");
+    expect(fenceFoldOf(st, st.doc.line(1).from)).toEqual({ from: st.doc.line(1).to, to: st.doc.line(2).to });
+    expect(fenceFoldOf(st, st.doc.line(4).from)).toBeNull();
+  });
+
+  it("닫는 줄 없으면 null(미완성 펜스)", () => {
+    const st = stateOf("```\ncode\n");
+    expect(fenceFoldOf(st, st.doc.line(1).from)).toBeNull();
   });
 });

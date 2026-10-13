@@ -53,7 +53,8 @@ pub struct Settings {
     #[serde(default = "default_log_level")]
     pub log_level: String,
     /// 초안 자동 저장 — 입력이 멈춘 뒤 원자적으로 저장한다(Word 자동 저장).
-    #[serde(default)]
+    /// 기본 켬(2026-10-13, Word 365 관례) — 기존 settings.json은 저장값 우선.
+    #[serde(default = "default_true")]
     pub autosave: bool,
     /// 타이프라이터 스크롤(입력 시 커서 줄 세로 중앙).
     #[serde(default)]

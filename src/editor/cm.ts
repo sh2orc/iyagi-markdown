@@ -59,9 +59,30 @@ export function listItemFoldOf(
   return to > line.to ? { from: line.to, to } : null;
 }
 
+/** 코드펜스 접기 범위 — 여는 \`\`\`/~~~ 줄에서 닫는 줄까지. 순수 함수. */
+export function fenceFoldOf(
+  state: EditorState,
+  from: number,
+): { from: number; to: number } | null {
+  const line = state.doc.lineAt(from);
+  if (from !== line.from) return null;
+  const m = /^(\s*)(\`\`\`|~~~)/.exec(line.text);
+  if (!m) return null;
+  const fence = m[2]!;
+  for (let n = line.number + 1; n <= state.doc.lines; n++) {
+    const l = state.doc.line(n);
+    if (l.text.trimStart().startsWith(fence)) {
+      // 닫는 줄 전까지(닫는 줄은 펼침 상태에서도 보이게 — 제목 접기 관례).
+      const prev = state.doc.line(n - 1);
+      return prev.number > line.number ? { from: line.to, to: prev.to } : null;
+    }
+  }
+  return null;
+}
+
 const headingFoldService = foldService.of((state, from, to) => {
   void to;
-  return headingFoldOf(state, from) ?? listItemFoldOf(state, from);
+  return headingFoldOf(state, from) ?? fenceFoldOf(state, from) ?? listItemFoldOf(state, from);
 });
 
 import {
