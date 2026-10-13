@@ -331,3 +331,62 @@ describe("insertTable(rows, cols)", async () => {
     v.destroy();
   });
 });
+
+// — 표 셀 Tab 이동(Word 표 탐색) —
+describe("tabTableCell", async () => {
+  const { EditorState } = await import("@codemirror/state");
+  const { EditorView } = await import("@codemirror/view");
+  const { tabTableCell } = await import("./format");
+
+  function mount(doc: string, pos: number): EditorView {
+    // selection 심기 — 없으면 기본 0이어서 lineAt(0) 크래시(표 밖 테스트).
+    const host = document.createElement("div");
+    document.body.append(host);
+    const st = EditorState.create({ doc, selection: { anchor: pos } });
+    return new EditorView({ state: st, parent: host });
+  }
+
+  const TABLE = "| 이름 | 값 | 비고 |\n|---|---|---|\n| a | 1 | x |\n| b | 2 | y |";
+
+  it("Tab — 다음 셀 시작으로", () => {
+    // 1행 데이터 "| a | 1 | x |" — a 뒤(셀1)에서 Tab → 셀2(1 앞).
+    const base = TABLE.indexOf("| a");
+    const v = mount(TABLE, base + 3);
+    expect(tabTableCell(v, false)).toBe(true);
+    const head = v.state.selection.main.head;
+    expect(TABLE.slice(head, head + 1)).toBe("1");
+    v.destroy();
+  });
+
+  it("Shift+Tab — 이전 셀로", () => {
+    const one = TABLE.indexOf("1 |");
+    const v = mount(TABLE, one + 1);
+    expect(tabTableCell(v, true)).toBe(true);
+    expect(TABLE.slice(v.state.selection.main.head, v.state.selection.main.head + 1)).toBe("a");
+    v.destroy();
+  });
+
+  it("줄 끝 Tab — 다음 데이터 줄 첫 셀로(구분줄 건너뜀)", () => {
+    const x = TABLE.indexOf("x");
+    const v = mount(TABLE, x + 1);
+    expect(tabTableCell(v, false)).toBe(true);
+    expect(TABLE.slice(v.state.selection.main.head, v.state.selection.main.head + 1)).toBe("b");
+    v.destroy();
+  });
+
+  it("마지막 셀·첫 셀 밖 — false(기본 동작 폴백)", () => {
+    const y = TABLE.indexOf("y");
+    const v = mount(TABLE, y + 1);
+    expect(tabTableCell(v, false)).toBe(false); // 마지막 데이터 줄 끝
+    const first = TABLE.indexOf("이름") + 2;
+    v.dispatch({ selection: { anchor: first } });
+    expect(tabTableCell(v, true)).toBe(false); // 첫 셀 뒤로는 없음
+    v.destroy();
+  });
+
+  it("표 밖 — false", () => {
+    const v = mount("일반 텍스트\n", 2);
+    expect(tabTableCell(v, false)).toBe(false);
+    v.destroy();
+  });
+});

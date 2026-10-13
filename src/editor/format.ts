@@ -159,6 +159,50 @@ export interface TableBlock {
 }
 
 /** 커서 주변의 GFM 표 블록을 찾는다(연속한 파이프 줄 + 구분 줄). */
+/** 표 안에서 Tab/Shift+Tab — 다음/이전 셀 시작으로 커서(Word 표 탐색).
+ *  줄 끝 셀에서 Tab은 다음 데이터 줄 첫 셀로. 마지막 셀이면 false(기본 동작). */
+export function tabTableCell(view: EditorView, back: boolean): boolean {
+  const t = tableAround(view);
+  if (!t) return false;
+  const doc = view.state.doc;
+  const sel = view.state.selection.main.head;
+  const line = doc.line(Math.min(Math.max(doc.lineAt(sel).number, t.firstLine), t.lastLine));
+  const pipes: number[] = [];
+  for (let i = 0; i < line.text.length; i++) {
+    if (line.text[i] === "|" && line.text[i - 1] !== "\\") pipes.push(i);
+  }
+  if (pipes.length < 2) return false;
+  // 셀 시작 오프셋 목록: [첫 파이프+1, 내부 경계 각 +1] — 셀 수 = 경계+1.
+  const inner = pipes.slice(1, -1);
+  const starts = [pipes[0]! + 1, ...inner.map((p) => p + 1)];
+  // 커서의 현재 셀: 시작 오프셋 중 커서 이전 마지막(셀 안 어디든).
+  let k = 0;
+  for (let i = 0; i < starts.length; i++) {
+    if (line.from + starts[i]! <= sel) k = i;
+  }
+  const next = back ? k - 1 : k + 1;
+  if (next >= 0 && next < starts.length) {
+    view.dispatch({ selection: { anchor: contentStart(line, starts[next]!) } });
+    return true;
+  }
+  if (back) return false; // 첫 셀에서 Shift+Tab — 기본
+  // 줄 끝 — 다음 데이터 줄(구분줄 건너뛰기) 첫 셀로.
+  const nextData = Math.max(t.firstLine + 2, line.number + 1);
+  if (nextData > t.lastLine) return false;
+  const nl = doc.line(nextData);
+  const firstPipe = nl.text.indexOf("|");
+  if (firstPipe === -1) return false;
+  view.dispatch({ selection: { anchor: contentStart(nl, firstPipe + 1) } });
+  return true;
+}
+
+/** 열 시작 오프셋(파이프 뒤)에서 셀 내용 시작(공백 건너뛴 곳)으로. */
+function contentStart(line: { text: string; from: number }, offset: number): number {
+  let i = offset;
+  while (i < line.text.length && line.text[i] === " ") i++;
+  return line.from + i;
+}
+
 export function tableAround(view: EditorView): TableBlock | null {
   const doc = view.state.doc;
   const start = doc.lineAt(view.state.selection.main.head).number;
@@ -166,10 +210,11 @@ export function tableAround(view: EditorView): TableBlock | null {
   const isSep = (n: number) => /^\s*\|[\s:|-]+\|\s*$/.test(doc.line(n).text);
   if (start < 1 || start > doc.lines) return null;
   // 커서 줄이 파이프 행이 아니면 인접 줄로 확장(표 위젯 클릭 직후 등).
+  // 경계 검사를 먼저 — isRow(0)/isRow(lines+1)는 doc.line()이 던진다.
   let anchor = start;
   if (!isRow(start)) {
-    if (isRow(start - 1) && start - 1 >= 1) anchor = start - 1;
-    else if (isRow(start + 1) && start + 1 <= doc.lines) anchor = start + 1;
+    if (start - 1 >= 1 && isRow(start - 1)) anchor = start - 1;
+    else if (start + 1 <= doc.lines && isRow(start + 1)) anchor = start + 1;
     else return null;
   }
   let first = anchor;
