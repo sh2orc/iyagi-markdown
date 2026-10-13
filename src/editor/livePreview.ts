@@ -442,7 +442,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
 
         // — 강조 —
         if (name === "Emphasis" || name === "StrongEmphasis") {
-          if (isTouched(from, to)) return;
+          if (coversMarks(from, to)) return;
           const cls = name === "StrongEmphasis" ? "md-strong" : "md-em";
           for (let child = node.firstChild; child; child = child.nextSibling) {
             if (child.name === "EmphasisMark" || child.name === "StrongEmphasisMark") {
@@ -461,7 +461,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
 
         // — 취소선 —
         if (name === "Strikethrough") {
-          if (isTouched(from, to)) return;
+          if (coversMarks(from, to)) return;
           for (let child = node.firstChild; child; child = child.nextSibling) {
             if (child.name === "StrikethroughMark") {
               ranges.push(replace({}).range(child.from, child.to));
@@ -479,7 +479,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
 
         // — 인라인 코드 —
         if (name === "InlineCode") {
-          if (isTouched(from, to)) return;
+          if (coversMarks(from, to)) return;
           for (let child = node.firstChild; child; child = child.nextSibling) {
             if (child.name === "CodeMark") ranges.push(replace({}).range(child.from, child.to));
           }
