@@ -821,6 +821,7 @@ export class AppStore {
       imageWidths: tab?.docStyle?.imageWidths ?? {},
       bookmarks: tab?.bookmarks ?? [],
       commentLines: tab?.commentLines ?? [],
+      longSentenceMarks: this.state.settings.longSentenceMarks,
       tableWidths: tab?.docStyle?.tableWidths ?? {},
       wikiIndex: this.wikiIndex,
     });
@@ -1289,6 +1290,7 @@ export function defaultSettings(): Settings {
     typewriter: false,
     focusMode: false,
     smartPunctuation: true,
+    longSentenceMarks: false,
     exportPaper: "a4",
     exportLandscape: false,
     exportMarginMm: 14,

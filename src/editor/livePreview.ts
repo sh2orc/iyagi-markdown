@@ -37,6 +37,7 @@ import {
 import { lexicallyClean, percentDecode, resolveLink } from "../links";
 import { parseWikiLink, resolveWikiLink } from "./wiki";
 import { mdTableKey } from "./tableKey";
+import { sentenceSpans } from "./writing";
 import { phrases } from "../app/phrases";
 import {
   BulletWidget,
@@ -64,6 +65,8 @@ export interface PreviewConfig {
   bookmarks: number[];
   /** 메모(주석)가 달린 줄 번호(선택 — 없으면 []). */
   commentLines?: number[];
+  /** 긴 문장(60자+) 점선 밑줄 — 작가 보조 토글. */
+  longSentenceMarks?: boolean;
   /** 표 표시 폭(시작 줄 번호 문자열 → 열 px) — 문서 스타일 사이드카. */
   tableWidths: Record<string, number[]>;
   /** 위키링크 인덱스(소문자 이름 → 경로들) — 워크스페이스 트리에서(store). */
@@ -119,6 +122,7 @@ function previewConfigEquals(a: PreviewConfig | undefined, b: PreviewConfig): bo
   for (let i = 0; i < aCl.length; i++) {
     if (aCl[i] !== bCl[i]) return false;
   }
+  if ((a.longSentenceMarks ?? false) !== (b.longSentenceMarks ?? false)) return false;
   // 위키링크 인덱스 — 참조 비교(트리가 바뀔 때만 store가 새 인스턴스를 만든다).
   if (a.wikiIndex !== b.wikiIndex) return false;
   return true;
@@ -244,7 +248,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
   const doc = view.state.doc;
   const behavior = view.state.facet(previewBehavior);
   const config = view.state.field(previewConfigField);
-  const { baseDir, remoteImages, showImages, theme, imageWidths, bookmarks, tableWidths, commentLines = [] } = config;
+  const { baseDir, remoteImages, showImages, theme, imageWidths, bookmarks, tableWidths, commentLines = [], longSentenceMarks = false } = config;
 
   // 노출할 줄 = 편집 모드에서 커서·선택(·조합)이 걸친 줄.
   const revealed = new Set<number>();
@@ -355,6 +359,19 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
       const line = doc.line(Math.min(Math.max(bm, 1), doc.lines));
       if (line.from >= chunkFrom && line.from < chunkTo) {
         ranges.push(Decoration.line({ class: "md-bookmark" }).range(line.from));
+      }
+    }
+    // 긴 문장(60자+) 점선 밑줄 — 청크 안에서만 근사(경계 문장은 부분 표시).
+    if (longSentenceMarks) {
+      const chunkText = doc.sliceString(chunkFrom, chunkTo);
+      for (const [a, b] of sentenceSpans(chunkText)) {
+        if (chunkText.slice(a, b).replace(/\s+/g, "").length >= 60) {
+          const from = chunkFrom + a;
+          const to = chunkFrom + b;
+          // 코드블록 안은 문장이 아니다 — 표시 제외(codeRanges 청크 공용).
+          if (codeRanges.some(([cf, ct]) => from >= cf && from <= ct)) continue;
+          if (to > from) ranges.push(Decoration.mark({ class: "md-long-sentence" }).range(from, to));
+        }
       }
     }
     // 메모 줄 장식 — 책갈피와 같은 방식(왼쪽 앰버 바).

@@ -47,6 +47,8 @@ export interface Settings {
   ttsRate: number;
   /** 스마트 문장부호 — 입력 시 문맥 변환(Word 자동 교정). */
   smartPunctuation: boolean;
+  /** 긴 문장(60자+) 점선 밑줄 — 작가 보조. */
+  longSentenceMarks: boolean;
   /** 읽기 목소리(빈 값 = 시스템 기본). */
   ttsVoice: string;
   /** 네이티브 맞춤법 검사. */

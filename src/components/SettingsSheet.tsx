@@ -173,6 +173,14 @@ export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element |
           <label className="settings-check">
             <input
               type="checkbox"
+              checked={s.longSentenceMarks}
+              onChange={(e) => set({ longSentenceMarks: e.target.checked })}
+            />
+            {t.setLongSentence}
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
               checked={s.typewriter}
               onChange={(e) => set({ typewriter: e.target.checked })}
             />

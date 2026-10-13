@@ -296,6 +296,11 @@ export const editorTheme = EditorView.theme({
   },
   ".md-image:hover .md-img-handle": { display: "block" },
   ".md-image img": { maxWidth: "100%", borderRadius: "6px", display: "block" },
+  ".md-long-sentence": {
+    textDecoration: "underline dotted rgba(210, 130, 30, 0.55)",
+    textUnderlineOffset: "3px",
+    textDecorationSkipInk: "none",
+  },
   ".md-comment-line": {
     borderLeft: "2px solid rgba(210, 130, 30, 0.65)",
     background: "rgba(210, 130, 30, 0.05)",
