@@ -51,6 +51,8 @@ export interface Settings {
   longSentenceMarks: boolean;
   /** 긴 문장 임계값(자). */
   longSentenceMin: number;
+  /** 집필 목표 단어 수(0 = 없음). */
+  writingGoal: number;
   /** 찾기 바 마지막 상태. */
   searchCase: boolean;
   searchRegex: boolean;

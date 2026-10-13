@@ -110,6 +110,14 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, 
               <>
                 <button className="status-cell status-stat-btn" title={t.statsTitle} onClick={onOpenStats}>
                   {t.f.words(words)} · {t.f.chars(chars)}
+                  {state.settings.writingGoal > 0 && (
+                    <span
+                      className={`status-goal ${words >= state.settings.writingGoal ? "is-done" : ""}`}
+                      title={t.goalTitle}
+                    >
+                      {" "}· {Math.round((words / state.settings.writingGoal) * 100)}%
+                    </span>
+                  )}
                 </button>
               </>
             )}

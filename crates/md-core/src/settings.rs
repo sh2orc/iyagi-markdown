@@ -77,6 +77,9 @@ pub struct Settings {
     /// 긴 문장 표시 임계값(자, 기본 60).
     #[serde(default = "default_long_sentence_min")]
     pub long_sentence_min: f64,
+    /// 집필 목표 단어 수(0 = 없음) — 상태 줄 진행 표시.
+    #[serde(default)]
+    pub writing_goal: f64,
     /// 찾기 바 마지막 상태(대소문자·정규식·단어 단위·검색어).
     #[serde(default)]
     pub search_case: bool,

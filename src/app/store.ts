@@ -1481,6 +1481,7 @@ export function defaultSettings(): Settings {
     smartPunctuation: true,
     longSentenceMarks: false,
     longSentenceMin: 60,
+    writingGoal: 0,
     searchCase: false,
     searchRegex: false,
     searchWord: false,

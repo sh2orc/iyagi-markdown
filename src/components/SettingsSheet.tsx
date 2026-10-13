@@ -162,6 +162,17 @@ export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element |
             {t.setSpellcheck}
             <span className="settings-hint">{t.setSpellcheckHint}</span>
           </label>
+          <label className="settings-label">
+            {t.goalTitle} ({s.writingGoal > 0 ? Math.round(s.writingGoal).toLocaleString() : t.goalOff})
+            <input
+              type="range"
+              min={0}
+              max={20000}
+              step={250}
+              value={s.writingGoal}
+              onChange={(e) => set({ writingGoal: Number(e.target.value) })}
+            />
+          </label>
           <label className="settings-check">
             <input
               type="checkbox"

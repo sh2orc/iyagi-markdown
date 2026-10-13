@@ -2578,3 +2578,7 @@ body.resizing .toc {
   overflow: hidden; font-size: 11px;
 }
 .style-preset-name { font-size: 11.5px; color: var(--md-fg-dim); text-align: center; }
+
+/* — 집필 목표 진행 — */
+.status-goal { color: var(--md-fg-dim); font-variant-numeric: tabular-nums; }
+.status-goal.is-done { color: #1f8f4d; font-weight: 650; }
