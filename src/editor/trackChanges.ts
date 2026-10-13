@@ -37,9 +37,15 @@ export function setTrackProvider(fn: TrackProvider | null): void {
 }
 
 
+/** 삭제 블록 클릭 → 되돌리기 — App/스토어가 등록. */
+export let delRevertHandler: ((hunk: TrackHunk) => void) | null = null;
+export function setDelRevertHandler(fn: ((hunk: TrackHunk) => void) | null): void {
+  delRevertHandler = fn;
+}
+
 /** 삭제된 줄 표시 위젯 — 취소선 회색 블록(Word의 삭제 표시). */
 class DelLinesWidget extends WidgetType {
-  constructor(readonly lines: string[]) {
+  constructor(readonly lines: string[], readonly hunk: TrackHunk | null) {
     super();
   }
   eq(other: DelLinesWidget) {
@@ -53,10 +59,18 @@ class DelLinesWidget extends WidgetType {
       d.textContent = l;
       wrap.append(d);
     }
+    if (this.hunk && delRevertHandler) {
+      wrap.title = "클릭하여 이 삭제 되돌리기";
+      wrap.classList.add("is-revertable");
+      wrap.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        delRevertHandler?.(this.hunk!);
+      });
+    }
     return wrap;
   }
   ignoreEvent() {
-    return true;
+    return false; // 클릭 되돌리기를 쓴다.
   }
 }
 
@@ -104,7 +118,7 @@ export function trackChanges(): Extension {
           const pos = doc.line(target).from;
           if (!this.view.visibleRanges.some((r) => pos >= r.from - 40 && pos <= r.to + 40)) continue;
           const lines = h.restore.split("\n").slice(0, 8);
-          ranges.push(Decoration.widget({ widget: new DelLinesWidget(lines), block: true, side: -1 }).range(pos));
+          ranges.push(Decoration.widget({ widget: new DelLinesWidget(lines, h), block: true, side: -1 }).range(pos));
           if (ranges.length > 700) break;
         }
         this.decorations = ranges.length > 0 ? Decoration.set(ranges, true) : Decoration.none;

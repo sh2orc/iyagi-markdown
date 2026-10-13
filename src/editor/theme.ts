@@ -300,6 +300,12 @@ export const editorTheme = EditorView.theme({
     fontSize: "0.92em",
     opacity: 0.85,
   },
+  ".md-tracked-del.is-revertable": {
+    cursor: "pointer",
+  },
+  ".md-tracked-del.is-revertable:hover": {
+    background: "color-mix(in srgb, var(--md-accent, #4f46e5) 10%, transparent)",
+  },
   ".md-tracked-add": {
     background: "color-mix(in srgb, #34c759 12%, transparent)",
     boxShadow: "inset 3px 0 0 #34c759",

@@ -22,7 +22,7 @@ import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, t
 import { applyWriting, spellcheckComp, spellcheckExtension } from "../editor/writing";
 import { applySmartPunct } from "../editor/smartPunct";
 import { setCommentsProvider } from "../editor/cm";
-import { changedLines, setTrackProvider, shiftLineNo } from "../editor/trackChanges";
+import { changedLines, setDelRevertHandler, setTrackProvider, shiftLineNo } from "../editor/trackChanges";
 import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
 import { invalidateLinkPreviews, ttsTextOf } from "../editor/linkPreview";
 import { phrases } from "./phrases";
@@ -180,6 +180,17 @@ export class AppStore {
   constructor(io: StoreIO) {
     setCommentsProvider(() => this.active?.comments ?? []);
     // 변경 추적 — 활성 탭의 베이스라인 제공(장식 플러그인이 소비).
+    // 삭제 블록 클릭 → 그 변경 되돌리기(베이스라인 텍스트 재삽입).
+    setDelRevertHandler((hunk) => {
+      const tab = this.active;
+      const view = this.view;
+      if (!tab || tab.baselineText == null || !view) return;
+      const line = view.state.doc.line(Math.min(Math.max(hunk.line, 1), view.state.doc.lines));
+      view.dispatch({
+        changes: { from: line.from, to: line.from, insert: `${hunk.restore}\n` },
+        userEvent: "input.revertHunk",
+      });
+    });
     setTrackProvider((view: unknown) => {
       // 분할 편집 뷰면 그 탭의 추적을 보여준다(활성 탭이 아님).
       const tab =
