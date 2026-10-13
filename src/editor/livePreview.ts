@@ -1009,6 +1009,24 @@ export function findImageAt(
   return found;
 }
 
+/** 표 위젯 인스턴스 → 현재 블록 시작 위치(셀 클릭 커서 배치용).
+ *  위젯 eq가 src만 비교해 문서 이동에 재사용되므로 클릭 시점에 장식에서 역산. */
+export function blockPosOfWidget(view: EditorView, widget: object): number | null {
+  const set = view.state.field(decorationField, false);
+  if (!set) return null;
+  let found: number | null = null;
+  const iter = set.iter();
+  while (iter.value) {
+    const spec = (iter.value as unknown as { spec: { widget?: object } }).spec;
+    if (spec.widget === widget) {
+      found = iter.from;
+      break;
+    }
+    iter.next();
+  }
+  return found;
+}
+
 /** 테스트 전용 내부 노출. */
 export const __testing = {
   decorationField: decorationField,

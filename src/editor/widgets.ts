@@ -449,9 +449,10 @@ export class TableWidget extends WidgetType {
     }
     table.append(tbody);
     wrap.append(table);
-    // 더블클릭한 셀의 **원문 위치**로 커서를 옮긴다 — 커서 줄 노출이 그 표를
-    // 원문으로 되돌려 바로 편집할 수 있게 한다(Word 표 더블클릭).
-    wrap.addEventListener("dblclick", (e) => {
+    // 클릭한 셀의 **원문 위치**로 커서를 옮긴다 — 커서 줄 노출이 그 표를
+    // 원문으로 되돌려 바로 편집할 수 있게 한다(Word 표 클릭 편집).
+    // 바디 셀(td)은 한 번 클릭·더블클릭 모두, 헤더(th)는 클릭=정렬 토글이므로 더블클릭만.
+    const focusCellAt = (e: MouseEvent) => {
       const cell = (e.target as HTMLElement | null)?.closest?.("td, th");
       const rowEl = cell?.closest?.("tr");
       if (!(cell instanceof HTMLElement) || !(rowEl instanceof HTMLElement)) return;
@@ -485,6 +486,10 @@ export class TableWidget extends WidgetType {
         selection: { anchor: line.from + content + skip },
         scrollIntoView: true,
       });
+    };
+    wrap.addEventListener("dblclick", focusCellAt);
+    wrap.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement | null)?.closest?.("td")) focusCellAt(e);
     });
     return wrap;
   }
