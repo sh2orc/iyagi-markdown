@@ -638,6 +638,14 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
         // — 표(GFM) —
         if (name === "Table") {
           if (isRevealed(from, to)) return;
+          // 표 캡션(Pandoc 규약 ': 텍스트') — 표 다음 줄을 캡션 톤으로
+          // 표시(내보내기의 '표 N — …'과 같은 어감). 커서가 닿으면 원문 노출.
+          const afterTable = doc.lineAt(Math.min(to + 1, doc.length));
+          const capM = /^:\s+(\S.*)$/.exec(afterTable.text);
+          if (capM && !isTouched(afterTable.from, afterTable.to)) {
+            addLineClasses(afterTable.from, afterTable.from, "md-table-cap-line");
+            ranges.push(replace({}).range(afterTable.from, afterTable.from + capM[0].indexOf(capM[1]!)));
+          }
           const startLine = doc.lineAt(from).number;
           const key = mdTableKey(slice(from, to));
           // 헤더 키 우선 — 줄 번호 키(구 사이드카)는 폴백.
