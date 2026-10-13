@@ -34,6 +34,19 @@ export class MathWidget extends WidgetType {
     renderMathInto(el, this.latex, this.display, () => {
       if (view.dom.isConnected) view.requestMeasure();
     });
+    // 블록 수식 클릭 → 커서를 원문($$ 안)으로 — 커서 줄 노출이 원문을
+    // 보여 즉석 편집(표 셀 클릭과 같은 '클릭=편집' 규칙, 104차).
+    if (this.display) {
+      el.addEventListener("mousedown", (e: Event) => {
+        if ((e as MouseEvent).button !== 0) return;
+        e.preventDefault();
+        const pos = view.posAtDOM(el);
+        const doc = view.state.doc;
+        const line = doc.lineAt(pos);
+        view.dispatch({ selection: { anchor: Math.min(pos + 2, line.to) }, scrollIntoView: true });
+        view.focus();
+      });
+    }
     return el;
   }
 
