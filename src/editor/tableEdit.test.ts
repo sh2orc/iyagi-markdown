@@ -374,13 +374,16 @@ describe("tabTableCell", async () => {
     v.destroy();
   });
 
-  it("마지막 셀·첫 셀 밖 — false(기본 동작 폴백)", () => {
+  it("마지막 셀 Tab — 같은 열 수의 새 행 추가 후 첫 셀로(Word 관례)", () => {
     const y = TABLE.indexOf("y");
     const v = mount(TABLE, y + 1);
-    expect(tabTableCell(v, false)).toBe(false); // 마지막 데이터 줄 끝
+    expect(tabTableCell(v, false)).toBe(true);
+    const after = v.state.doc.toString();
+    expect(after.endsWith("| b | 2 | y |\n| | | |")).toBe(true); // 열 3개 유지
+    expect(v.state.selection.main.head).toBe(after.length - 5); // 새 행 첫 셀("| " 뒤)
     const first = TABLE.indexOf("이름") + 2;
     v.dispatch({ selection: { anchor: first } });
-    expect(tabTableCell(v, true)).toBe(false); // 첫 셀 뒤로는 없음
+    expect(tabTableCell(v, true)).toBe(false); // 첫 셀 뒤로는 없음(폴백)
     v.destroy();
   });
 

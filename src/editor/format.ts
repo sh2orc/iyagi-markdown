@@ -188,11 +188,23 @@ export function tabTableCell(view: EditorView, back: boolean): boolean {
   if (back) return false; // 첫 셀에서 Shift+Tab — 기본
   // 줄 끝 — 다음 데이터 줄(구분줄 건너뛰기) 첫 셀로.
   const nextData = Math.max(t.firstLine + 2, line.number + 1);
-  if (nextData > t.lastLine) return false;
-  const nl = doc.line(nextData);
-  const firstPipe = nl.text.indexOf("|");
-  if (firstPipe === -1) return false;
-  view.dispatch({ selection: { anchor: contentStart(nl, firstPipe + 1) } });
+  if (nextData <= t.lastLine) {
+    const nl = doc.line(nextData);
+    const firstPipe = nl.text.indexOf("|");
+    if (firstPipe !== -1) {
+      view.dispatch({ selection: { anchor: contentStart(nl, firstPipe + 1) } });
+      return true;
+    }
+  }
+  // 마지막 셀 — Word 관례: 같은 열 수의 새 행을 붙이고 첫 셀로.
+  const cols = starts.length;
+  const newRow = `|${" |".repeat(cols - 1)} |`;
+  const at = doc.line(t.lastLine).to;
+  view.dispatch({
+    changes: { from: at, to: at, insert: `\n${newRow}` },
+    selection: { anchor: at + 3 },
+    userEvent: "input.tableRow",
+  });
   return true;
 }
 
