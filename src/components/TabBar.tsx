@@ -112,6 +112,17 @@ export function TabBar({ store, t, onClose, onCloseOthers, onCloseRight }: Props
           <button className="ctx-item" onClick={() => { onClose(ctx.tab); closeCtx(); }}>
             {t.closeTab}
           </button>
+          {ctx.tab.path && isInApp() && (
+            <button
+              className="ctx-item"
+              onClick={() => {
+                void api.revealInFinder(ctx.tab.path!);
+                closeCtx();
+              }}
+            >
+              {t.tabReveal}
+            </button>
+          )}
           {onCloseOthers && state.tabs.length > 1 && (
             <button
               className="ctx-item"

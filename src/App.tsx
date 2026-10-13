@@ -382,7 +382,11 @@ export function App(): JSX.Element {
   const saveAs = useCallback(async (): Promise<boolean> => {
     const tab = store.active;
     if (!tab) return false;
-    const name = tab.path ? tab.title.replace(/\.(md|markdown)$/i, "") : "untitled";
+    // 기본 파일명 — 프런트매터 제목 우선(57차와 같은 규칙), 금지문자 치환.
+    const fmTitle = frontMatterMeta(tab.state.doc.toString())?.title ?? "";
+    const name = (fmTitle || (tab.path ? tab.title : "untitled"))
+      .replace(/\.(md|markdown)$/i, "")
+      .replace(/[\/:*?"<>|]/g, "-");
     const path = await pickSave(`${name}.md`, "md");
     if (!path) return false;
     const ok = await store.saveActive(path);
