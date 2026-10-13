@@ -141,3 +141,9 @@ describe("ttsTextOf 가로선", () => {
     expect(ttsTextOf("***\n")).toBe("");
   });
 });
+
+describe("ttsTextOf 각주", () => {
+  it("정의 줄은 콜론 없이 본문만, 참조는 사라진다", () => {
+    expect(ttsTextOf("본문[^1] 끝\n\n[^1]: 각주 내용\n")).toBe("본문 끝\n각주 내용");
+  });
+});
