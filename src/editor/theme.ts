@@ -54,6 +54,7 @@ export const editorTheme = EditorView.theme({
     paddingBottom: "var(--md-para-space, 0.15em)",
     // 한국어 문서 관례의 첫 줄 들여쓰기(문서 스타일 옵션).
     textIndent: "var(--md-text-indent, 0em)",
+    textAlign: "var(--md-text-align, left)",
   },
   // 마크다운 빈 줄은 낮게 — 블록들이 오밀조밀 붙게(불렛↔표 등).
   ".md-blank": {

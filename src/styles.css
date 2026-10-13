@@ -2438,7 +2438,7 @@ body.resizing .toc {
   color: var(--md-fg); font-size: 12.5px;
 }
 .cm-goto:hover { background: var(--md-accent-soft); }
-.cm-line { flex: none; font-size: 10px; color: var(--md-fg-dim); min-width: 24px; text-align: right; font-variant-numeric: tabular-nums; }
+.cmt-line { flex: none; font-size: 10px; color: var(--md-fg-dim); min-width: 24px; text-align: right; font-variant-numeric: tabular-nums; }
 .cm-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .is-resolved .cm-text { text-decoration: line-through; }
 .cm-actions { display: flex; align-items: center; gap: 2px; }

@@ -85,12 +85,11 @@ export function applyDocStyle(el: HTMLElement, style: DocStyle | null, globalFon
     s.font === "mono" ? "var(--md-code-font)" : (FONT_STACKS[s.font] ?? ""),
   );
   if (s.font === "system") el.style.removeProperty("--md-prose-font");
-  if (s.accent) {
-    el.style.setProperty("--md-accent", s.accent);
-    if (s.highlightColor) el.style.setProperty("--md-hl", `#${s.highlightColor}`);
-  } else {
-    el.style.removeProperty("--md-accent");
-  }
+  if (s.accent) el.style.setProperty("--md-accent", s.accent);
+  else el.style.removeProperty("--md-accent");
+  // 형광펜 색은 강조색과 독립(83차 — accent 없이도 적용되게).
+  if (s.highlightColor) el.style.setProperty("--md-hl", `#${s.highlightColor}`);
+  else el.style.removeProperty("--md-hl");
   el.style.setProperty(
     "--md-text-indent",
     s.firstLineIndent ? "1.25em" : "0em",

@@ -33,7 +33,7 @@ export function CommentsPanel({ store, t, onClose }: Props): JSX.Element | null 
   const row = (c: (typeof comments)[number]) => (
     <div key={c.id} className={`cm-row ${c.resolved ? "is-resolved" : ""}`}>
       <button className="cm-goto" title={t.commentGoto} onClick={() => goto(c.lineNo)}>
-        <span className="cm-line">{c.lineNo}</span>
+        <span className="cmt-line">{c.lineNo}</span>
         <span className="cm-text">{c.text}</span>
       </button>
       <div className="cm-actions">
