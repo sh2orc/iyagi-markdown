@@ -49,6 +49,9 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
     [t.statVeryLong, sls.buckets[3], "b-vlong"],
   ];
 
+  // 집필 목표 진행(139차) — 상태 줄 %의 시각판.
+  const goal = store.state.settings.writingGoal;
+  const goalPct = goal > 0 ? Math.min(100, (tab.words / goal) * 100) : 0;
   const rows: Array<[string, string]> = [
     [t.f.words(tab.words), String(tab.words)],
     [t.f.chars(tab.chars), String(tab.chars)],
@@ -59,6 +62,9 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
     [t.statReading, `${readingMinutes(text)} ${t.statMin}`],
     [t.statSentences, String(sentences)],
     [t.statAvgSentence, `${avgSentenceLen.toFixed(1)} ${t.statChars}`],
+    ...(goal > 0
+      ? [[t.goalTitle, `${tab.words.toLocaleString()} / ${goal.toLocaleString()} (${Math.round(goalPct)}%)`] as [string, string]]
+      : []),
   ];
   void t;
 
@@ -79,6 +85,16 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
             ))}
           </tbody>
         </table>
+        {goal > 0 && (
+          <div className="goal-progress">
+            <div className="goal-bar">
+              <div className={`goal-fill ${tab.words >= goal ? "is-done" : ""}`} style={{ width: `${goalPct}%` }} />
+            </div>
+            <div className="goal-label">
+              {tab.words.toLocaleString()} / {goal.toLocaleString()} {t.goalWords}
+            </div>
+          </div>
+        )}
         {sentences > 0 && (
           <div className="sentence-dist">
             <div className="sidebar-subtitle">{t.statSentenceDist}</div>
