@@ -7,6 +7,7 @@ import { redo, undo } from "@codemirror/commands";
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
+import { copyFormat, pasteFormat } from "../editor/formatPainter";
 import { findImageAt, findLinkAt } from "../editor/livePreview";
 import { LinkDialog, type LinkEditTarget } from "./LinkDialog";
 import { previewConfigField } from "../editor/livePreview";
@@ -151,6 +152,8 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
       {item(t.ctxCopy, copySel, { disabled: !menu.hasSelection })}
       {item(t.ctxPaste, pasteClip, { disabled: !editable })}
       {item(t.ctxSelectAll, () => run(() => view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } })))}
+      {editable && menu.hasSelection && item(t.formatPainterCopy, () => run(() => copyFormat(view)))}
+      {editable && item(t.formatPainterPaste, () => run(() => pasteFormat(view)))}
       {editable && menu.hasSelection && (
         <>
           <span className="ctx-sep" />
