@@ -10,6 +10,7 @@ import * as fmt from "../editor/format";
 import { copyFormat, pasteFormat } from "../editor/formatPainter";
 import { findImageAt, findLinkAt } from "../editor/livePreview";
 import { LinkDialog, type LinkEditTarget } from "./LinkDialog";
+import { pathHintsOf } from "../app/linkHints";
 import { CommentDialog } from "./CommentDialog";
 import { previewConfigField } from "../editor/livePreview";
 
@@ -194,6 +195,7 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
       {linkEdit && (
         <LinkDialog
           initial={linkEdit}
+          pathHints={pathHintsOf(store)}
           t={t}
           onCancel={() => setLinkEdit(null)}
           onConfirm={(next) => {
@@ -224,6 +226,7 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
       {imgEdit && (
         <LinkDialog
           kind="image"
+          pathHints={pathHintsOf(store)}
           initial={imgEdit}
           t={t}
           onCancel={() => setImgEdit(null)}

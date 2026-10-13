@@ -17,11 +17,13 @@ interface Props {
   t: Translate;
   /** link = [텍스트](url), image = ![대체텍스트](src) — 라벨만 달라진다. */
   kind?: "link" | "image";
+  /** URL 자동완성 후보(문서 폴더 상대 경로) — 없으면 datalist 생략. */
+  pathHints?: string[];
   onConfirm: (next: { text: string; url: string }) => void;
   onCancel: () => void;
 }
 
-export function LinkDialog({ initial, t, kind = "link", onConfirm, onCancel }: Props): JSX.Element {
+export function LinkDialog({ initial, t, kind = "link", pathHints, onConfirm, onCancel }: Props): JSX.Element {
   const [text, setText] = useState(initial.text);
   const [url, setUrl] = useState(initial.url);
   const urlRef = useRef<HTMLInputElement | null>(null);
@@ -56,6 +58,7 @@ export function LinkDialog({ initial, t, kind = "link", onConfirm, onCancel }: P
             ref={urlRef}
             value={url}
             placeholder={kind === "image" ? "assets/…" : "https://…"}
+            list={pathHints && pathHints.length > 0 ? "iyagi-link-hints" : undefined}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -68,6 +71,13 @@ export function LinkDialog({ initial, t, kind = "link", onConfirm, onCancel }: P
             }}
           />
         </label>
+        {pathHints && pathHints.length > 0 && (
+          <datalist id="iyagi-link-hints">
+            {pathHints.slice(0, 60).map((h) => (
+              <option key={h} value={h} />
+            ))}
+          </datalist>
+        )}
         <div className="modal-actions">
           <button className="btn btn-primary" onClick={ok} disabled={!url.trim()}>
             {t.save}
