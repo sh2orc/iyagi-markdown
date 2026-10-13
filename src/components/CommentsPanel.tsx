@@ -31,27 +31,27 @@ export function CommentsPanel({ store, t, onClose }: Props): JSX.Element | null 
   };
 
   const row = (c: (typeof comments)[number]) => (
-    <div key={c.id} className={`cm-row ${c.resolved ? "is-resolved" : ""}`}>
-      <button className="cm-goto" title={t.commentGoto} onClick={() => goto(c.lineNo)}>
+    <div key={c.id} className={`cmt-row ${c.resolved ? "is-resolved" : ""}`}>
+      <button className="cmt-goto" title={t.commentGoto} onClick={() => goto(c.lineNo)}>
         <span className="cmt-line">{c.lineNo}</span>
-        <span className="cm-text">{c.text}</span>
+        <span className="cmt-text">{c.text}</span>
       </button>
-      <div className="cm-actions">
+      <div className="cmt-actions">
         <button
-          className="cm-act"
+          className="cmt-act"
           title={t.commentEdit}
           onClick={() => setEditing({ id: c.id, lineNo: c.lineNo, text: c.text })}
         >
           ✎
         </button>
         <button
-          className="cm-act"
+          className="cmt-act"
           title={c.resolved ? t.commentUnresolve : t.commentResolveBtn}
           onClick={() => void store.resolveComment(c.id, !c.resolved)}
         >
           {c.resolved ? "↺" : "✓"}
         </button>
-        <button className="cm-act cm-act-del" title={t.commentDelete} onClick={() => void store.removeComment(c.id)}>
+        <button className="cmt-act cmt-act-del" title={t.commentDelete} onClick={() => void store.removeComment(c.id)}>
           ×
         </button>
       </div>
@@ -73,13 +73,13 @@ export function CommentsPanel({ store, t, onClose }: Props): JSX.Element | null 
           </span>
         </div>
         {comments.length === 0 && <div className="palette-empty">{t.commentsEmpty}</div>}
-        {unresolved.length > 0 && <div className="cm-list">{unresolved.map(row)}</div>}
+        {unresolved.length > 0 && <div className="cmt-list">{unresolved.map(row)}</div>}
         {resolved.length > 0 && (
           <>
-            <div className="sidebar-subtitle cm-resolved-head">
+            <div className="sidebar-subtitle cmt-resolved-head">
               ✓ {t.commentsResolved} ({resolved.length})
             </div>
-            <div className="cm-list">{resolved.map(row)}</div>
+            <div className="cmt-list">{resolved.map(row)}</div>
           </>
         )}
         <div className="modal-actions">
