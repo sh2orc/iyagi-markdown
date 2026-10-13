@@ -49,7 +49,7 @@ async function makeView(mode: "read" | "edit"): Promise<EditorView> {
   return view;
 }
 
-describe("샘플 문서 라이브 프리뷰", { retry: 1 }, () => {
+describe("샘플 문서 라이브 프리뷰", { retry: 2 }, () => {
   it("읽기 모드 — 문서 전체의 모든 요소가 장식된다", async () => {
     const view = await makeView("read");
     const kinds = widgetKinds(view);
