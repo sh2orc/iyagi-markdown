@@ -7,6 +7,9 @@ import { api } from "../api";
 import { resolveWikiLink } from "../editor/wiki";
 import type { AppStore } from "../app/store";
 import { frontMatterMeta } from "../editor/frontmatter";
+
+/** 문서별 미리보기 본문 캐시(인쇄 슬라이더가 껍데기만 다시 조립하게). */
+const previewBodyCache = new Map<string, string>();
 import type { Translate } from "../i18n";
 import type { PdfOptions } from "./ExportSheet";
 
@@ -46,12 +49,36 @@ export function PrintPreview({
     const name = tab.path ? tab.title.replace(/\.(md|markdown)$/i, "") : "untitled";
     void (async () => {
       // markdown-it은 여기서만 필요 — 동적 로드로 메인 청크를 가볍게 유지.
-      const { buildExportHtml } = await import("../export/html");
+      const { buildExportHtml, renderExportBody } = await import("../export/html");
+      const dir = tab.path ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/" : store.state.workspace ?? "";
+      // 무거운 본문 렌더는 문서가 바뀔 때만 — 슬라이더는 껍데기만 재조립.
+      let cached = previewBodyCache.get(text);
+      if (cached === undefined) {
+        cached = await renderExportBody(text, {
+          title: tab.path ? tab.title : 'untitled',
+          theme: store.state.theme,
+          baseDir: dir,
+          wikiResolve: (name: string) => resolveWikiLink(name, dir, store.wikiIndex),
+          readBytes: async (p: string) => {
+            try {
+              return new Uint8Array(await api.readFileBytes(p));
+            } catch {
+              return null;
+            }
+          },
+        });
+        previewBodyCache.set(text, cached);
+        if (previewBodyCache.size > 3) {
+          previewBodyCache.delete(previewBodyCache.keys().next().value as string);
+        }
+      }
+      const preRendered = cached;
       // 프런트매터 메타·사이드카 — 실제 내보내기(App.runExport)와 같은 옵션으로
       // 미리보기=결과를 보장(그동안 목차·이미지 폭이 미리보기에만 빠졌음).
       const fm = frontMatterMeta(text);
       const ds = tab.docStyle;
       const built = await buildExportHtml(text, {
+        preRendered,
         title: fm?.title || (tab.path ? tab.title : name),
         baseDir: tab.path ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/" : store.state.workspace ?? "",
         theme: store.state.theme,

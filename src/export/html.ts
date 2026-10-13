@@ -50,6 +50,9 @@ export interface ExportHtmlOptions {
   frontLists?: { toc: boolean; lof: boolean; lot: boolean };
   /** UI 언어 — 목차 라벨 현지화(기본 ko). */
   lang?: "ko" | "en";
+  /** 미리 렌더한 본문(renderExportBody 결과) — 조립만 다시 할 때(인쇄
+   *  미리보기 슬라이더). 없으면 내부에서 렌더한다. */
+  preRendered?: string;
   /** 로컬 이미지를 data URI로 인라인할지(HTML 내보내기 기본 켬). */
   inlineImages?: boolean;
   /** 이미지 바이너리 읽기(앱: Tauri 명령). 없으면 인라인 생략. */
@@ -509,7 +512,7 @@ async function inlineKatexCss(): Promise<string> {
 
 // — 전체 문서 조립 —
 
-export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions): Promise<string> {
+export async function renderExportBody(markdown: string, opts: ExportHtmlOptions): Promise<string> {
   // 프론트매터는 메타 — 인쇄·HTML 본문에서 제외한다(모든 호출 경로의 공통 끝점).
   // 위키링크는 표준 마크다운 링크로(resolve 미제공이면 이름.md 참조).
   const body0 = wikiLinksToMarkdown(
@@ -517,7 +520,7 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
     opts.wikiResolve ?? (() => null),
     opts.baseDir,
   );
-  const [{ body }, katexCss] = await Promise.all([renderMarkdownBody(body0, opts), inlineKatexCss()]);
+  const { body } = await renderMarkdownBody(body0, opts);
   // 사이드카 폭은 원본 src 키로 매칭 — data URI 인라인化 전에 적용한다.
   const withWidths = applyTableWidths(
     applyImageWidths(body, opts.imageWidths ?? {}),
@@ -528,6 +531,12 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
     : await inlineImages(withWidths, opts.baseDir, opts.readBytes);
   const withCaptions = applyFigcaptions(applyTableCaptions(withImages));
   const sanitized = await sanitize(withCaptions);
+  return sanitized;
+}
+
+export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions): Promise<string> {
+  const sanitized = opts.preRendered ?? (await renderExportBody(markdown, opts));
+  const katexCss = await inlineKatexCss();
   // 문서 앞 목차(정적) — DOCX의 TOC/lof/lot 필드와 같은 자리.
   const front = opts.frontLists
     ? buildFrontLists(sanitized, opts.frontLists, frontLabels(opts.lang ?? "ko"))
