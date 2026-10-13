@@ -2,7 +2,7 @@
 // 줄 diff로 현재 문서의 추가·수정 라인을 표시. 삭제는 리뷰 패널/개수로.
 // 순수 계산 + 뷰포트 장식 플러그인.
 
-import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate } from "@codemirror/view";
+import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate, WidgetType } from "@codemirror/view";
 import type { Extension, Range } from "@codemirror/state";
 
 import { diffLines } from "./diff";
@@ -36,6 +36,30 @@ export function setTrackProvider(fn: TrackProvider | null): void {
   provider = fn;
 }
 
+
+/** 삭제된 줄 표시 위젯 — 취소선 회색 블록(Word의 삭제 표시). */
+class DelLinesWidget extends WidgetType {
+  constructor(readonly lines: string[]) {
+    super();
+  }
+  eq(other: DelLinesWidget) {
+    return other.lines.join("\n") === this.lines.join("\n");
+  }
+  toDOM() {
+    const wrap = document.createElement("div");
+    wrap.className = "md-tracked-del";
+    for (const l of this.lines) {
+      const d = document.createElement("div");
+      d.textContent = l;
+      wrap.append(d);
+    }
+    return wrap;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
 /** 확장 — 베이스라인 diff 추가 줄 장식(수정 표시, Word '변경 내용 표시'). */
 export function trackChanges(): Extension {
   return ViewPlugin.fromClass(
@@ -62,19 +86,26 @@ export function trackChanges(): Extension {
           return;
         }
         const { added } = changedLines(p.baseline, p.current);
-        if (added.size === 0) {
-          this.decorations = Decoration.none;
-          return;
-        }
-        const dec = Decoration.line({ class: "md-tracked-add" });
+        const hunks = hunksOf(p.baseline, p.current);
+        const doc = this.view.state.doc;
         const ranges: Array<Range<Decoration>> = [];
-        outer: for (const { from, to } of this.view.visibleRanges) {
-          for (let l = this.view.state.doc.lineAt(from).number; l <= this.view.state.doc.lineAt(to).number; l++) {
-            if (added.has(l)) {
-              ranges.push(dec.range(this.view.state.doc.line(l).from));
-              if (ranges.length > 500) break outer;
-            }
+        const lineDec = Decoration.line({ class: "md-tracked-add" });
+        // 추가·수정 줄 — 라인 장식.
+        for (const { from, to } of this.view.visibleRanges) {
+          for (let l = doc.lineAt(from).number; l <= doc.lineAt(to).number; l++) {
+            if (added.has(l)) ranges.push(lineDec.range(doc.line(l).from));
+            if (ranges.length > 600) break;
           }
+        }
+        // 삭제 덩어리 — 그 위치에 취소선 블록 위젯(보이는 범위만).
+        for (const h of hunks) {
+          if (h.kind !== "del") continue;
+          const target = Math.min(h.line, doc.lines);
+          const pos = doc.line(target).from;
+          if (!this.view.visibleRanges.some((r) => pos >= r.from - 40 && pos <= r.to + 40)) continue;
+          const lines = h.restore.split("\n").slice(0, 8);
+          ranges.push(Decoration.widget({ widget: new DelLinesWidget(lines), block: true, side: -1 }).range(pos));
+          if (ranges.length > 700) break;
         }
         this.decorations = ranges.length > 0 ? Decoration.set(ranges, true) : Decoration.none;
       }
@@ -113,3 +144,47 @@ export function shiftLineNo(
   return Math.max(1, lineNo > oldPos ? newPos : newPos);
 }
 
+export interface TrackHunk {
+  kind: "add" | "del";
+  line: number;
+  lines: number;
+  preview: string;
+  fromLine: number;
+  toLine: number;
+  restore: string;
+}
+
+/** diff 연산 → 변경 덩어리 목록(현재 문서 줄 좌표). 순수 함수. */
+export function hunksOf(baseline: string, current: string): TrackHunk[] {
+  const ops = diffLines(baseline, current);
+  const out: TrackHunk[] = [];
+  let line = 0;
+  for (const op of ops) {
+    if (op.kind === "same") {
+      line += op.text.split("\n").length;
+    } else if (op.kind === "add") {
+      const n = op.text.split("\n").length;
+      out.push({
+        kind: "add",
+        line: line + 1,
+        lines: n,
+        preview: op.text.split("\n")[0] ?? "",
+        fromLine: line + 1,
+        toLine: line + n,
+        restore: "",
+      });
+      line += n;
+    } else {
+      out.push({
+        kind: "del",
+        line: line + 1,
+        lines: op.text.split("\n").length,
+        preview: op.text.split("\n")[0] ?? "",
+        fromLine: 0,
+        toLine: 0,
+        restore: op.text,
+      });
+    }
+  }
+  return out;
+}

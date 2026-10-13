@@ -4,7 +4,9 @@
 import { useMemo } from "react";
 
 import type { AppStore } from "../app/store";
-import { diffLines } from "../editor/diff";
+import { hunksOf, type TrackHunk } from "../editor/trackChanges";
+export { hunksOf } from "../editor/trackChanges";
+export type { TrackHunk as Hunk } from "../editor/trackChanges";
 import { smoothScrollIntoView } from "../editor/cm";
 import type { Translate } from "../i18n";
 
@@ -14,22 +16,9 @@ interface Props {
   onClose: () => void;
 }
 
-export interface Hunk {
-  kind: "add" | "del";
-  /** 현재 문서 줄(1-기준) — add는 그 줄, del은 다음 유지 줄(또는 문서 끝). */
-  line: number;
-  lines: number;
-  preview: string;
-  /** add: 현재 문서에서 그 덩어리의 줄 범위. del: 미사용. */
-  fromLine: number;
-  toLine: number;
-  /** del: 되돌려 넣을 베이스라인 텍스트(줄들). add: 미사용. */
-  restore: string;
-}
-
 /** 덩어리 되돌리기 변경 — add는 그 줄 삭제, del은 베이스라인 텍스트 재삽입.
  *  순수 함수. docs는 현재 문서의 줄 수(경계 검증용). */
-export function revertChange(h: Hunk, lineText: (n: number) => { from: number; to: number }, docLines: number): { from: number; to: number; insert: string } | null {
+export function revertChange(h: TrackHunk, lineText: (n: number) => { from: number; to: number }, docLines: number): { from: number; to: number; insert: string } | null {
   if (h.kind === "add") {
     if (h.toLine > docLines || h.fromLine < 1) return null;
     let from = 0;
@@ -51,40 +40,7 @@ export function revertChange(h: Hunk, lineText: (n: number) => { from: number; t
   return { from: pos, to: pos, insert: h.restore };
 }
 
-/** diff 연산 → 덩어리 목록. 순수 함수(테스트 대상). */
-export function hunksOf(baseline: string, current: string): Hunk[] {
-  const ops = diffLines(baseline, current);
-  const out: Hunk[] = [];
-  let line = 0;
-  for (const op of ops) {
-    if (op.kind === "same") {
-      line += op.text.split("\n").length;
-    } else if (op.kind === "add") {
-      const n = op.text.split("\n").length;
-      out.push({
-        kind: "add",
-        line: line + 1,
-        lines: n,
-        preview: op.text.split("\n")[0] ?? "",
-        fromLine: line + 1,
-        toLine: line + n,
-        restore: "",
-      });
-      line += n;
-    } else {
-      out.push({
-        kind: "del",
-        line: line + 1,
-        lines: op.text.split("\n").length,
-        preview: op.text.split("\n")[0] ?? "",
-        fromLine: 0,
-        toLine: 0,
-        restore: op.text,
-      });
-    }
-  }
-  return out;
-}
+
 
 export function TrackPanel({ store, t, onClose }: Props): JSX.Element | null {
   const tab = store.active;
@@ -95,14 +51,14 @@ export function TrackPanel({ store, t, onClose }: Props): JSX.Element | null {
 
   if (!tab) return null;
 
-  const revertHunk = (h: Hunk) => {
+  const revertTrackHunk = (h: TrackHunk) => {
     const view = store.view;
     if (!view || tab.baselineText == null) return;
     const ch = revertChange(h, (n) => view.state.doc.line(n), view.state.doc.lines);
     if (!ch) return;
     view.dispatch({
       changes: { from: ch.from, to: ch.to, insert: ch.insert },
-      userEvent: "input.revertHunk",
+      userEvent: "input.revertTrackHunk",
     });
     store.toast(t.trackReverted);
   };
@@ -142,7 +98,7 @@ export function TrackPanel({ store, t, onClose }: Props): JSX.Element | null {
                   <span className="track-line">{h.line}줄</span>
                   <span className="track-text">{h.preview}</span>
                 </button>
-                <button className="track-revert" title={t.trackRevert} onClick={() => revertHunk(h)}>
+                <button className="track-revert" title={t.trackRevert} onClick={() => revertTrackHunk(h)}>
                   ↺
                 </button>
               </div>

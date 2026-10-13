@@ -293,6 +293,13 @@ export const editorTheme = EditorView.theme({
   },
   ".md-image:hover .md-img-handle": { display: "block" },
   ".md-image img": { maxWidth: "100%", borderRadius: "6px", display: "block" },
+  ".md-tracked-del": {
+    color: "var(--md-raw, #8a919c)",
+    textDecoration: "line-through",
+    textDecorationColor: "rgba(197, 48, 48, 0.55)",
+    fontSize: "0.92em",
+    opacity: 0.85,
+  },
   ".md-tracked-add": {
     background: "color-mix(in srgb, #34c759 12%, transparent)",
     boxShadow: "inset 3px 0 0 #34c759",
