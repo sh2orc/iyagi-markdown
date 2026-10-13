@@ -144,6 +144,8 @@ export interface DocxManifest {
   headerTitle?: string;
   /** 문서 메모(본문 기준 줄 번호) — Word 원생 메모로. */
   comments?: Array<[number, string]>;
+  /** 목차 라벨 언어. */
+  frontLang?: string;
 }
 
 /** 문서별 스타일(SQLite 사이드카 — .md 원문은 불변). */

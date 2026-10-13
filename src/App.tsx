@@ -497,6 +497,7 @@ export function App(): JSX.Element {
             imageWidths,
             tableWidths,
             frontLists: { toc: !!fm?.toc, lof: !!fm?.lof, lot: !!fm?.lot },
+            lang,
             readBytes: readBytesForExport,
             wikiResolve,
           });
@@ -574,6 +575,7 @@ export function App(): JSX.Element {
           }
           if (metaTitle) manifest.title = metaTitle;
           if (metaAuthor) manifest.author = metaAuthor;
+          manifest.frontLang = lang;
           if (fm?.toc) manifest.toc = true;
           if (fm?.lof) manifest.lof = true;
           if (fm?.lot) manifest.lot = true;

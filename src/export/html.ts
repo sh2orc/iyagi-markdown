@@ -48,6 +48,8 @@ export interface ExportHtmlOptions {
   tableWidths?: Record<string, number[]>;
   /** 문서 앞 목차·그림 목차·표 목차(DOCX lof/lot과 대칭 — 정적 링크 목록). */
   frontLists?: { toc: boolean; lof: boolean; lot: boolean };
+  /** UI 언어 — 목차 라벨 현지화(기본 ko). */
+  lang?: "ko" | "en";
   /** 로컬 이미지를 data URI로 인라인할지(HTML 내보내기 기본 켬). */
   inlineImages?: boolean;
   /** 이미지 바이너리 읽기(앱: Tauri 명령). 없으면 인라인 생략. */
@@ -210,12 +212,21 @@ function cleanMermaidSvg(svg: string): string {
 
 
 
+/** 목차 라벨 — UI 언어별. */
+export function frontLabels(lang: "ko" | "en"): { toc: string; lof: string; lot: string } {
+  return lang === "en"
+    ? { toc: "Contents", lof: "List of Figures", lot: "List of Tables" }
+    : { toc: "목차", lof: "그림 목차", lot: "표 목차" };
+}
+
 /** 렌더된 본문에서 정적 목차(목차·그림·표) 조립 — 제목/캡션 id로 링크.
  *  순수 함수 — 렌더러가 심은 id와 짝 맞추기(테스트 대상). */
 export function buildFrontLists(
   html: string,
   want: { toc: boolean; lof: boolean; lot: boolean },
+  labels?: { toc: string; lof: string; lot: string },
 ): string {
+  const L = labels ?? frontLabels("ko");
   const out: string[] = [];
   if (want.toc) {
     const items: string[] = [];
@@ -224,7 +235,7 @@ export function buildFrontLists(
       items.push(`<li class="fl-l${m[1]}"><a href="#${m[2]}">${text}</a></li>`);
     }
     if (items.length > 0) {
-      out.push(`<nav class="doc-front"><h2>목차</h2><ol>${items.join("")}</ol></nav>`);
+      out.push(`<nav class="doc-front"><h2>${L.toc}</h2><ol>${items.join("")}</ol></nav>`);
     }
   }
   const captionList = (kind: "fig" | "tbl", label: string): string => {
@@ -238,8 +249,8 @@ export function buildFrontLists(
       ? `<nav class="doc-front"><h2>${label}</h2><ol>${items.join("")}</ol></nav>`
       : "";
   };
-  if (want.lof) out.push(captionList("fig", "그림 목차"));
-  if (want.lot) out.push(captionList("tbl", "표 목차"));
+  if (want.lof) out.push(captionList("fig", L.lof));
+  if (want.lot) out.push(captionList("tbl", L.lot));
   return out.join("");
 }
 
@@ -518,7 +529,9 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
   const withCaptions = applyFigcaptions(applyTableCaptions(withImages));
   const sanitized = await sanitize(withCaptions);
   // 문서 앞 목차(정적) — DOCX의 TOC/lof/lot 필드와 같은 자리.
-  const front = opts.frontLists ? buildFrontLists(sanitized, opts.frontLists) : "";
+  const front = opts.frontLists
+    ? buildFrontLists(sanitized, opts.frontLists, frontLabels(opts.lang ?? "ko"))
+    : "";
   const marginCss = opts.forPdf
     ? `body{margin:${opts.marginMm ?? 14}mm !important;}` +
       `html{font-size:${(16 * (opts.scale ?? 1)).toFixed(1)}px;}`
@@ -685,6 +698,8 @@ export async function buildDocxManifest(
   headerTitle?: string;
   /** 문서 메모(본문 기준 줄 번호) — Word 원생 메모로. [줄, 텍스트] 튜플. */
   comments?: Array<[number, string]>;
+  /** 목차 라벨 언어. */
+  frontLang?: "ko" | "en";
 }> {
   const math: Record<string, string> = {};
   const diagrams: Record<string, string> = {};
