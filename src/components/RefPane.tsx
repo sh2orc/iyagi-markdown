@@ -2,7 +2,7 @@
 // Scrivener 참조). 내보내기 파이프라인(buildExportHtml)으로 렌더해
 // 문서 스타일·캡션·목차까지 본문과 동일하게 보인다.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api } from "../api";
 import { resolveWikiLink } from "../editor/wiki";
@@ -17,7 +17,40 @@ interface Props {
   onClose: () => void;
 }
 
+const REF_W_KEY = "iyagi.refPaneWidth";
+
 export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null {
+  const [refW, setRefW] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(REF_W_KEY));
+    return saved >= 20 && saved <= 60 ? saved : 42;
+  });
+  const dragRef = useRef<{ x: number; w: number } | null>(null);
+
+  // 폭 드래그 — 커서 이동에 따라 퍼센트 갱신(놓으면 저장).
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const pct = d.w + ((d.x - e.clientX) / window.innerWidth) * 100;
+      setRefW(Math.min(60, Math.max(20, pct)));
+    };
+    const onUp = () => {
+      if (dragRef.current) {
+        dragRef.current = null;
+        document.body.classList.remove("resizing");
+        setRefW((w) => {
+          localStorage.setItem(REF_W_KEY, String(Math.round(w)));
+          return w;
+        });
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, []);
   const tab = store.state.tabs.find((x) => x.id === tabId) ?? null;
   const [html, setHtml] = useState<string | null>(null);
   const doc = tab?.state.doc;
@@ -69,7 +102,14 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
   if (!tab) return null;
 
   return (
-    <div className="ref-pane">
+    <div className="ref-pane" style={{ flexBasis: `${refW}%` }}>
+      <div
+        className="ref-pane-resizer"
+        onPointerDown={(e) => {
+          dragRef.current = { x: e.clientX, w: refW };
+          document.body.classList.add("resizing");
+        }}
+      />
       <div className="ref-pane-head">
         <span className="ref-pane-title">📖 {t.refPaneTitle} · {tab.path ? tab.title : t.untitled}</span>
         <button className="ref-pane-close" title={t.closeTab} onClick={onClose}>

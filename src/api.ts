@@ -49,6 +49,8 @@ export interface Settings {
   smartPunctuation: boolean;
   /** 긴 문장(60자+) 점선 밑줄 — 작가 보조. */
   longSentenceMarks: boolean;
+  /** 긴 문장 임계값(자). */
+  longSentenceMin: number;
   /** 읽기 목소리(빈 값 = 시스템 기본). */
   ttsVoice: string;
   /** 네이티브 맞춤법 검사. */

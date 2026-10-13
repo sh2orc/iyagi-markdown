@@ -35,7 +35,7 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
   const sentences = spans.length;
   const avgSentenceLen = sentences > 0 ? body.replace(/\s+/g, " ").length / sentences : 0;
   // 문장 길이 분포(가독성 진단 — Word 읽기 쉬운 정도 지표의 대응물).
-  const sls = sentenceLengthStats(body);
+  const sls = sentenceLengthStats(body, store.state.settings.longSentenceMin);
   // 긴 문장(60자+) 목록 — 클릭하면 그 자리로(글쓰기 검토).
   const longSentences = spans
     .map(([a, b]) => ({ pos: a, text: body.slice(a, b).replace(/\s+/g, " ").trim() }))

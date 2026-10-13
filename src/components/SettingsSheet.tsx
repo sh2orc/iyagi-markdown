@@ -178,6 +178,17 @@ export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element |
             />
             {t.setLongSentence}
           </label>
+          <label className="settings-label">
+            {t.setLongSentenceMin} ({Math.round(s.longSentenceMin)})
+            <input
+              type="range"
+              min={40}
+              max={120}
+              step={5}
+              value={s.longSentenceMin}
+              onChange={(e) => set({ longSentenceMin: Number(e.target.value) })}
+            />
+          </label>
           <label className="settings-check">
             <input
               type="checkbox"

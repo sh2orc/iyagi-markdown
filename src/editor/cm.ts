@@ -143,8 +143,9 @@ export interface PreviewConfigParam {
   bookmarks: number[];
   /** 메모가 달린 줄 번호(선택). */
   commentLines?: number[];
-  /** 긴 문장 점선 밑줄 토글. */
+  /** 긴 문장 점선 밑줄 토글·임계값. */
   longSentenceMarks?: boolean;
+  longSentenceMin?: number;
   tableWidths: Record<string, number[]>;
   wikiIndex: Map<string, string[]>;
 }

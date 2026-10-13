@@ -73,6 +73,9 @@ pub struct Settings {
     /// 네이티브 맞춤법 검사(contenteditable spellcheck — 시스템 적색 물결).
     #[serde(default)]
     pub spellcheck: bool,
+    /// 긴 문장 표시 임계값(자, 기본 60).
+    #[serde(default = "default_long_sentence_min")]
+    pub long_sentence_min: f64,
     /// 마지막 내보내기 옵션(재시작에도 유지 — Word 인쇄 설정 기억).
     #[serde(default = "default_paper")]
     pub export_paper: String,
@@ -94,6 +97,10 @@ fn default_paper() -> String {
 
 fn default_margin_mm() -> f64 {
     14.0
+}
+
+fn default_long_sentence_min() -> f64 {
+    60.0
 }
 
 fn default_scale() -> f64 {

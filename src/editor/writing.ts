@@ -102,16 +102,16 @@ export interface SentenceLengthStats {
   longCount: number;
 }
 
-export function sentenceLengthStats(text: string): SentenceLengthStats {
+export function sentenceLengthStats(text: string, min = 60): SentenceLengthStats {
   const buckets: [number, number, number, number] = [0, 0, 0, 0];
   let longest = 0;
   for (const [a, b] of sentenceSpans(text)) {
     // 길이는 공백 제거 — 부피로 재는 경향 보정.
     const len = text.slice(a, b).replace(/\s+/g, "").length;
     if (len > longest) longest = len;
-    if (len < 30) buckets[0]++;
-    else if (len < 60) buckets[1]++;
-    else if (len < 100) buckets[2]++;
+    if (len < Math.min(30, min)) buckets[0]++;
+    else if (len < min) buckets[1]++;
+    else if (len < Math.min(100, min * 1.6)) buckets[2]++;
     else buckets[3]++;
   }
   const longCount = buckets[2] + buckets[3];

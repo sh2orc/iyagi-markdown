@@ -2501,6 +2501,11 @@ body.resizing .toc {
   border-left: 1px solid var(--md-border);
   background: var(--md-bg);
 }
+.ref-pane { position: relative; }
+.ref-pane-resizer {
+  position: absolute; left: -3px; top: 0; bottom: 0; width: 6px;
+  cursor: col-resize; z-index: 5;
+}
 .ref-pane-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 5px 12px; border-bottom: 1px solid var(--md-border);
