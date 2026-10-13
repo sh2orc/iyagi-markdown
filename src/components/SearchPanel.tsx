@@ -25,11 +25,12 @@ interface Props {
 }
 
 export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(store.state.settings.searchQuery);
   const [replacement, setReplacement] = useState("");
-  const [caseSensitive, setCaseSensitive] = useState(false);
-  const [regexp, setRegexp] = useState(false);
-  const [wholeWord, setWholeWord] = useState(false);
+  // 마지막 찾기 상태에서 시작 — 토글·검색어는 설정에 저장(재시작에도).
+  const [caseSensitive, setCaseSensitive] = useState(store.state.settings.searchCase);
+  const [regexp, setRegexp] = useState(store.state.settings.searchRegex);
+  const [wholeWord, setWholeWord] = useState(store.state.settings.searchWord);
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [, force] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -114,7 +115,10 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
             const v = e.target.value;
             setText(v);
             // 주의: 렌더 시점의 query는 한 글자 뒤처진 값이다 — 여기서 새로 만든다.
-            if (v) applyDebounced({ text: v, caseSensitive, regexp, wholeWord, replacement });
+            if (v) {
+              applyDebounced({ text: v, caseSensitive, regexp, wholeWord, replacement });
+              store.persistSettings({ searchQuery: v });
+            }
             else apply(null);
           }}
           onKeyDown={(e) => {
@@ -138,6 +142,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
           title={t.findCaseSensitive}
           onClick={() => {
             setCaseSensitive(!caseSensitive);
+            store.persistSettings({ searchCase: !caseSensitive });
             apply(query ? { ...query, caseSensitive: !caseSensitive } : null);
           }}
         >
@@ -148,6 +153,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
           title={t.findWholeWord}
           onClick={() => {
             setWholeWord(!wholeWord);
+            store.persistSettings({ searchWord: !wholeWord });
             apply(query ? { ...query, wholeWord: !wholeWord } : null);
           }}
         >
@@ -158,6 +164,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
           title={t.findRegex}
           onClick={() => {
             setRegexp(!regexp);
+            store.persistSettings({ searchRegex: !regexp });
             apply(query ? { ...query, regexp: !regexp } : null);
           }}
         >

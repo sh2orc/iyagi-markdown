@@ -76,6 +76,15 @@ pub struct Settings {
     /// 긴 문장 표시 임계값(자, 기본 60).
     #[serde(default = "default_long_sentence_min")]
     pub long_sentence_min: f64,
+    /// 찾기 바 마지막 상태(대소문자·정규식·단어 단위·검색어).
+    #[serde(default)]
+    pub search_case: bool,
+    #[serde(default)]
+    pub search_regex: bool,
+    #[serde(default)]
+    pub search_word: bool,
+    #[serde(default)]
+    pub search_query: String,
     /// 마지막 내보내기 옵션(재시작에도 유지 — Word 인쇄 설정 기억).
     #[serde(default = "default_paper")]
     pub export_paper: String,

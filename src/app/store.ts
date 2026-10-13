@@ -737,6 +737,11 @@ export class AppStore {
     void this.io.setSettings?.(next);
   }
 
+  /** 설정 패치(지속) — 컴포넌트용 공개 팔레트·찾기 바 등. */
+  persistSettings(patch: Partial<Settings>): void {
+    this.patchSettings(patch);
+  }
+
   toggleTypewriter(): void {
     this.patchSettings({ typewriter: !this.state.settings.typewriter });
   }
@@ -1308,6 +1313,10 @@ export function defaultSettings(): Settings {
     smartPunctuation: true,
     longSentenceMarks: false,
     longSentenceMin: 60,
+    searchCase: false,
+    searchRegex: false,
+    searchWord: false,
+    searchQuery: "",
     exportPaper: "a4",
     exportLandscape: false,
     exportMarginMm: 14,
