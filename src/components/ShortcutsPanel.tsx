@@ -48,6 +48,8 @@ const GROUPS = (t: Translate): Array<{ title: string; items: [string, string][] 
       ["⇧⏎", t.hardBreak],
       ["⌥↑ / ⌥↓", t.scMoveLines],
       ["⌘D", t.scDuplicateLine],
+      ["⇧F3", t.scCaseCycle],
+      ["⌘J", t.scJoinLines],
       ["⌘⇧K", t.scDeleteLines],
     ],
   },
