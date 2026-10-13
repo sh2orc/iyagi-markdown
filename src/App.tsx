@@ -51,6 +51,7 @@ import { TableDialog } from "./components/TableDialog";
 import { CommentsPanel } from "./components/CommentsPanel";
 import { FrontMatterDialog } from "./components/FrontMatterDialog";
 import { RefPane } from "./components/RefPane";
+import { TrackPanel } from "./components/TrackPanel";
 import { findImageAt } from "./editor/livePreview";
 import { LinkDialog } from "./components/LinkDialog";
 import { ReviewPanel } from "./components/ReviewPanel";
@@ -157,6 +158,7 @@ export function App(): JSX.Element {
   const [imgEditPos, setImgEditPos] = useState<number | null>(null);
   /** 참조 보기 — 옆에 고정한 탭(읽기 전용 iframe 렌더). */
   const [pinnedTabId, setPinnedTabId] = useState<string | null>(null);
+  const [trackOpen, setTrackOpen] = useState(false);
   // 세션 복원으로 스토어가 지정하면 화면에 반영.
   useEffect(() => {
     if (store.pinnedTabId && store.pinnedTabId !== pinnedTabId) setPinnedTabId(store.pinnedTabId);
@@ -1040,7 +1042,7 @@ export function App(): JSX.Element {
             <RefPane store={store} t={t} tabId={pinnedTabId} onClose={() => setPinnedTabId(null)} />
           )}
           </div>
-          <StatusBar store={store} t={t} onOpenSettings={() => setSettingsOpen(true)} onOpenStyle={() => setStyleOpen(true)} onOpenStats={() => setStatsOpen(true)} onOpenBacklinks={() => setBacklinksOpen(true)} onOpenComments={() => setCommentsOpen(true)} />
+          <StatusBar store={store} t={t} onOpenSettings={() => setSettingsOpen(true)} onOpenStyle={() => setStyleOpen(true)} onOpenStats={() => setStatsOpen(true)} onOpenBacklinks={() => setBacklinksOpen(true)} onOpenComments={() => setCommentsOpen(true)} onOpenTrack={() => setTrackOpen(true)} />
         </main>
         <TocPanel store={store} t={t} open={state.tocOpen} />
       </div>
@@ -1177,6 +1179,7 @@ export function App(): JSX.Element {
       {statsOpen && <StatsPanel store={store} t={t} onClose={() => setStatsOpen(false)} />}
       {commentsOpen && <CommentsPanel store={store} t={t} onClose={() => setCommentsOpen(false)} />}
       {fmOpen && <FrontMatterDialog store={store} t={t} onClose={() => setFmOpen(false)} />}
+      {trackOpen && <TrackPanel store={store} t={t} onClose={() => setTrackOpen(false)} />}
       {imgEditPos !== null && (() => {
         const view = editorView.current;
         const img = view ? findImageAt(view.state, imgEditPos) : null;

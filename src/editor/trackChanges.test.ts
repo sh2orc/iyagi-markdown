@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import { changedLines } from "./trackChanges";
+import { hunksOf } from "../components/TrackPanel";
 
 describe("changedLines", () => {
   it("추가 줄 번호(1-기준)와 삭제 수", () => {
@@ -27,5 +28,22 @@ describe("changedLines", () => {
     expect(r.added.size).toBe(1);
     expect(r.added.has(11)).toBe(true);
     expect(r.removed).toBe(1);
+  });
+});
+
+describe("hunksOf", () => {
+  it("추가·삭제 덩어리 — 현재 문서 줄 좌표", () => {
+    const base = "a\nb\nc\n";
+    const cur = "a\nB\nc\nd\n"; // b→B(수정), d 추가
+    const h = hunksOf(base, cur);
+    expect(h).toEqual([
+      { kind: "del", line: 2, lines: 1, preview: "b" },
+      { kind: "add", line: 2, lines: 1, preview: "B" },
+      { kind: "add", line: 4, lines: 1, preview: "d" },
+    ]);
+  });
+
+  it("변경 없음은 빈 목록", () => {
+    expect(hunksOf("x\n", "x\n")).toEqual([]);
   });
 });

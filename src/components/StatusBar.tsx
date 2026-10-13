@@ -16,9 +16,10 @@ interface Props {
   onOpenStats: () => void;
   onOpenBacklinks: () => void;
   onOpenComments: () => void;
+  onOpenTrack: () => void;
 }
 
-export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, onOpenBacklinks, onOpenComments }: Props): JSX.Element {
+export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, onOpenBacklinks, onOpenComments, onOpenTrack }: Props): JSX.Element {
   const state = store.getSnapshot();
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
   // 브레드크럼 — 커서가 속한 제목 경로. 헤딩 목록은 문서가 바뀔 때만(디바운스)
@@ -128,6 +129,15 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, 
                 onClick={onOpenBacklinks}
               >
                 🔗 {tab.backlinks}
+              </button>
+            )}
+            {tab.trackStats && tab.baselineText != null && (
+              <button
+                className={`status-cell status-track ${tab.trackStats.added + tab.trackStats.removed > 0 ? "has-changes" : ""}`}
+                title={t.trackPanelTitle}
+                onClick={onOpenTrack}
+              >
+                ✎ +{tab.trackStats.added} −{tab.trackStats.removed}
               </button>
             )}
             {(tab.comments?.filter((c) => !c.resolved).length ?? 0) > 0 && (

@@ -2536,3 +2536,21 @@ body.resizing .toc {
   font-size: 12px; padding: 2px 6px; border-radius: 5px;
 }
 .ref-pane-edit:hover { background: var(--md-accent-soft); color: var(--md-fg); }
+
+/* — 변경 내용 패널 — */
+.track-modal { min-width: 460px; }
+.track-list { display: flex; flex-direction: column; gap: 2px; padding: 6px 16px; max-height: 320px; overflow-y: auto; }
+.track-item {
+  display: flex; align-items: baseline; gap: 8px; text-align: left;
+  border: none; background: none; cursor: pointer; color: var(--md-fg);
+  font-size: 12.5px; padding: 6px 8px; border-radius: 7px;
+}
+.track-item:hover { background: var(--md-accent-soft); }
+.track-badge { flex: none; font-size: 10.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.track-add .track-badge { color: #34c759; }
+.track-del .track-badge { color: var(--md-error, #c53030); }
+.track-line { flex: none; font-size: 10.5px; color: var(--md-fg-dim); min-width: 42px; }
+.track-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track-del .track-text { text-decoration: line-through; color: var(--md-fg-dim); }
+.status-track { color: var(--md-fg-dim); }
+.status-track.has-changes { color: #1f8f4d; font-weight: 600; }

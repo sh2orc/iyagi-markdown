@@ -22,7 +22,7 @@ import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, t
 import { applyWriting, spellcheckComp, spellcheckExtension } from "../editor/writing";
 import { applySmartPunct } from "../editor/smartPunct";
 import { setCommentsProvider } from "../editor/cm";
-import { setTrackProvider } from "../editor/trackChanges";
+import { changedLines, setTrackProvider } from "../editor/trackChanges";
 import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
 import { invalidateLinkPreviews, ttsTextOf } from "../editor/linkPreview";
 import { phrases } from "./phrases";
@@ -591,6 +591,19 @@ export class AppStore {
         if (t?.path && t.dirty) void this.saveTabById(t.id);
       }, 1500);
     }
+    // 변경 추적 개수 — diff라 입력이 멈춘 뒤에만(300ms).
+    if (tab.baselineText != null) {
+      if (this.trackTimer) clearTimeout(this.trackTimer);
+      const tid = tab.id;
+      this.trackTimer = setTimeout(() => {
+        this.trackTimer = null;
+        const t = this.state.tabs.find((x) => x.id === tid);
+        if (!t || t.baselineText == null) return;
+        const r = changedLines(t.baselineText, t.state.doc.toString());
+        t.trackStats = { added: r.added.size, removed: r.removed };
+        this.scheduleEmit();
+      }, 300);
+    }
     // 상태 줄(줄/칸·더티 점) 갱신 — rAF로 모아 프레임당 한 번 렌더한다.
     this.scheduleEmit();
   }
@@ -649,6 +662,8 @@ export class AppStore {
       return false;
     }
   }
+
+  private trackTimer: ReturnType<typeof setTimeout> | null = null;
 
   private autosaveTimer: ReturnType<typeof setTimeout> | null = null;
 
