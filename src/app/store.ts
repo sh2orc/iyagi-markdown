@@ -130,6 +130,8 @@ export class AppStore {
   public pinnedTabId: string | null = null;
   /** 세션 복원 중의 참조 보기 경로 — 탭이 열리면 App이 resolve. */
   public pendingPinnedPath: string | null = null;
+  /** 사이드바에서 접어 둔 폴더 경로(세션 저장·복원, Sidebar가 사용). */
+  public collapsedFolders: Set<string> = new Set();
   state: AppStoreState = {
     tabs: [],
     activeId: null,
@@ -1031,6 +1033,7 @@ export class AppStore {
     // 참조 보기 — 경로는 탭 열림 뒤 App이 id로 해소.
     this.pinnedTabId = null;
     this.pendingPinnedPath = session.pinnedPath ?? null;
+    this.collapsedFolders = new Set(session.collapsedFolders ?? []);
     this.state.sidebarOpen = session.sidebarOpen;
     this.state.sidebarWidth = session.sidebarWidth ?? 240;
     this.state.tocOpen = session.tocOpen;
@@ -1100,6 +1103,7 @@ export class AppStore {
       })),
       active: this.active?.path ?? null,
       workspace: this.state.workspace,
+      collapsedFolders: [...this.collapsedFolders].sort(),
       pinnedPath:
         this.pinnedTabId != null
           ? (this.state.tabs.find((t) => t.id === this.pinnedTabId)?.path ?? null)

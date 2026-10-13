@@ -45,6 +45,9 @@ pub struct SessionState {
     /// 참조 보기로 고정한 문서 경로(없으면 닫힘).
     #[serde(default)]
     pub pinned_path: Option<String>,
+    /// 사이드바에서 접어 둔 폴더 경로들.
+    #[serde(default)]
+    pub collapsed_folders: Vec<String>,
     #[serde(default = "default_true")]
     pub sidebar_open: bool,
     #[serde(default = "default_sidebar_width")]
@@ -86,6 +89,7 @@ impl Default for SessionState {
             active: None,
             workspace: None,
             pinned_path: None,
+            collapsed_folders: Vec::new(),
             sidebar_open: true,
             sidebar_width: default_sidebar_width(),
             toc_open: false,
@@ -152,6 +156,7 @@ mod tests {
         let state = SessionState {
             version: SESSION_VERSION,
             pinned_path: None,
+            collapsed_folders: Vec::new(),
             tabs: vec![SessionTab {
                 path: Some("/tmp/a.md".into()),
                 mode: ViewMode::Read,

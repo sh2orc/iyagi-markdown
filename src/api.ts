@@ -85,6 +85,8 @@ export interface SessionState {
   workspace: string | null;
   /** 참조 보기로 고정한 문서 경로. */
   pinnedPath?: string | null;
+  /** 사이드바에서 접어 둔 폴더 경로들. */
+  collapsedFolders?: string[];
   sidebarOpen: boolean;
   sidebarWidth: number;
   tocOpen: boolean;

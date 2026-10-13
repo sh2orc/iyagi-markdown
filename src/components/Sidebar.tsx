@@ -19,6 +19,8 @@ interface Props {
 }
 
 export function Sidebar({ store, tree, workspace, activePath, t, open }: Props): JSX.Element {
+  const [, bump] = useState(0);
+  const forceUpdate = () => bump((n) => n + 1);
   const [fileCtx, setFileCtx] = useState<{ x: number; y: number; path: string; isDir: boolean } | null>(null);
   const [renaming, setRenaming] = useState<{ path: string; name: string } | null>(null);
 
@@ -101,7 +103,12 @@ export function Sidebar({ store, tree, workspace, activePath, t, open }: Props):
   };
 
   const state = store.getSnapshot();
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // 접힘 상태는 스토어가 소유(세션 저장·복원) — 컴포넌트는 직접 조작.
+  const collapsed = store.collapsedFolders;
+  const setCollapsed = (next: Set<string>) => {
+    store.collapsedFolders = next;
+    forceUpdate();
+  };
   const resizing = useRef<{ startX: number; startW: number } | null>(null);
   const outerRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
@@ -149,12 +156,10 @@ export function Sidebar({ store, tree, workspace, activePath, t, open }: Props):
   }, [open]);
 
   const toggle = useCallback((path: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
+    const next = new Set(store.collapsedFolders);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    setCollapsed(next);
   }, []);
 
   const width = state.sidebarWidth;
