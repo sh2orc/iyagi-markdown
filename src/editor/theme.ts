@@ -227,7 +227,7 @@ export const editorTheme = EditorView.theme({
 
   // — 하이라이트 ==텍스트== — 테마별 노랑 배경 —
   ".md-highlight": {
-    backgroundColor: "color-mix(in srgb, #ffd60a 38%, transparent)",
+    backgroundColor: "color-mix(in srgb, var(--md-hl, #ffd60a) 38%, transparent)",
     borderRadius: "3px",
     padding: "0.05em 0.15em",
   },

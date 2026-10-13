@@ -147,6 +147,8 @@ export interface DocStyle {
   imageWidths: Record<string, number>;
   /** 표 표시 폭(표 시작 줄 번호 → 열 px 배열) — 원문 불변 사이드카. */
   tableWidths: Record<string, number[]>;
+  /** 형광펜(==..==) 색(RRGGBB, null = 기본 노랑). */
+  highlightColor: string | null;
 }
 
 export interface AppInfo {

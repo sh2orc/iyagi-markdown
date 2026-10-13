@@ -29,6 +29,8 @@ export interface ExportHtmlOptions {
     firstLineIndent: boolean;
     textAlign: "left" | "center" | "right" | "justify";
     accent: string | null;
+    /** 형광펜 색(RRGGBB, null = 기본 노랑). */
+    highlightColor?: string | null;
   };
   /** PDF용: 본문 여백(mm)과 배율을 CSS에 반영한다. */
   forPdf?: boolean;
@@ -492,6 +494,9 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
       (st.textAlign && st.textAlign !== "left" ? `.markdown-body p{text-align:${st.textAlign};}` : ``) +
       (st.accent
         ? `.markdown-body a{color:${st.accent};}.markdown-body a:hover{text-decoration-color:${st.accent};}`
+        : ``) +
+      (st.highlightColor
+        ? `.markdown-body mark, .markdown-body .hl{background:rgba(${parseInt(st.highlightColor.slice(0, 2), 16)}, ${parseInt(st.highlightColor.slice(2, 4), 16)}, ${parseInt(st.highlightColor.slice(4, 6), 16)}, 0.38);}`
         : ``)
     : "";
   return `<!doctype html>

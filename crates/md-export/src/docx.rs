@@ -104,6 +104,8 @@ pub struct DocxExportOptions<'a> {
     pub toc: bool,
     /// 머리글 문서 제목(Some이면 매 페이지 상단, PDF와 같은 관례).
     pub header_title: Option<&'a str>,
+    /// 형광펜 색(RRGGBB — 없으면 기본 노랑).
+    pub highlight: Option<&'a str>,
 }
 
 /// 진입점: 마크다운 → .docx 파일.
@@ -112,7 +114,7 @@ pub fn export_docx(
     opts: &DocxExportOptions<'_>,
     out: &Path,
 ) -> Result<(), DocxError> {
-    let DocxExportOptions { math, diagrams, images, style, page_numbers, table_widths, toc, header_title, .. } = opts;
+    let DocxExportOptions { math, diagrams, images, style, page_numbers, table_widths, toc, header_title, highlight, .. } = opts;
     let mut options = Options::default();
     options.extension.table = true;
     options.extension.strikethrough = true;
@@ -139,6 +141,7 @@ pub fn export_docx(
         slug_seen: std::collections::HashMap::new(),
         figures: 0,
     };
+    set_hl_fill(highlight.filter(|h| !h.is_empty()).unwrap_or("FFF3A3"));
     // 추출한 각주 정의를 Ctx에 등록 — 각각 마크다운으로 파싱해 인라인 서식
     // (굵게·링크·수식)까지 각주 안에 유지.
     for (label, def_md) in &footnote_defs {
@@ -814,17 +817,31 @@ fn footnotes_xml(ctx: &Ctx) -> String {
 
 
 
+thread_local! {
+    /// 문서 단위 형광펜 색 — export_docx 시작에 설정한다(text_run 계열이
+    /// ctx를 받지 않는 자유 함수들이라 여기에 둔다).
+    static HL_FILL: std::cell::RefCell<String> = std::cell::RefCell::new("FFF3A3".into());
+}
+
+fn set_hl_fill(hex: &str) {
+    HL_FILL.with(|c| *c.borrow_mut() = hex.to_string());
+}
+
+fn hl_fill() -> String {
+    HL_FILL.with(|c| c.borrow().clone())
+}
+
 /// 형광펜 런 — 노란 배경 shading(w:shd). 편집기·HTML의 ==하이라이트==와
 /// 같은 의미(15차의 굵게 강등을 대체하는 Word 네이티브 표현).
 fn highlight_run(text: &str, style: &RunStyle) -> String {
-    const SHD: &str = r#"<w:shd w:val="clear" w:color="auto" w:fill="FFF3A3"/>"#;
+    let shd = format!(r#"<w:shd w:val="clear" w:color="auto" w:fill="{}"/>"#, hl_fill());
     let base = rpr(style);
     let rpr_with = if base.is_empty() {
-        format!("<w:rPr>{SHD}</w:rPr>")
+        format!("<w:rPr>{shd}</w:rPr>")
     } else {
         // "</w:rPr>"를 떼고 shd를 끼운다.
         let inner = &base[..base.len() - "</w:rPr>".len()];
-        format!("{inner}{SHD}</w:rPr>")
+        format!("{inner}{shd}</w:rPr>")
     };
     format!("<w:r>{rpr_with}<w:t{}>{}</w:t></w:r>", PRESERVE, esc(text))
 }
@@ -1534,7 +1551,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("basic");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         assert!(bytes.len() > 2000);
         // zip 매직.
@@ -1587,7 +1604,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("anchor");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1614,7 +1631,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("fn");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1649,7 +1666,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("hl");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1677,7 +1694,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("math");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1707,7 +1724,7 @@ mod tests {
         let math = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("mermaid");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1748,7 +1765,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(dir.to_string_lossy().into_owned());
         let out = tmp("img");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let zip = zip::ZipArchive::new(cursor).unwrap();
@@ -1788,7 +1805,7 @@ mod tests {
                 images.set_widths([("a.png".to_string(), p)].into_iter().collect());
             }
             let out = tmp("imgw");
-            export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None }, &out).unwrap();
+            export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
             let bytes = std::fs::read(&out).unwrap();
             let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
             use std::io::Read;
@@ -1821,7 +1838,7 @@ mod tests {
         let mut widths: HashMap<String, Vec<u32>> = HashMap::new();
         widths.insert("이름\u{1f}값".to_string(), vec![100, 300]);
         let out = tmp("tblw");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &widths, title: None, author: None, toc: false, header_title: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &widths, title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
         use std::io::Read;
@@ -1834,7 +1851,7 @@ mod tests {
         assert!(doc.contains("<w:tcW w:w=\"6480\""));
         // 지정 없는 표는 균등(4320).
         let out2 = tmp("tblw-even");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None }, &out2).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out2).unwrap();
         let bytes2 = std::fs::read(&out2).unwrap();
         let mut z2 = zip::ZipArchive::new(std::io::Cursor::new(&bytes2)).unwrap();
         let mut doc2 = String::new();
@@ -1842,6 +1859,46 @@ mod tests {
         assert!(doc2.contains("<w:gridCol w:w=\"4320\"/>"));
         let _ = std::fs::remove_file(&out);
         let _ = std::fs::remove_file(&out2);
+    }
+
+    #[test]
+    fn highlight_color_fill() {
+        let md = "==강조== 일반\n";
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let build = |hl: Option<&str>| {
+            let out = tmp(if hl.is_some() { "hl-color" } else { "hl-def" });
+            export_docx(
+                md,
+                &DocxExportOptions {
+                    math: &math,
+                    diagrams: &diagrams,
+                    images: &images,
+                    style: None,
+                    page_numbers: false,
+                    table_widths: &HashMap::new(),
+                    title: None,
+                    author: None,
+                    toc: false,
+                    header_title: None,
+                    highlight: hl,
+                },
+                &out,
+            )
+            .unwrap();
+            let bytes = std::fs::read(&out).unwrap();
+            let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+            use std::io::Read;
+            let mut doc = String::new();
+            zip.by_name("word/document.xml").unwrap().read_to_string(&mut doc).unwrap();
+            let _ = std::fs::remove_file(&out);
+            doc
+        };
+        let colored = build(Some("FFB3C1"));
+        assert!(colored.contains(r#"w:fill="FFB3C1""#));
+        let def = build(None);
+        assert!(def.contains(r#"w:fill="FFF3A3""#));
     }
 
     #[test]
@@ -1864,6 +1921,7 @@ mod tests {
                 author: None,
                 toc: false,
                 header_title: None,
+                highlight: None,
             },
             &out,
         )
@@ -1910,6 +1968,7 @@ mod tests {
                 author: None,
                 toc: false,
                 header_title: None,
+                highlight: None,
             },
             &out,
         )
@@ -1951,6 +2010,7 @@ mod tests {
                     title: None,
                     author: None,
                     toc: false,
+                    highlight: None,
                     header_title: header,
                 },
                 &out,
@@ -2017,6 +2077,7 @@ mod tests {
                     author: None,
                     toc,
                     header_title: None,
+                    highlight: None,
                 },
                 &out,
             )
@@ -2071,6 +2132,7 @@ mod tests {
                 author: Some("홍길동"),
                 toc: false,
                 header_title: None,
+                highlight: None,
             },
             &out,
         )
@@ -2097,6 +2159,7 @@ mod tests {
                 author: None,
                 toc: false,
                 header_title: None,
+                highlight: None,
             },
             &out2,
         )
@@ -2117,7 +2180,7 @@ mod tests {
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
         let out = tmp("footer");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: true, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None }, &out).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: true, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out).unwrap();
         let bytes = std::fs::read(&out).unwrap();
         let cursor = std::io::Cursor::new(&bytes);
         let mut zip = zip::ZipArchive::new(cursor).unwrap();
@@ -2141,7 +2204,7 @@ mod tests {
         assert!(ct.contains("/word/footer1.xml"));
         // 끄면 아예 없다.
         let out2 = tmp("footer-off");
-        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None }, &out2).unwrap();
+        export_docx(md, &DocxExportOptions { math: &math, diagrams: &diagrams, images: &images, style: None, page_numbers: false, table_widths: &HashMap::new(), title: None, author: None, toc: false, header_title: None, highlight: None }, &out2).unwrap();
         let bytes2 = std::fs::read(&out2).unwrap();
         let z2 = zip::ZipArchive::new(std::io::Cursor::new(&bytes2)).unwrap();
         assert!(z2.file_names().filter_map(|n| n.ok()).all(|n| n != "word/footer1.xml"));

@@ -23,6 +23,7 @@ export const DEFAULT_DOC_STYLE: DocStyle = {
   lineHeight: 0,
   paraSpace: "normal",
   accent: null,
+  highlightColor: null,
   firstLineIndent: false,
   textAlign: "left",
   imageWidths: {},
@@ -42,31 +43,31 @@ export const STYLE_PRESETS: StylePreset[] = [
     id: "report",
     nameKo: "보고서",
     nameEn: "Report",
-    style: { font: "system", fontSize: 0, lineHeight: 1.6, paraSpace: "normal", textAlign: "justify", firstLineIndent: true, accent: null, imageWidths: {}, tableWidths: {} },
+    style: { font: "system", fontSize: 0, lineHeight: 1.6, paraSpace: "normal", textAlign: "justify", firstLineIndent: true, accent: null, highlightColor: null, imageWidths: {}, tableWidths: {} },
   },
   {
     id: "blog",
     nameKo: "블로그",
     nameEn: "Blog",
-    style: { font: "round", fontSize: 0, lineHeight: 1.7, paraSpace: "relaxed", textAlign: "left", firstLineIndent: false, accent: null, imageWidths: {}, tableWidths: {} },
+    style: { font: "round", fontSize: 0, lineHeight: 1.7, paraSpace: "relaxed", textAlign: "left", firstLineIndent: false, accent: null, highlightColor: null, imageWidths: {}, tableWidths: {} },
   },
   {
     id: "memo",
     nameKo: "메모",
     nameEn: "Memo",
-    style: { font: "system", fontSize: 0, lineHeight: 1.5, paraSpace: "tight", textAlign: "left", firstLineIndent: false, accent: null, imageWidths: {}, tableWidths: {} },
+    style: { font: "system", fontSize: 0, lineHeight: 1.5, paraSpace: "tight", textAlign: "left", firstLineIndent: false, accent: null, highlightColor: null, imageWidths: {}, tableWidths: {} },
   },
   {
     id: "paper",
     nameKo: "논문",
     nameEn: "Paper",
-    style: { font: "serif", fontSize: 0, lineHeight: 1.9, paraSpace: "normal", textAlign: "justify", firstLineIndent: true, accent: null, imageWidths: {}, tableWidths: {} },
+    style: { font: "serif", fontSize: 0, lineHeight: 1.9, paraSpace: "normal", textAlign: "justify", firstLineIndent: true, accent: null, highlightColor: null, imageWidths: {}, tableWidths: {} },
   },
   {
     id: "code",
     nameKo: "개발 노트",
     nameEn: "Dev Notes",
-    style: { font: "mono", fontSize: 0, lineHeight: 1.55, paraSpace: "normal", textAlign: "left", firstLineIndent: false, accent: null, imageWidths: {}, tableWidths: {} },
+    style: { font: "mono", fontSize: 0, lineHeight: 1.55, paraSpace: "normal", textAlign: "left", firstLineIndent: false, accent: null, highlightColor: null, imageWidths: {}, tableWidths: {} },
   },
 ];
 
@@ -86,6 +87,7 @@ export function applyDocStyle(el: HTMLElement, style: DocStyle | null, globalFon
   if (s.font === "system") el.style.removeProperty("--md-prose-font");
   if (s.accent) {
     el.style.setProperty("--md-accent", s.accent);
+    if (s.highlightColor) el.style.setProperty("--md-hl", `#${s.highlightColor}`);
   } else {
     el.style.removeProperty("--md-accent");
   }

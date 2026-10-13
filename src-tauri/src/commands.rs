@@ -489,6 +489,9 @@ pub struct DocxStyleSpec {
     /// 바닥글 페이지 번호(현재 / 전체, 가운데 9pt 회색).
     #[serde(default)]
     pub page_numbers: bool,
+    /// 형광펜 색(RRGGBB — 없으면 기본 노랑).
+    #[serde(default)]
+    pub highlight: Option<String>,
 }
 
 fn default_size_pt() -> f64 {
@@ -527,6 +530,7 @@ pub fn export_docx(
             author: manifest.author.as_deref(),
             toc: manifest.toc,
             header_title: manifest.header_title.as_deref(),
+            highlight: manifest.style.as_ref().and_then(|s| s.highlight.as_deref()),
         },
         Path::new(&out_path),
     )

@@ -14,6 +14,15 @@ interface Props {
   t: Translate;
 }
 
+/** 형광펜 팔레트 — 문서 톤에 맞춰 고른 5색(Word 형광펜 색 상당). */
+const HIGHLIGHT_SWATCHES: Array<[string, string]> = [
+  ["FFD60A", "노랑(기본)"],
+  ["FFB3C1", "분홍"],
+  ["B7F0A8", "연두"],
+  ["A8D8FF", "하늘"],
+  ["E3C8FF", "라일락"],
+];
+
 export function StylePanel({ store, onClose, t }: Props): JSX.Element | null {
   const tab = store.active;
   const [style, setStyle] = useState<DocStyle>(tab?.docStyle ?? DEFAULT_DOC_STYLE);
@@ -124,6 +133,25 @@ export function StylePanel({ store, onClose, t }: Props): JSX.Element | null {
               />
               {style.accent && (
                 <button className="style-font-btn" onClick={() => update({ accent: null })}>
+                  ✕
+                </button>
+              )}
+            </div>
+          </label>
+          <label className="settings-label">
+            {t.styleHighlight}
+            <div className="style-accent-row">
+              {HIGHLIGHT_SWATCHES.map(([hex, name]) => (
+                <button
+                  key={hex}
+                  className={`style-hl-swatch ${style.highlightColor === hex ? "is-on" : ""}`}
+                  title={name}
+                  style={{ background: `#${hex}` }}
+                  onClick={() => update({ highlightColor: hex })}
+                />
+              ))}
+              {style.highlightColor && (
+                <button className="style-font-btn" title={t.styleHlDefault} onClick={() => update({ highlightColor: null })}>
                   ✕
                 </button>
               )}

@@ -1172,6 +1172,7 @@ function exportStyleOf(tab: {
     firstLineIndent: boolean;
     textAlign: "left" | "center" | "right" | "justify";
     accent: string | null;
+    highlightColor: string | null;
   } | null;
 }): {
   font: "system" | "serif" | "round" | "mono";
@@ -1180,6 +1181,7 @@ function exportStyleOf(tab: {
   firstLineIndent: boolean;
   textAlign: "left" | "center" | "right" | "justify";
   accent: string | null;
+  highlightColor: string | null;
 } {
   const ds = tab.docStyle;
   return {
@@ -1189,6 +1191,7 @@ function exportStyleOf(tab: {
     firstLineIndent: ds?.firstLineIndent ?? false,
     textAlign: ds?.textAlign ?? "left",
     accent: ds?.accent ?? null,
+    highlightColor: ds?.highlightColor ?? null,
   };
 }
 
