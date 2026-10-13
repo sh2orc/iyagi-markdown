@@ -63,6 +63,7 @@ const GROUPS = (t: Translate): Array<{ title: string; items: [string, string][] 
     items: [
       ["더블클릭", t.tbTable],
       ["우클릭", `${t.ctxAddRow} · ${t.ctxAlign}`],
+      ["Tab / ⇧Tab", t.cellNavHelp],
     ],
   },
   {
