@@ -132,6 +132,9 @@ export class AppStore {
   public pendingPinnedPath: string | null = null;
   /** 사이드바에서 접어 둔 폴더 경로(세션 저장·복원, Sidebar가 사용). */
   public collapsedFolders: Set<string> = new Set();
+  /** 분할 편집 — 두 번째 뷰와 그 탭 id(RefPane 편집 모드). */
+  public splitView: EditorView | null = null;
+  public splitTabId: string | null = null;
   state: AppStoreState = {
     tabs: [],
     activeId: null,
@@ -466,16 +469,21 @@ export class AppStore {
   // — 문서 변경 반영(CodeMirror 리스너에서) —
 
   onDocChanged(update: ViewUpdate): void {
-    const tab = this.active;
-    if (!tab || !this.view) return;
-    tab.state = this.view.state;
-    const sel = this.view.state.selection.main;
-    const line = this.view.state.doc.lineAt(sel.head);
+    // 분할 편집 판 — 두 번째 뷰의 편집은 그 뷰의 탭에 반영(활성 탭이 아님).
+    const inSplit = this.splitView !== null && update.view === this.splitView && update.view !== this.view;
+    const view = inSplit ? this.splitView! : this.view;
+    const tab = inSplit
+      ? (this.state.tabs.find((t) => t.id === this.splitTabId) ?? null)
+      : this.active;
+    if (!tab || !view) return;
+    tab.state = view.state;
+    const sel = view.state.selection.main;
+    const line = view.state.doc.lineAt(sel.head);
     tab.cursorLine = line.number;
     tab.cursorCol = sel.head - line.from + 1;
-    tab.marks = marksAt(this.view.state, sel.head, sel.to);
+    tab.marks = marksAt(view.state, sel.head, sel.to);
     // 선택 통계(Word 상태 표시줄) — 증분 카운터 재사용.
-    tab.selChars = sel.empty ? 0 : this.view.state.sliceDoc(sel.from, sel.to).length;
+    tab.selChars = sel.empty ? 0 : view.state.sliceDoc(sel.from, sel.to).length;
     if (update.docChanged) {
       // 통계는 편집 델타로 증분 갱신 — 키 입력마다 문서 전체를 훑지 않는다.
       const prevDoc = update.startState.doc;
@@ -500,7 +508,7 @@ export class AppStore {
         // 앞뒤 단어 수 차이. 문자 수는 산술적으로 정확. (경계를 가로지르는
         // 편집에서 words-removed 근사가 어긋나던 버그 수정 — 여러 변경의
         // 사이 변하지 않는 구간은 양쪽에 같이 세려 상쇄된다.)
-        const doc = this.view.state.doc;
+        const doc = view.state.doc;
         const startA = expandWordStart(prevDoc, firstA);
         const endA = expandWordEnd(prevDoc, lastA);
         // 결합 방향이 핵심: 시작은 삽입 **앞**(포함), 끝은 **뒤** — 확장이
@@ -515,12 +523,12 @@ export class AppStore {
       if (touchedFm) {
         // 프론트매터 편집 중에만 전체 재계산(O(문서)지만 드문 경로 — 본문
         // 타이핑은 여전히 증분만).
-        const body = stripFrontMatter(this.view.state.doc.toString());
+        const body = stripFrontMatter(view.state.doc.toString());
         tab.words = countWords(body);
         tab.chars = body.length;
       }
       // dirty: 길이가 다르면 무조건 dirty, 같을 때만(되돌리기 복귀 등) 문자열로 확정.
-      const doc = this.view.state.doc;
+      const doc = view.state.doc;
       if (doc.length !== tab.savedText.length) tab.dirty = true;
       else tab.dirty = doc.toString() !== tab.savedText;
     }
@@ -541,16 +549,31 @@ export class AppStore {
     // 않는다(§4-2). 원자적 저장 경로 그대로.
     if (this.state.settings.autosave && tab.path) {
       if (this.autosaveTimer) clearTimeout(this.autosaveTimer);
+      const saveId = tab.id;
       this.autosaveTimer = setTimeout(() => {
         this.autosaveTimer = null;
-        const t = this.active;
-        if (t?.path && t.dirty) {
-          void this.saveActive();
-        }
+        const t = this.state.tabs.find((x) => x.id === saveId);
+        if (t?.path && t.dirty) void this.saveTabById(t.id);
       }, 1500);
     }
     // 상태 줄(줄/칸·더티 점) 갱신 — rAF로 모아 프레임당 한 번 렌더한다.
     this.scheduleEmit();
+  }
+
+  /** 지정 탭 저장(자동 저장 — 분할 편집 탭 포함). 원자적·무수정 no-op. */
+  async saveTabById(id: string): Promise<boolean> {
+    const tab = this.state.tabs.find((t) => t.id === id);
+    if (!tab?.path || !tab.dirty) return false;
+    try {
+      const res = await this.io.writeDocument(tab.path, tab.state.doc.toString(), tab.meta);
+      tab.savedText = tab.state.doc.toString();
+      tab.savedMtime = res.mtime;
+      tab.dirty = false;
+      this.emit();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private autosaveTimer: ReturnType<typeof setTimeout> | null = null;

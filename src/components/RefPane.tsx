@@ -3,6 +3,7 @@
 // 문서 스타일·캡션·목차까지 본문과 동일하게 보인다.
 
 import { useEffect, useRef, useState } from "react";
+import { EditorView } from "@codemirror/view";
 
 import { api } from "../api";
 import { resolveWikiLink } from "../editor/wiki";
@@ -25,6 +26,10 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
     return saved >= 20 && saved <= 60 ? saved : 42;
   });
   const dragRef = useRef<{ x: number; w: number } | null>(null);
+  /** 편집 모드 — 읽기 iframe 대신 진짜 에디터(분할 편집). */
+  const [editMode, setEditMode] = useState(false);
+  const editHost = useRef<HTMLDivElement | null>(null);
+  const editView = useRef<EditorView | null>(null);
 
   // 폭 드래그 — 커서 이동에 따라 퍼센트 갱신(놓으면 저장).
   useEffect(() => {
@@ -55,8 +60,30 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
   const [html, setHtml] = useState<string | null>(null);
   const doc = tab?.state.doc;
 
+  // 분할 편집 뷰 — 탭 상태를 그대로 얹는다(확장 포함). 스토어 라우팅용 등록.
   useEffect(() => {
-    if (!tab || !doc) {
+    if (!editMode || !tab || !editHost.current) {
+      editView.current?.destroy();
+      editView.current = null;
+      store.splitView = null;
+      store.splitTabId = null;
+      return;
+    }
+    const v = new EditorView({ state: tab.state, parent: editHost.current });
+    editView.current = v;
+    store.splitView = v;
+    store.splitTabId = tab.id;
+    return () => {
+      v.destroy();
+      editView.current = null;
+      store.splitView = null;
+      store.splitTabId = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editMode, tabId]);
+
+  useEffect(() => {
+    if (!tab || !doc || editMode) {
       setHtml(null);
       return;
     }
@@ -97,7 +124,7 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
     };
     // 문서 편집에 250ms 디바운스로 재렌더 — 참조가 살아 있는 복사본.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, tab?.path, store.state.theme]);
+  }, [doc, tab?.path, store.state.theme, editMode]);
 
   if (!tab) return null;
 
@@ -112,11 +139,21 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
       />
       <div className="ref-pane-head">
         <span className="ref-pane-title">📖 {t.refPaneTitle} · {tab.path ? tab.title : t.untitled}</span>
+        <button
+          className="ref-pane-edit"
+          title={tab.id === store.state.activeId ? t.refEditBlocked : editMode ? t.refReadMode : t.refEditMode}
+          disabled={tab.id === store.state.activeId}
+          onClick={() => setEditMode((e) => !e)}
+        >
+          {editMode ? "📖" : "✎"}
+        </button>
         <button className="ref-pane-close" title={t.closeTab} onClick={onClose}>
           ✕
         </button>
       </div>
-      {html == null ? (
+      {editMode ? (
+        <div className="ref-pane-editor" ref={editHost} />
+      ) : html == null ? (
         <div className="ref-pane-loading">
           <div className="spinner" />
         </div>
