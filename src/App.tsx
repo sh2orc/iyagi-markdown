@@ -49,6 +49,7 @@ import { StatsPanel } from "./components/StatsPanel";
 import { SymbolPanel } from "./components/SymbolPanel";
 import { TableDialog } from "./components/TableDialog";
 import { CommentsPanel } from "./components/CommentsPanel";
+import { ReviewPanel } from "./components/ReviewPanel";
 import { Welcome } from "./components/Welcome";
 import { CommandPalette } from "./components/CommandPalette";
 import { VersionsPanel } from "./components/VersionsPanel";
@@ -143,6 +144,7 @@ export function App(): JSX.Element {
   const [symbolOpen, setSymbolOpen] = useState(false);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -1118,6 +1120,15 @@ export function App(): JSX.Element {
       {shortcutsOpen && <ShortcutsPanel t={t} onClose={() => setShortcutsOpen(false)} />}
       {statsOpen && <StatsPanel store={store} t={t} onClose={() => setStatsOpen(false)} />}
       {commentsOpen && <CommentsPanel store={store} t={t} onClose={() => setCommentsOpen(false)} />}
+      {reviewOpen && (
+        <ReviewPanel
+          store={store}
+          t={t}
+          onClose={() => setReviewOpen(false)}
+          onOpenBrokenLinks={() => { setReviewOpen(false); setBrokenOpen(true); }}
+          onOpenStats={() => { setReviewOpen(false); setStatsOpen(true); }}
+        />
+      )}
       {tableDialogOpen && (
         <TableDialog store={store} t={t} onClose={() => setTableDialogOpen(false)} />
       )}
