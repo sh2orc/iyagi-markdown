@@ -22,7 +22,7 @@ import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, t
 import { applyWriting, spellcheckComp, spellcheckExtension } from "../editor/writing";
 import { applySmartPunct } from "../editor/smartPunct";
 import { setCommentsProvider } from "../editor/cm";
-import { changedLines, setTrackProvider } from "../editor/trackChanges";
+import { changedLines, setTrackProvider, shiftLineNo } from "../editor/trackChanges";
 import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
 import { invalidateLinkPreviews, ttsTextOf } from "../editor/linkPreview";
 import { phrases } from "./phrases";
@@ -123,6 +123,7 @@ export interface StoreIO {
   commentUpdate?(id: number, text: string): Promise<void>;
   commentResolve?(id: number, resolved: boolean): Promise<void>;
   commentRemove?(id: number): Promise<void>;
+  commentReanchor?(path: string, updates: Array<[number, number]>): Promise<void>;
   baselineGet?(path: string): Promise<string | null>;
   baselineSet?(path: string, text: string): Promise<void>;
   baselineClear?(path: string): Promise<void>;
@@ -672,13 +673,30 @@ export class AppStore {
     this.toast(t0("변경 추적을 중지했습니다", "Tracking stopped"));
   }
 
-  /** 지정 탭 저장(자동 저장 — 분할 편집 탭 포함). 원자적·무수정 no-op. */
+  /** 지정 탭 저장(자동 저장 — 분할 편집 탭 포함). 원자적·무수정 no-op.
+   *  저장 준간 편집으로 밀린 메모·책갈피 줄을 diff로 재앵커한다. */
   async saveTabById(id: string): Promise<boolean> {
     const tab = this.state.tabs.find((t) => t.id === id);
     if (!tab?.path || !tab.dirty) return false;
+    const newText = tab.state.doc.toString();
+    const oldText = tab.savedText;
     try {
-      const res = await this.io.writeDocument(tab.path, tab.state.doc.toString(), tab.meta);
-      tab.savedText = tab.state.doc.toString();
+      const res = await this.io.writeDocument(tab.path, newText, tab.meta);
+      // 메모·책갈피 재앵커 — 이전 저장본→새 본문 diff로 줄 보정.
+      if (oldText !== newText) {
+        const cUpd = tab.comments
+          .map((c) => [c.id, shiftLineNo(c.lineNo, oldText, newText)] as [number, number])
+          .filter(([, l]) => l > 0);
+        if (cUpd.length > 0) void this.io.commentReanchor?.(tab.path, cUpd);
+        const bmNew = tab.bookmarks
+          .map((b) => shiftLineNo(b, oldText, newText))
+          .filter((b) => b > 0);
+        if (bmNew.some((b, i) => b !== tab.bookmarks[i])) {
+          for (const b of tab.bookmarks) void this.io.bookmarkRemove?.(tab.path, b);
+          for (const b of bmNew) void this.io.bookmarkAdd?.(tab.path, b);
+        }
+      }
+      tab.savedText = newText;
       tab.savedMtime = res.mtime;
       tab.dirty = false;
       this.emit();

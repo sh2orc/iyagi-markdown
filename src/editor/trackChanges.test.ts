@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { changedLines } from "./trackChanges";
+import { changedLines, shiftLineNo } from "./trackChanges";
 import { hunksOf, revertChange } from "../components/TrackPanel";
 
 describe("changedLines", () => {
@@ -75,5 +75,26 @@ describe("revertChange", () => {
   it("경계 밖은 null", () => {
     const h = { kind: "add" as const, line: 9, lines: 1, preview: "", fromLine: 9, toLine: 9, restore: "" };
     expect(revertChange(h, line, 4)).toBeNull();
+  });
+});
+
+describe("shiftLineNo — 저장 시 줄 재앵커", () => {
+  it("위에서 줄 추가 → 아래 메모 줄이 밀림", () => {
+    const old = "a\nb\nc\n";
+    const cur = "a\nNEW\nb\nc\n";
+    expect(shiftLineNo(3, old, cur)).toBe(4);
+    expect(shiftLineNo(1, old, cur)).toBe(1); // 위는 그대로
+  });
+
+  it("위에서 줄 삭제 → 당겨짐, 삭제된 범위는 0(버림)", () => {
+    const old = "a\nb\nc\n";
+    const cur = "a\nc\n";
+    expect(shiftLineNo(3, old, cur)).toBe(2);
+    expect(shiftLineNo(2, old, cur)).toBe(0); // 삭제된 b 줄
+  });
+
+  it("변경 없음·아래 편집은 원줄", () => {
+    expect(shiftLineNo(2, "a\nb\nc\n", "a\nb\nc\n")).toBe(2);
+    expect(shiftLineNo(1, "a\nb\n", "a\nX\nc\n")).toBe(1);
   });
 });

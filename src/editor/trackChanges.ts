@@ -85,3 +85,31 @@ export function trackChanges(): Extension {
     { decorations: (v) => v.decorations },
   );
 }
+
+/** 이전→새 텍스트 diff로 줄 번호 이동 보정 — 저장 시 메모·책갈피 재앵커.
+ *  삭제된 범위의 줄은 0(버림 신호). 순수 함수(테스트 대상). */
+export function shiftLineNo(
+  lineNo: number,
+  baseline: string,
+  current: string,
+): number {
+  const ops = diffLines(baseline, current);
+  let oldPos = 0;
+  let newPos = 0;
+  for (const op of ops) {
+    const n = op.text.split("\n").length;
+    if (op.kind === "same") {
+      // 이 블록 안의 줄은 같은 상대 위치로 매핑.
+      if (lineNo <= oldPos + n) return newPos + (lineNo - oldPos);
+      oldPos += n;
+      newPos += n;
+    } else if (op.kind === "del") {
+      if (lineNo <= oldPos + n) return 0;
+      oldPos += n;
+    } else {
+      newPos += n;
+    }
+  }
+  return Math.max(1, lineNo > oldPos ? newPos : newPos);
+}
+

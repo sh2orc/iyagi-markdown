@@ -275,6 +275,8 @@ export const api = {
   commentUpdate: (id: number, text: string) => invoke<void>("comment_update", { id, text }),
   commentResolve: (id: number, resolved: boolean) => invoke<void>("comment_resolve", { id, resolved }),
   commentRemove: (id: number) => invoke<void>("comment_remove", { id }),
+  commentReanchor: (path: string, updates: Array<[number, number]>) =>
+    invoke<void>("comment_reanchor", { path, updates }),
   baselineGet: (path: string) => invoke<string | null>("baseline_get", { path }),
   baselineSet: (path: string, text: string) => invoke<void>("baseline_set", { path, text }),
   baselineClear: (path: string) => invoke<void>("baseline_clear", { path }),

@@ -361,3 +361,30 @@ pub async fn baseline_clear(app: AppHandle, path: String) -> Result<(), String> 
     .await
     .map_err(|e| e.to_string())?
 }
+
+
+/// 메모 줄 재앵커 — 저장 시 diff 보정된 (id → 새 줄) 일괄 적용.
+#[tauri::command]
+pub async fn comment_reanchor(
+    app: AppHandle,
+    path: String,
+    updates: Vec<(i64, i64)>,
+) -> Result<(), String> {
+    let db = app
+        .state::<crate::state::AppState>()
+        .style_db
+        .clone()
+        .ok_or("저장소를 열 수 없습니다")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = db.conn.lock().unwrap();
+        for (id, line) in updates {
+            let _ = conn.execute(
+                "UPDATE doc_comment SET line_no = ?2 WHERE id = ?1 AND path = ?3",
+                rusqlite::params![id, line, path],
+            );
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

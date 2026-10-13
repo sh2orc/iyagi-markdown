@@ -96,6 +96,7 @@ pub fn run() {
             style_db::comment_update,
             style_db::comment_resolve,
             style_db::comment_remove,
+            style_db::comment_reanchor,
             style_db::baseline_get,
             style_db::baseline_set,
             style_db::baseline_clear,
