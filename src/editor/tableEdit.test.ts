@@ -10,7 +10,7 @@ import {
   tableAddRow,
   tableAround,
   tableDeleteColumn,
-  tableDeleteRow,
+  tableDeleteRow, insertImageRef,
 } from "./format";
 
 function viewWith(doc: string, cursor: number): EditorView {
@@ -395,6 +395,24 @@ describe("tabTableCell", async () => {
   it("표 밖 — false", () => {
     const v = mount("일반 텍스트\n", 2);
     expect(tabTableCell(v, false)).toBe(false);
+    v.destroy();
+  });
+});
+
+// — 이미지 삽입(도구모음 버튼) —
+describe("insertImageRef", async () => {
+  const { EditorState } = await import("@codemirror/state");
+  const { EditorView } = await import("@codemirror/view");
+  const { insertImageRef } = await import("./format");
+
+  it("![alt](rel) 삽입 후 alt 안에 커서", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const v = new EditorView({ state: EditorState.create({ doc: "" }), parent: host });
+    insertImageRef(v, "assets/p.png", "설명");
+    expect(v.state.doc.toString()).toBe("![설명](assets/p.png)\n");
+    const sel = v.state.selection.main;
+    expect(v.state.sliceDoc(sel.from, sel.to)).toBe("설명");
     v.destroy();
   });
 });

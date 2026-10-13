@@ -4,6 +4,8 @@ import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
 import { redo, undo } from "@codemirror/commands";
+import { pickImageFile } from "../api";
+import { relPath } from "../paths";
 
 interface Props {
   store: AppStore;
@@ -84,6 +86,32 @@ export function Toolbar({ store, t, onInsertTable,
       </div>
       <Sep />
       <div className="tb-group">
+        <ToolBtn
+          narrow
+          label="🖼"
+          title={t.tbImage}
+          disabled={disabled}
+          onClick={() => {
+            void (async () => {
+              const picked = await pickImageFile();
+              if (!picked) return;
+              const tab = store.active;
+              const dir = tab?.path
+                ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/"
+                : store.state.workspace;
+              if (!tab || !dir || !store.view) return;
+              try {
+                const { api } = await import("../api");
+                const absPath = await api.importImage(picked, dir);
+                const { insertImageRef } = await import("../editor/format");
+                insertImageRef(store.view, relPath(dir, absPath));
+                store.view.focus();
+              } catch {
+                /* 취소·실패 무시 */
+              }
+            })();
+          }}
+        />
         <ToolBtn
           narrow
           label="▦"

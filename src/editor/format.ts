@@ -121,6 +121,18 @@ export function toggleHeading(view: EditorView, level: number): boolean {
 }
 
 /** 블록 수평선/수식/코드블록 삽입(빈 줄 하나를 만들어 넣는다). */
+/** 이미지 참조 삽입 — ![alt](rel). alt는 커서 위치(즉시 입력 유도). */
+export function insertImageRef(view: EditorView, rel: string, alt = ""): boolean {
+  const sel = view.state.selection.main;
+  const insert = `![${alt}](${rel})`;
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert: `${insert}\n` },
+    selection: { anchor: sel.from + 2, head: sel.from + 2 + alt.length },
+    userEvent: "input.insertImage",
+  });
+  return true;
+}
+
 export function insertBlock(view: EditorView, block: string): boolean {
   const sel = view.state.selection.main;
   const line = view.state.doc.lineAt(sel.from);

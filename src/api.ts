@@ -329,6 +329,16 @@ export async function pickOpenFile(): Promise<string | null> {
   return typeof picked === "string" ? picked : null;
 }
 
+export async function pickImageFile(): Promise<string | null> {
+  if (!inApp) return null;
+  const dialog = await import("@tauri-apps/plugin-dialog");
+  const picked = await dialog.open({
+    multiple: false,
+    filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "heic"] }],
+  });
+  return typeof picked === "string" ? picked : null;
+}
+
 export async function pickOpenFolder(): Promise<string | null> {
   if (!inApp) return null;
   const dialog = await import("@tauri-apps/plugin-dialog");
