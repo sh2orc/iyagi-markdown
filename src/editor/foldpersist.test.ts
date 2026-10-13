@@ -10,7 +10,7 @@ import { EditorView } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import { foldEffect, foldGutter, foldState, foldable } from "@codemirror/language";
-import { fenceFoldOf } from "./cm";
+import { fenceFoldOf, quoteFoldOf } from "./cm";
 
 describe("접기 상태 탭 전환 유지", { retry: 1 }, () => {
   it("저장된 EditorState를 새 뷰에 싣으면 foldState가 따라온다", () => {
@@ -54,5 +54,20 @@ describe("fenceFoldOf — 코드펜스 접기", () => {
   it("닫는 줄 없으면 null(미완성 펜스)", () => {
     const st = stateOf("```\ncode\n");
     expect(fenceFoldOf(st, st.doc.line(1).from)).toBeNull();
+  });
+});
+
+describe("quoteFoldOf — 인용 접기", () => {
+  const stateOf = (doc: string) => EditorState.create({ doc });
+
+  it("첫 > 줄에서 인용 끝까지", () => {
+    const st = stateOf("> a\n> b\n본문\n");
+    expect(quoteFoldOf(st, st.doc.line(1).from)).toEqual({ from: st.doc.line(1).to, to: st.doc.line(2).to });
+  });
+
+  it("한 줄 인용·인용 아님은 null", () => {
+    const st = stateOf("> only\n");
+    expect(quoteFoldOf(st, st.doc.line(1).from)).toBeNull();
+    expect(quoteFoldOf(st, st.doc.line(1).to)).toBeNull(); // 줄 시작 아님
   });
 });

@@ -179,8 +179,12 @@ export class AppStore {
   constructor(io: StoreIO) {
     setCommentsProvider(() => this.active?.comments ?? []);
     // 변경 추적 — 활성 탭의 베이스라인 제공(장식 플러그인이 소비).
-    setTrackProvider(() => {
-      const tab = this.active;
+    setTrackProvider((view: unknown) => {
+      // 분할 편집 뷰면 그 탭의 추적을 보여준다(활성 탭이 아님).
+      const tab =
+        this.splitView !== null && view === this.splitView
+          ? (this.state.tabs.find((t) => t.id === this.splitTabId) ?? null)
+          : this.active;
       return tab ? { baseline: tab.baselineText, current: tab.state.doc.toString() } : null;
     });
     this.io = io;

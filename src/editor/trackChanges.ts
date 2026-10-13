@@ -28,7 +28,7 @@ export function changedLines(baseline: string, current: string): { added: Set<nu
 }
 
 export interface TrackProvider {
-  (): { baseline: string | null; current: string } | null;
+  (view: unknown): { baseline: string | null; current: string } | null;
 }
 
 let provider: TrackProvider | null = null;
@@ -56,7 +56,7 @@ export function trackChanges(): Extension {
         });
       }
       rebuild(): void {
-        const p = provider?.();
+        const p = provider?.(this.view);
         if (!p || p.baseline == null) {
           this.decorations = Decoration.none;
           return;

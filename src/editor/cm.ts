@@ -80,9 +80,31 @@ export function fenceFoldOf(
   return null;
 }
 
+/** 인용 블록 접기 — 첫 > 줄에서 인용이 끝나는 줄까지. 순수 함수. */
+export function quoteFoldOf(
+  state: EditorState,
+  from: number,
+): { from: number; to: number } | null {
+  const line = state.doc.lineAt(from);
+  if (from !== line.from) return null;
+  if (!/^>\s/.test(line.text)) return null;
+  let end = line.to;
+  for (let n = line.number + 1; n <= state.doc.lines; n++) {
+    const l = state.doc.line(n);
+    if (!/^>\s/.test(l.text)) break;
+    end = l.to;
+  }
+  return end > line.to ? { from: line.to, to: end } : null;
+}
+
 const headingFoldService = foldService.of((state, from, to) => {
   void to;
-  return headingFoldOf(state, from) ?? fenceFoldOf(state, from) ?? listItemFoldOf(state, from);
+  return (
+    headingFoldOf(state, from) ??
+    fenceFoldOf(state, from) ??
+    quoteFoldOf(state, from) ??
+    listItemFoldOf(state, from)
+  );
 });
 
 import {
