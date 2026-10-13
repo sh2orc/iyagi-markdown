@@ -5,6 +5,7 @@
 // "보기"일 뿐이므로 전환에 변환이 없다(§0 D4/D5).
 
 import { searchKeymap } from "@codemirror/search";
+import { trackChanges } from "./trackChanges";
 import { occurrenceHighlight } from "./occurrences";
 import { copyFormat, pasteFormat } from "./formatPainter";
 import { Compartment, EditorState, Extension } from "@codemirror/state";
@@ -242,6 +243,7 @@ function baseExtensions(): Extension[] {
     livePreviewExtension(),
     searchHighlight(),
     occurrenceHighlight(),
+    trackChanges(),
     editorTheme,
     EditorView.lineWrapping,
     previewConfigField,

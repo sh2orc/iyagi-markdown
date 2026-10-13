@@ -22,6 +22,7 @@ import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, t
 import { applyWriting, spellcheckComp, spellcheckExtension } from "../editor/writing";
 import { applySmartPunct } from "../editor/smartPunct";
 import { setCommentsProvider } from "../editor/cm";
+import { setTrackProvider } from "../editor/trackChanges";
 import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
 import { invalidateLinkPreviews, ttsTextOf } from "../editor/linkPreview";
 import { phrases } from "./phrases";
@@ -57,6 +58,10 @@ export interface Tab {
   commentLines: number[];
   /** 메모 전체 목록(패널용). */
   comments: Array<{ id: number; lineNo: number; text: string; createdAt: number; resolved: boolean }>;
+  /** 변경 추적 베이스라인(null이면 추적 아님). */
+  baselineText: string | null;
+  /** 변경 추적 개수(상태 줄). */
+  trackStats: { added: number; removed: number } | null;
   /** 책갈피 줄 번호(SQLite 사이드카 — 원문 불변). */
   bookmarks: number[];
   /** 저장 안 됨 표시 — 입력마다 O(문서) 비교 대신 증분 유지(정확성: 길이가
@@ -117,9 +122,17 @@ export interface StoreIO {
   commentUpdate?(id: number, text: string): Promise<void>;
   commentResolve?(id: number, resolved: boolean): Promise<void>;
   commentRemove?(id: number): Promise<void>;
+  baselineGet?(path: string): Promise<string | null>;
+  baselineSet?(path: string, text: string): Promise<void>;
+  baselineClear?(path: string): Promise<void>;
   speakStart?(text: string, rate: number, voice: string): Promise<boolean>;
   speakStop?(): Promise<void>;
   speakStatus?(): Promise<boolean>;
+}
+
+/** 이중 문구 헬퍼(스토어 내 간단 토스트) — ko/en. */
+function t0(ko: string, en: string): string {
+  return (typeof navigator !== "undefined" && /^ko/i.test(navigator.language ?? "") ) ? ko : en;
 }
 
 let nextTabId = 1;
@@ -164,6 +177,11 @@ export class AppStore {
 
   constructor(io: StoreIO) {
     setCommentsProvider(() => this.active?.comments ?? []);
+    // 변경 추적 — 활성 탭의 베이스라인 제공(장식 플러그인이 소비).
+    setTrackProvider(() => {
+      const tab = this.active;
+      return tab ? { baseline: tab.baselineText, current: tab.state.doc.toString() } : null;
+    });
     this.io = io;
   }
 
@@ -264,6 +282,8 @@ export class AppStore {
       bookmarks: [],
       commentLines: [],
       comments: [],
+      baselineText: null,
+      trackStats: null,
       dirty: false,
       // 통계는 본문만(프론트매터는 메타 — Obsidian 방식).
       words: countWords(stripFrontMatter(doc.text)),
@@ -277,6 +297,17 @@ export class AppStore {
         if (this.state.activeId === tab.id) {
           this.applyConfig(); // 줄 배지 렌더 반영
           this.emit();
+        }
+      });
+    }
+    // 변경 추적 베이스라인 로드(있으면 추적 중 — 장식 재개).
+    if (path && this.io.baselineGet) {
+      void this.io.baselineGet(path).then((text) => {
+        const t = this.state.tabs.find((x) => x.id === tab.id);
+        if (t && text != null) {
+          t.baselineText = text;
+          t.trackStats = { added: 0, removed: 0 };
+          if (this.state.activeId === t.id) this.emit();
         }
       });
     }
@@ -324,6 +355,8 @@ export class AppStore {
       bookmarks: [],
       commentLines: [],
       comments: [],
+      baselineText: null,
+      trackStats: null,
       dirty: false,
       words: countWords(stripFrontMatter(content)),
       chars: stripFrontMatter(content).length,
@@ -358,6 +391,8 @@ export class AppStore {
       bookmarks: [],
       commentLines: [],
       comments: [],
+      baselineText: null,
+      trackStats: null,
       dirty: false,
       words: 0,
       chars: 0,
@@ -558,6 +593,45 @@ export class AppStore {
     }
     // 상태 줄(줄/칸·더티 점) 갱신 — rAF로 모아 프레임당 한 번 렌더한다.
     this.scheduleEmit();
+  }
+
+  /** 변경 추적 시작 — 현재 상태를 베이스라인으로(사이드카). */
+  async startTracking(): Promise<void> {
+    const tab = this.active;
+    if (!tab?.path) return;
+    try {
+      await this.io.baselineSet?.(tab.path, tab.state.doc.toString());
+      tab.baselineText = tab.state.doc.toString();
+      tab.trackStats = { added: 0, removed: 0 };
+      this.emit();
+      this.toast(t0("변경 추적을 시작했습니다", "Tracking started"));
+    } catch { /* 무시 */ }
+  }
+
+  /** 모든 변경 수락 — 현재 상태로 리베이스. */
+  async acceptAllChanges(): Promise<void> {
+    const tab = this.active;
+    if (!tab?.path || tab.baselineText == null) return;
+    try {
+      await this.io.baselineSet?.(tab.path, tab.state.doc.toString());
+      tab.baselineText = tab.state.doc.toString();
+      tab.trackStats = { added: 0, removed: 0 };
+      this.emit();
+      this.toast(t0("변경을 모두 수락했습니다", "All changes accepted"));
+    } catch { /* 무시 */ }
+  }
+
+  /** 변경 추적 중지 — 베이스라인 폐기. */
+  async stopTracking(): Promise<void> {
+    const tab = this.active;
+    if (!tab?.path) return;
+    try {
+      await this.io.baselineClear?.(tab.path);
+    } catch { /* 무시 */ }
+    tab.baselineText = null;
+    tab.trackStats = null;
+    this.emit();
+    this.toast(t0("변경 추적을 중지했습니다", "Tracking stopped"));
   }
 
   /** 지정 탭 저장(자동 저장 — 분할 편집 탭 포함). 원자적·무수정 no-op. */
@@ -1103,6 +1177,8 @@ export class AppStore {
         bookmarks: [],
       commentLines: [],
       comments: [],
+      baselineText: null,
+      trackStats: null,
         dirty: false,
         words: countWords(stripFrontMatter(doc.text)),
         chars: stripFrontMatter(doc.text).length,

@@ -293,6 +293,10 @@ export const editorTheme = EditorView.theme({
   },
   ".md-image:hover .md-img-handle": { display: "block" },
   ".md-image img": { maxWidth: "100%", borderRadius: "6px", display: "block" },
+  ".md-tracked-add": {
+    background: "color-mix(in srgb, #34c759 12%, transparent)",
+    boxShadow: "inset 3px 0 0 #34c759",
+  },
   ".md-occurrence": {
     background: "color-mix(in srgb, var(--md-accent, #4f46e5) 14%, transparent)",
     borderRadius: "2px",

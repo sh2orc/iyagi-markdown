@@ -30,6 +30,11 @@ impl StyleDb {
                  created_at REAL NOT NULL,
                  PRIMARY KEY (path, line_no)
              );
+             CREATE TABLE IF NOT EXISTS doc_baseline (
+                 path       TEXT PRIMARY KEY,
+                 text       TEXT NOT NULL,
+                 updated_at REAL NOT NULL
+             );
              CREATE TABLE IF NOT EXISTS doc_comment (
                  id         INTEGER PRIMARY KEY AUTOINCREMENT,
                  path       TEXT NOT NULL,
@@ -294,6 +299,62 @@ pub async fn comment_remove(app: AppHandle, id: i64) -> Result<(), String> {
             .lock()
             .unwrap()
             .execute("DELETE FROM doc_comment WHERE id = ?1", rusqlite::params![id])
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+
+/// 변경 추적 베이스라인 — 추적 시작 시점의 스냅숏(원문 불변, 사이드카).
+#[tauri::command]
+pub async fn baseline_get(app: AppHandle, path: String) -> Option<String> {
+    let db = app.state::<crate::state::AppState>().style_db.clone()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = db.conn.lock().ok()?;
+        conn.query_row("SELECT text FROM doc_baseline WHERE path = ?1", [&path], |r| r.get(0)).ok()
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+#[tauri::command]
+pub async fn baseline_set(app: AppHandle, path: String, text: String) -> Result<(), String> {
+    let db = app
+        .state::<crate::state::AppState>()
+        .style_db
+        .clone()
+        .ok_or("저장소를 열 수 없습니다")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO doc_baseline (path, text, updated_at) VALUES (?1, ?2, unixepoch())\
+                 ON CONFLICT(path) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at",
+                rusqlite::params![path, text],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn baseline_clear(app: AppHandle, path: String) -> Result<(), String> {
+    let db = app
+        .state::<crate::state::AppState>()
+        .style_db
+        .clone()
+        .ok_or("저장소를 열 수 없습니다")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        db.conn
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM doc_baseline WHERE path = ?1", [&path])
             .map(|_| ())
             .map_err(|e| e.to_string())
     })
