@@ -494,11 +494,14 @@ export function App(): JSX.Element {
             baseDir,
             theme: store.state.theme,
           });
-          const { applyImageWidths, applyTableWidths } = await import("./export/html");
+          const { applyImageWidths, applyTableWidths, applyFigcaptions } = await import("./export/html");
+          const { applyTableCaptions } = await import("./editor/tableCaption");
           // 전체를 한 번 렌더한 HTML을 <h1> 경계로 챕터 분할(각주는 마지막 챕터에).
-          const chapters = epubChapterInputs(
-            splitEpubChapters(applyTableWidths(applyImageWidths(body, imageWidths), tableWidths)),
+          // 캡션(그림·표)도 HTML/PDF와 동일하게 — 빠지면 전자책만 설명 없음.
+          const decorated = applyFigcaptions(
+            applyTableCaptions(applyTableWidths(applyImageWidths(body, imageWidths), tableWidths)),
           );
+          const chapters = epubChapterInputs(splitEpubChapters(decorated));
           // 표지 — 문서의 첫 로컬 이미지(없으면 생략).
           const coverPath = firstLocalImage(text, baseDir);
           await api.exportEpub(
