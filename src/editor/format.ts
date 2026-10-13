@@ -185,7 +185,25 @@ export function tabTableCell(view: EditorView, back: boolean): boolean {
     view.dispatch({ selection: { anchor: contentStart(line, starts[next]!) } });
     return true;
   }
-  if (back) return false; // 첫 셀에서 Shift+Tab — 기본
+  if (back) {
+    // 첫 셀 — 윗 데이터 행의 마지막 셀로(Word 역방향 탐색).
+    const prevData = line.number - 1;
+    if (prevData <= t.firstLine + 1) return false; // 첫 데이터 행 — 기본
+    const pl = doc.line(prevData);
+    const lastPipe = pl.text.lastIndexOf("|");
+    if (lastPipe <= 0) return false;
+    // 마지막 셀 내용 시작: 끝에서 두 번째 파이프 뒤.
+    let prevPipe = -1;
+    for (let i = lastPipe - 1; i >= 0; i--) {
+      if (pl.text[i] === "|" && pl.text[i - 1] !== "\\") {
+        prevPipe = i;
+        break;
+      }
+    }
+    if (prevPipe < 0) return false;
+    view.dispatch({ selection: { anchor: contentStart(pl, prevPipe + 1) } });
+    return true;
+  }
   // 줄 끝 — 다음 데이터 줄(구분줄 건너뛰기) 첫 셀로.
   const nextData = Math.max(t.firstLine + 2, line.number + 1);
   if (nextData <= t.lastLine) {

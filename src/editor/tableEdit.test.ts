@@ -383,7 +383,12 @@ describe("tabTableCell", async () => {
     expect(v.state.selection.main.head).toBe(after.length - 5); // 새 행 첫 셀("| " 뒤)
     const first = TABLE.indexOf("이름") + 2;
     v.dispatch({ selection: { anchor: first } });
-    expect(tabTableCell(v, true)).toBe(false); // 첫 셀 뒤로는 없음(폴백)
+    expect(tabTableCell(v, true)).toBe(false); // 헤더 첫 셀 — 윗행 없음(폴백)
+    // 두 번째 데이터 행 첫 셀에서 Shift+Tab → 첫 데이터 행 마지막 셀(x).
+    const b = TABLE.indexOf("| b");
+    v.dispatch({ selection: { anchor: b + 2 } });
+    expect(tabTableCell(v, true)).toBe(true);
+    expect(TABLE[v.state.selection.main.head]).toBe("x");
     v.destroy();
   });
 
