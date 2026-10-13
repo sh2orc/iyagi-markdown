@@ -772,3 +772,68 @@ pub fn open_logs_dir(app: AppHandle) -> Result<(), String> {
         Err("로그 디렉터리를 알 수 없습니다".into())
     }
 }
+
+/// 파일 이름 변경 — 대상이 이미 있으면 실패(덮어쓰기 없음). 같은 폴더 안 이동.
+#[tauri::command]
+pub async fn file_rename(from: String, to: String) -> Result<(), String> {
+    // 파일 IO는 워커 스레드에서(메인 스레드 보호 — 확립 규칙).
+    tauri::async_runtime::spawn_blocking(move || {
+        let from_p = std::path::PathBuf::from(&from);
+        let to_p = std::path::PathBuf::from(&to);
+        if !from_p.is_file() {
+            return Err("원본 파일이 없습니다".into());
+        }
+        if to_p.exists() {
+            return Err("같은 이름의 파일이 이미 있습니다".into());
+        }
+        std::fs::rename(&from_p, &to_p).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 파일 복제 — '이름 2.md'부터 빈 슬롯을 찾아 복사. 새 경로 반환.
+#[tauri::command]
+pub async fn file_duplicate(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+    let p = std::path::PathBuf::from(&path);
+    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("untitled");
+    let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("md");
+    let dir = p.parent().unwrap_or(std::path::Path::new("/"));
+    let mut n = 2;
+    loop {
+        let cand = dir.join(format!("{stem} {n}.{ext}"));
+        if !cand.exists() {
+            std::fs::copy(&p, &cand).map_err(|e| e.to_string())?;
+            return Ok(cand.to_string_lossy().into_owned());
+        }
+        n += 1;
+    }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 폴더에 새 문서 — '제목 없음 N.md' 빈 파일. 경로 반환.
+#[tauri::command]
+pub async fn new_file_in(dir: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let d = std::path::PathBuf::from(&dir);
+        if !d.is_dir() {
+            return Err("폴더가 없습니다".into());
+        }
+        let mut n = 1;
+        loop {
+            let name = if n == 1 { "제목 없음.md".to_string() } else { format!("제목 없음 {n}.md") };
+            let cand = d.join(name);
+            if !cand.exists() {
+                std::fs::write(&cand, b"").map_err(|e| e.to_string())?;
+                return Ok(cand.to_string_lossy().into_owned());
+            }
+            n += 1;
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+

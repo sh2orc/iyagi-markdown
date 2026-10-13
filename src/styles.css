@@ -2472,3 +2472,7 @@ body.resizing .toc {
 .review-del { margin-top: 8px; }
 .review-spin { width: 18px; height: 18px; border-width: 2px; }
 .btn-danger { background: var(--md-error, #c53030); color: #fff; }
+
+/* — 사이드바 파일 메뉴·이름 변경 — */
+.rename-dialog { min-width: 340px; }
+.rename-dialog .palette-input { margin: 10px 16px 0; width: calc(100% - 32px); }

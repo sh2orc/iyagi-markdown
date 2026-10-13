@@ -5,7 +5,7 @@
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
-import { isInApp, pickOpenFolder, type TreeNode } from "../api";
+import { api, isInApp, pickOpenFolder, type TreeNode } from "../api";
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
 
@@ -19,6 +19,62 @@ interface Props {
 }
 
 export function Sidebar({ store, tree, workspace, activePath, t, open }: Props): JSX.Element {
+  const [fileCtx, setFileCtx] = useState<{ x: number; y: number; path: string; isDir: boolean } | null>(null);
+  const [renaming, setRenaming] = useState<{ path: string; name: string } | null>(null);
+
+  const runFileOp = (op: "new" | "dup" | "reveal") => {
+    const ctx = fileCtx;
+    setFileCtx(null);
+    if (!ctx) return;
+    void (async () => {
+      try {
+        if (op === "new") {
+          if (!ctx.isDir) return;
+          const p = await api.newFileIn(ctx.path);
+          void store.openPath(p);
+        } else if (op === "dup") {
+          if (ctx.isDir) return;
+          const p = await api.fileDuplicate(ctx.path);
+          void store.openPath(p);
+        } else {
+          await api.revealInFinder(ctx.path);
+        }
+      } catch (e) {
+        store.toast(e instanceof Error ? e.message : String(e), "error");
+      }
+    })();
+  };
+
+  // 메뉴 바깥 포인터 다운이면 닫기(메뉴 자체는 제외).
+  useEffect(() => {
+    if (!fileCtx) return;
+    const close = (e: PointerEvent) => {
+      if (!(e.target as HTMLElement).closest(".file-ctx")) setFileCtx(null);
+    };
+    window.addEventListener("pointerdown", close);
+    return () => window.removeEventListener("pointerdown", close);
+  }, [fileCtx]);
+
+  const doRename = async (next: string) => {
+    const r = renaming;
+    setRenaming(null);
+    if (!r || !next.trim()) return;
+    const dir = r.path.substring(0, r.path.lastIndexOf("/")) || "/";
+    const to = `${dir}/${next.trim().replace(/[/\\?%*:|"<>.]/g, "-")}.md`;
+    if (to === r.path) return;
+    try {
+      await api.fileRename(r.path, to);
+      // 열린 탭이면 새 경로로 다시 열기(간단 정책 — watcher가 트리 갱신).
+      const open = store.state.tabs.find((x) => x.path === r.path);
+      if (open) {
+        store.closeTab(open.id);
+        void store.openPath(to);
+      }
+    } catch (e) {
+      store.toast(e instanceof Error ? e.message : String(e), "error");
+    }
+  };
+
   const state = store.getSnapshot();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const resizing = useRef<{ startX: number; startW: number } | null>(null);
@@ -116,6 +172,10 @@ export function Sidebar({ store, tree, workspace, activePath, t, open }: Props):
                   collapsed={collapsed}
                   onToggle={toggle}
                   store={store}
+                  onFileContext={(e, path, isDir) => {
+                    e.preventDefault();
+                    setFileCtx({ x: e.clientX, y: e.clientY, path, isDir });
+                  }}
                 />
               ))}
               {tree.length === 0 && <div className="sidebar-empty">{t.emptyNoDocHint}</div>}
@@ -147,6 +207,77 @@ export function Sidebar({ store, tree, workspace, activePath, t, open }: Props):
           }}
         />
       </div>
+      {fileCtx && (
+        <div
+          className="ctx-menu file-ctx"
+          style={{ left: fileCtx.x, top: fileCtx.y }}
+          onContextMenu={(e) => e.preventDefault()}
+          onPointerDown={(e) => {
+            if (!(e.target as HTMLElement).closest(".file-ctx")) setFileCtx(null);
+          }}
+        >
+          {fileCtx.isDir && (
+            <button className="ctx-item" onClick={() => runFileOp("new")}>
+              {t.ctxNewFile}
+            </button>
+          )}
+          {!fileCtx.isDir && (
+            <>
+              <button
+                className="ctx-item"
+                onClick={() => {
+                  const p = fileCtx.path;
+                  setFileCtx(null);
+                  setRenaming({ path: p, name: p.split("/").pop()?.replace(/\.md$/i, "") ?? "" });
+                }}
+              >
+                {t.ctxRename}
+              </button>
+              <button className="ctx-item" onClick={() => runFileOp("dup")}>
+                {t.ctxDuplicate}
+              </button>
+            </>
+          )}
+          <button className="ctx-item" onClick={() => runFileOp("reveal")}>
+            {t.tabReveal}
+          </button>
+        </div>
+      )}
+      {renaming && (
+        <div
+          className="overlay modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => e.target === e.currentTarget && setRenaming(null)}
+        >
+          <div className="modal rename-dialog">
+            <div className="modal-title">{t.ctxRename}</div>
+            <input
+              className="palette-input"
+              autoFocus
+              value={renaming.name}
+              onChange={(e) => setRenaming({ ...renaming, name: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void doRename(renaming.name);
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setRenaming(null);
+                }
+              }}
+            />
+            <div className="modal-actions">
+              <button className="btn btn-primary" disabled={!renaming.name.trim()} onClick={() => void doRename(renaming.name)}>
+                {t.save}
+              </button>
+              <button className="btn btn-plain" onClick={() => setRenaming(null)}>
+                {t.cancel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -158,6 +289,7 @@ interface RowProps {
   collapsed: Set<string>;
   onToggle: (path: string) => void;
   store: AppStore;
+  onFileContext?: (e: React.MouseEvent, path: string, isDir: boolean) => void;
 }
 
 /** 트리 행 — memo: 스토어 emit(타이핑 등)마다 App이 다시 그려져도 props가
@@ -169,6 +301,7 @@ const TreeNodeRow = memo(function TreeNodeRow({
   collapsed,
   onToggle,
   store,
+  onFileContext,
 }: RowProps): JSX.Element {
   if (node.kind === "dir") {
     const open = !collapsed.has(node.path);
@@ -179,6 +312,7 @@ const TreeNodeRow = memo(function TreeNodeRow({
         <button
           className="tree-row tree-dir"
           onClick={() => onToggle(node.path)}
+          onContextMenu={(e) => onFileContext?.(e, node.path, true)}
         >
           <span className={`tree-arrow ${open ? "tree-arrow-open" : ""}`}>▸</span>
           <span className="tree-name">{node.name}</span>
@@ -194,6 +328,7 @@ const TreeNodeRow = memo(function TreeNodeRow({
               collapsed={collapsed}
               onToggle={onToggle}
               store={store}
+              onFileContext={onFileContext}
             />
           ))}
       </div>
@@ -205,6 +340,7 @@ const TreeNodeRow = memo(function TreeNodeRow({
       className={`tree-row tree-file ${active ? "is-active" : ""}`}
       title={node.path}
       onClick={() => void store.openPath(node.path)}
+      onContextMenu={(e) => onFileContext?.(e, node.path, false)}
     >
       <span className="tree-name">{node.stem ?? node.name}</span>
     </button>

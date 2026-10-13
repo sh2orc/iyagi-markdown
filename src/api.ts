@@ -238,6 +238,9 @@ export const api = {
   writeExportFile: (path: string, contents: string) =>
     invoke<void>("write_export_file", { path, contents }),
   revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),
+  fileRename: (from: string, to: string) => invoke<void>("file_rename", { from, to }),
+  fileDuplicate: (path: string) => invoke<string>("file_duplicate", { path }),
+  newFileIn: (dir: string) => invoke<string>("new_file_in", { dir }),
   openInNewWindow: (path: string) => invoke<void>("open_in_new_window", { path }),
   saveClipboardImage: (dir: string) => invoke<string>("save_clipboard_image", { dir }),
   wikiEdges: (root: string) =>

@@ -96,6 +96,9 @@ pub fn run() {
             style_db::comment_update,
             style_db::comment_resolve,
             style_db::comment_remove,
+            commands::file_rename,
+            commands::file_duplicate,
+            commands::new_file_in,
             style_db::bookmark_add,
             style_db::bookmark_remove,
         ])
