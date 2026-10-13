@@ -416,3 +416,43 @@ describe("insertImageRef", async () => {
     v.destroy();
   });
 });
+
+// — 수식 삽입(도구모음 Σ) —
+describe("insertMath", async () => {
+  const { EditorState } = await import("@codemirror/state");
+  const { EditorView } = await import("@codemirror/view");
+  const { insertMath } = await import("./format");
+
+  function mount(doc: string, sel?: { anchor: number; head?: number }): EditorView {
+    const host = document.createElement("div");
+    document.body.append(host);
+    return new EditorView({
+      state: EditorState.create({ doc, selection: sel }),
+      parent: host,
+    });
+  }
+
+  it("빈 커서 — 구분쌍 삽입, 커서 가운데", () => {
+    const v = mount("a b");
+    insertMath(v, false);
+    expect(v.state.doc.toString()).toBe("$$a b"); // 커서는 두 $ 사이(1)
+    expect(v.state.selection.main.head).toBe(1);
+    v.destroy();
+  });
+
+  it("선택 감싸기 — 선택이 수식 내용으로", () => {
+    const v = mount("값은 HERE 이다", { anchor: 3, head: 7 });
+    insertMath(v, false);
+    expect(v.state.doc.toString()).toContain("$HERE$");
+    const sel = v.state.selection.main;
+    expect(v.state.sliceDoc(sel.from, sel.to)).toBe("HERE");
+    v.destroy();
+  });
+
+  it("블록 — $$..$$ 줄바꿈", () => {
+    const v = mount("");
+    insertMath(v, true);
+    expect(v.state.doc.toString()).toBe("$$$$\n");
+    v.destroy();
+  });
+});

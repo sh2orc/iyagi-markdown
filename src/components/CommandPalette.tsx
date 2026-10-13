@@ -222,6 +222,8 @@ export function CommandPalette({
         { id: "painter-paste", label: `${t.scFormat}: ${t.painterPaste} ⌥⌘V`, run: go(() => pasteFormat(view)) },
         { id: "paste-plain", label: `${t.scEdit}: ${t.pastePlain} ⌥⌘⇧V`, run: go(() => pasteAsPlainText(view)) },
         { id: "link", label: `${t.scFormat}: ${t.tbLink}`, run: go(() => fmt.insertLink(view)) },
+        { id: "math-inline", label: `${t.scFormat}: ${t.tbMath} $…$`, run: go(() => fmt.insertMath(view, false)) },
+        { id: "math-block", label: `${t.scFormat}: ${t.tbMathBlock} $$…$$`, run: go(() => fmt.insertMath(view, true)) },
         { id: "h1", label: `${t.scFormat}: ${t.tbHeading} 1`, run: go(() => fmt.toggleHeading(view, 1)) },
         { id: "h2", label: `${t.scFormat}: ${t.tbHeading} 2`, run: go(() => fmt.toggleHeading(view, 2)) },
         { id: "h3", label: `${t.scFormat}: ${t.tbHeading} 3`, run: go(() => fmt.toggleHeading(view, 3)) },

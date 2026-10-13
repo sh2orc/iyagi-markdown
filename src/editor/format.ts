@@ -121,6 +121,21 @@ export function toggleHeading(view: EditorView, level: number): boolean {
 }
 
 /** 블록 수평선/수식/코드블록 삽입(빈 줄 하나를 만들어 넣는다). */
+/** 수식 삽입 — 인라인 $..$ / 블록 $$..$$. 커서는 안쪽(즉시 입력). */
+export function insertMath(view: EditorView, display: boolean): boolean {
+  const sel = view.state.selection.main;
+  const inner = view.state.sliceDoc(sel.from, sel.to);
+  const mark = display ? "$$" : "$";
+  const insert = inner ? `${mark}${inner}${mark}` : `${mark}${mark}`;
+  const anchor = sel.from + mark.length;
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert: display ? `${insert}\n` : insert },
+    selection: { anchor, head: anchor + inner.length },
+    userEvent: "input.insertMath",
+  });
+  return true;
+}
+
 /** 이미지 참조 삽입 — ![alt](rel). alt는 커서 위치(즉시 입력 유도). */
 export function insertImageRef(view: EditorView, rel: string, alt = ""): boolean {
   const sel = view.state.selection.main;

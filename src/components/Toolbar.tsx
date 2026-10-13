@@ -71,6 +71,13 @@ export function Toolbar({ store, t, onInsertTable,
         <ToolBtn label={<s>S</s>} title={`${t.tbStrike} (⌘⇧X)`} disabled={disabled} active={!!tab?.marks.strike} onClick={() => run(fmt.toggleStrikethrough)} />
         <ToolBtn label={<span className="tb-mono">{"</>"}</span>} title={t.tbCode} disabled={disabled} active={!!tab?.marks.code} onClick={() => run(fmt.toggleInlineCode)} />
         <ToolBtn label={<span className="tb-link-ico">🔗</span>} title={t.tbLink} disabled={disabled} active={!!tab?.marks.link} onClick={() => run((v) => fmt.insertLink(v))} />
+        <ToolBtn
+          narrow
+          label={<span className="tb-math-ico">∑</span>}
+          title={`${t.tbMath} (⌥: ${t.tbMathBlock})`}
+          disabled={disabled}
+          onClick={(ev) => run((v) => fmt.insertMath(v, ev.altKey))}
+        />
       </div>
       <Sep />
       <div className="tb-group">
