@@ -13,9 +13,11 @@ interface Props {
   /** 다른 탭 전부 닫기·오른쪽 탭 닫기(App이 더티 확인을 한 번에). */
   onCloseOthers?: (tab: Tab) => void;
   onCloseRight?: (tab: Tab) => void;
+  /** 참조 보기 토글 — 옆에 고정(읽기 전용). */
+  onPin?: (tab: Tab) => void;
 }
 
-export function TabBar({ store, t, onClose, onCloseOthers, onCloseRight }: Props): JSX.Element {
+export function TabBar({ store, t, onClose, onCloseOthers, onCloseRight, onPin }: Props): JSX.Element {
   const state = store.getSnapshot();
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [ctx, setCtx] = useState<{ x: number; y: number; tab: Tab } | null>(null);
@@ -132,6 +134,11 @@ export function TabBar({ store, t, onClose, onCloseOthers, onCloseRight }: Props
               }}
             >
               {t.tabCloseOthers}
+            </button>
+          )}
+          {onPin && ctx.tab.path && (
+            <button className="ctx-item" onClick={() => { onPin(ctx.tab); closeCtx(); }}>
+              {t.tabPin}
             </button>
           )}
           {onCloseRight && ctx.tab.id !== state.tabs[state.tabs.length - 1]?.id && (

@@ -50,6 +50,7 @@ import { SymbolPanel } from "./components/SymbolPanel";
 import { TableDialog } from "./components/TableDialog";
 import { CommentsPanel } from "./components/CommentsPanel";
 import { FrontMatterDialog } from "./components/FrontMatterDialog";
+import { RefPane } from "./components/RefPane";
 import { findImageAt } from "./editor/livePreview";
 import { LinkDialog } from "./components/LinkDialog";
 import { ReviewPanel } from "./components/ReviewPanel";
@@ -151,6 +152,8 @@ export function App(): JSX.Element {
   const [fmOpen, setFmOpen] = useState(false);
   /** 이미지 설명 편집(칩 클릭 위치 → 그 이미지). */
   const [imgEditPos, setImgEditPos] = useState<number | null>(null);
+  /** 참조 보기 — 옆에 고정한 탭(읽기 전용 iframe 렌더). */
+  const [pinnedTabId, setPinnedTabId] = useState<string | null>(null);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -994,9 +997,11 @@ export function App(): JSX.Element {
             const idx = state.tabs.findIndex((x) => x.id === tab.id);
             closeTabsBatch(state.tabs.filter((_, i) => i > idx));
           }}
+          onPin={(tab) => setPinnedTabId(pinnedTabId === tab.id ? null : tab.id)}
         />
           <Toolbar store={store} t={t} onInsertTable={() => setTableDialogOpen(true)} />
           <SearchPanel store={store} view={editorView.current} t={t} open={state.searchOpen} />
+          <div className={`edit-split ${pinnedTabId ? "has-ref" : ""}`}>
           <div className={`editor-area ${activeTab?.mode === "read" ? "read-mode" : ""}`}>
             <MiniToolbar store={store} t={t} />
             <div className="editor-host" ref={editorHost} />
@@ -1010,6 +1015,10 @@ export function App(): JSX.Element {
                 onOpenFolder={() => void pickOpenFolder().then((d) => { if (d) void store.openWorkspace(d); })}
               />
             )}
+          </div>
+          {pinnedTabId && state.tabs.some((x) => x.id === pinnedTabId) && (
+            <RefPane store={store} t={t} tabId={pinnedTabId} onClose={() => setPinnedTabId(null)} />
+          )}
           </div>
           <StatusBar store={store} t={t} onOpenSettings={() => setSettingsOpen(true)} onOpenStyle={() => setStyleOpen(true)} onOpenStats={() => setStatsOpen(true)} onOpenBacklinks={() => setBacklinksOpen(true)} onOpenComments={() => setCommentsOpen(true)} />
         </main>
