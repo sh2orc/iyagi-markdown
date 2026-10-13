@@ -10,6 +10,7 @@ import type { AppStore } from "../app/store";
 import { flattenFiles, scoreFile, subsequence, type FileEntry } from "../app/quickOpen";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
+import { splitHighlights } from "../search/searchCm";
 import { copyFormat, pasteFormat } from "../editor/formatPainter";
 import { pasteAsPlainText } from "../editor/cm";
 import { collectHeadings } from "../links";
@@ -250,8 +251,10 @@ export function CommandPalette({
         kind: "cmd" as const,
         c: {
           id: `head-${r.h.pos}`,
-          // 줄 번호 접두 — 동명 제목 구분(wssearch-lineno 관례).
+          // 줄 번호 접두 — 동명 제목 구분(wssearch-lineno 관례). 검색어 하이라이트
+          // 렌더는 아래 rows 매핑에서 kind "cmd" 대신 특별 분기로.
           label: `L${store.active?.state.doc.lineAt(Math.min(r.h.pos, store.active.state.doc.length)).number ?? 0} ${"  ".repeat(Math.max(0, r.h.level - 1))}${"#".repeat(r.h.level)} ${r.h.text}`,
+          hint: q,
           run: () => {
             const view = store.view;
             if (!view) return;
@@ -380,9 +383,23 @@ export function CommandPalette({
             const cls = `palette-item ${i === sel ? "is-sel" : ""}`;
             if (r.kind === "cmd") {
               const [text, kbd] = splitKbd(r.c.label);
+              // @모드(제목) 행은 검색어 하이라이트 — 다른 목록과 같은 조작감.
+              const symQ = query.trimStart().startsWith("@") ? query.trim().slice(1) : "";
+              const body =
+                symQ && r.c.id.startsWith("head-")
+                  ? splitHighlights(text, symQ).map((part, j) =>
+                      part.hit ? (
+                        <mark key={j} className="wssearch-mark">
+                          {part.text}
+                        </mark>
+                      ) : (
+                        <span key={j}>{part.text}</span>
+                      ),
+                    )
+                  : text;
               return (
                 <button key={r.c.id} className={cls} onMouseEnter={() => setSel(i)} onClick={() => runIdx(i)}>
-                  <span className="palette-cmd-text">{text}</span>
+                  <span className="palette-cmd-text">{body}</span>
                   {kbd && <kbd className="palette-kbd">{kbd}</kbd>}
                 </button>
               );
