@@ -14,12 +14,41 @@ interface Props {
   onClose: () => void;
 }
 
-interface Hunk {
+export interface Hunk {
   kind: "add" | "del";
   /** 현재 문서 줄(1-기준) — add는 그 줄, del은 다음 유지 줄(또는 문서 끝). */
   line: number;
   lines: number;
   preview: string;
+  /** add: 현재 문서에서 그 덩어리의 줄 범위. del: 미사용. */
+  fromLine: number;
+  toLine: number;
+  /** del: 되돌려 넣을 베이스라인 텍스트(줄들). add: 미사용. */
+  restore: string;
+}
+
+/** 덩어리 되돌리기 변경 — add는 그 줄 삭제, del은 베이스라인 텍스트 재삽입.
+ *  순수 함수. docs는 현재 문서의 줄 수(경계 검증용). */
+export function revertChange(h: Hunk, lineText: (n: number) => { from: number; to: number }, docLines: number): { from: number; to: number; insert: string } | null {
+  if (h.kind === "add") {
+    if (h.toLine > docLines || h.fromLine < 1) return null;
+    let from = 0;
+    let to = 0;
+    for (let n = h.fromLine; n <= h.toLine; n++) {
+      const t = lineText(n);
+      if (n === h.fromLine) from = t.from;
+      to = t.to;
+    }
+    // 덩어리 뒤의 개행까지 지워 줄 잔여 없게(마지막 줄이면 앞 개행).
+    if (h.toLine < docLines) to += 1;
+    else if (h.fromLine > 1) from -= 1;
+    return { from, to, insert: "" };
+  }
+  // del — 그 위치에 베이스라인 줄들을 되살린다.
+  const at = Math.min(h.line, docLines + 1);
+  const anchor = lineText(Math.min(at, docLines));
+  const pos = at > docLines ? anchor.to : anchor.from;
+  return { from: pos, to: pos, insert: h.restore };
 }
 
 /** diff 연산 → 덩어리 목록. 순수 함수(테스트 대상). */
@@ -37,6 +66,9 @@ export function hunksOf(baseline: string, current: string): Hunk[] {
         line: line + 1,
         lines: n,
         preview: op.text.split("\n")[0] ?? "",
+        fromLine: line + 1,
+        toLine: line + n,
+        restore: "",
       });
       line += n;
     } else {
@@ -45,6 +77,9 @@ export function hunksOf(baseline: string, current: string): Hunk[] {
         line: line + 1,
         lines: op.text.split("\n").length,
         preview: op.text.split("\n")[0] ?? "",
+        fromLine: 0,
+        toLine: 0,
+        restore: op.text,
       });
     }
   }
@@ -59,6 +94,18 @@ export function TrackPanel({ store, t, onClose }: Props): JSX.Element | null {
   );
 
   if (!tab) return null;
+
+  const revertHunk = (h: Hunk) => {
+    const view = store.view;
+    if (!view || tab.baselineText == null) return;
+    const ch = revertChange(h, (n) => view.state.doc.line(n), view.state.doc.lines);
+    if (!ch) return;
+    view.dispatch({
+      changes: { from: ch.from, to: ch.to, insert: ch.insert },
+      userEvent: "input.revertHunk",
+    });
+    store.toast(t.trackReverted);
+  };
 
   const goto = (line: number) => {
     const view = store.view;
@@ -89,11 +136,16 @@ export function TrackPanel({ store, t, onClose }: Props): JSX.Element | null {
         ) : (
           <div className="track-list">
             {hunks.map((h, i) => (
-              <button key={i} className={`track-item track-${h.kind}`} onClick={() => goto(h.line)}>
-                <span className="track-badge">{h.kind === "add" ? `+${h.lines}` : `−${h.lines}`}</span>
-                <span className="track-line">{h.line}줄</span>
-                <span className="track-text">{h.preview}</span>
-              </button>
+              <div key={i} className={`track-item track-${h.kind}`}>
+                <button className="track-goto" onClick={() => goto(h.line)}>
+                  <span className="track-badge">{h.kind === "add" ? `+${h.lines}` : `−${h.lines}`}</span>
+                  <span className="track-line">{h.line}줄</span>
+                  <span className="track-text">{h.preview}</span>
+                </button>
+                <button className="track-revert" title={t.trackRevert} onClick={() => revertHunk(h)}>
+                  ↺
+                </button>
+              </div>
             ))}
           </div>
         )}

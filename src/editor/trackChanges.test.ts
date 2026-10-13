@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import { changedLines } from "./trackChanges";
-import { hunksOf } from "../components/TrackPanel";
+import { hunksOf, revertChange } from "../components/TrackPanel";
 
 describe("changedLines", () => {
   it("추가 줄 번호(1-기준)와 삭제 수", () => {
@@ -37,13 +37,43 @@ describe("hunksOf", () => {
     const cur = "a\nB\nc\nd\n"; // b→B(수정), d 추가
     const h = hunksOf(base, cur);
     expect(h).toEqual([
-      { kind: "del", line: 2, lines: 1, preview: "b" },
-      { kind: "add", line: 2, lines: 1, preview: "B" },
-      { kind: "add", line: 4, lines: 1, preview: "d" },
+      { kind: "del", line: 2, lines: 1, preview: "b", fromLine: 0, toLine: 0, restore: "b" },
+      { kind: "add", line: 2, lines: 1, preview: "B", fromLine: 2, toLine: 2, restore: "" },
+      { kind: "add", line: 4, lines: 1, preview: "d", fromLine: 4, toLine: 4, restore: "" },
     ]);
   });
 
   it("변경 없음은 빈 목록", () => {
     expect(hunksOf("x\n", "x\n")).toEqual([]);
+  });
+});
+
+describe("revertChange", () => {
+  const doc = "a\nB\nc\nd\n"; // 현재 — B는 수정된 줄(2줄), d는 추가(4줄)
+  const line = (n: number) => {
+    // 간단 문서 좌표: 줄 시작/끝 계산
+    let from = 0;
+    for (let i = 1; i < n; i++) from += doc.split("\n")[i - 1]!.length + 1;
+    const text = doc.split("\n")[n - 1] ?? "";
+    return { from, to: from + text.length };
+  };
+
+  it("add 덩어리 — 그 줄들(뒤 개행 포함) 삭제", () => {
+    const h = { kind: "add" as const, line: 4, lines: 1, preview: "d", fromLine: 4, toLine: 4, restore: "" };
+    const c = revertChange(h, line, 4);
+    expect(c?.insert).toBe("");
+    expect(doc.slice(c!.from, c!.to)).toBe("\nd");
+  });
+
+  it("del 덩어리 — 그 위치에 베이스라인 텍스트 재삽입", () => {
+    const h = { kind: "del", line: 2, lines: 1, preview: "b", fromLine: 0, toLine: 0, restore: "b" };
+    const c = revertChange(h, line, 4);
+    expect(c?.insert).toBe("b");
+    expect(c?.from).toBe(c?.to); // 순수 삽입
+  });
+
+  it("경계 밖은 null", () => {
+    const h = { kind: "add", line: 9, lines: 1, preview: "", fromLine: 9, toLine: 9, restore: "" };
+    expect(revertChange(h, line, 4)).toBeNull();
   });
 });
