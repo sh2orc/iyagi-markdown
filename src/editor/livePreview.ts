@@ -495,7 +495,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
 
         // — 링크·이미지(원문 정규식 기반 — 자식 구조 규격에 의존하지 않는다) —
         if (name === "Link" || name === "Image") {
-          if (isTouched(from, to)) return;
+          if (coversMarks(from, to)) return;
           const text = slice(from, to);
           if (name === "Image") {
             // 이미지 단독 줄이면 가운데 크게, 아니면 인라인 작게.
@@ -559,7 +559,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
           const raw = slice(from, to);
           const { name: target, anchor, display } = parseWikiLink(raw);
           const resolved = resolveWikiLink(target, baseDir, config.wikiIndex);
-          if (isRevealed(from, to)) return; // 원문 그대로
+          if (coversMarks(from, to)) return; // 원문 그대로
           ranges.push(
             replace({
               widget: new WikiLinkWidget(display ?? target, resolved, anchor),
@@ -570,7 +570,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
 
         // — 각주 참조 [^label]: 위첨자 —
         if (name === "FootnoteRef") {
-          if (isTouched(from, to)) return;
+          if (coversMarks(from, to)) return;
           ranges.push(
             Decoration.mark({ class: "md-footnote-ref", attributes: { title: slice(from, to) } }).range(from, to),
           );
@@ -629,7 +629,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
           return;
         }
         if (name === "QuoteMark") {
-          if (!isRevealed(from, to)) ranges.push(replace({ class: "md-quotemark" }).range(from, to));
+          if (!coversMarks(from, to)) ranges.push(replace({ class: "md-quotemark" }).range(from, to));
           return;
         }
 
@@ -654,7 +654,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
           const isBullet = mark === "-" || mark === "*" || mark === "+";
           // 불릿(- * +)은 Word처럼 글리프로 표시 — 깊이별 • ◦ ▪ ·.
           // 번호 목록(1. / 1))은 원문 그대로 강조만. 커서가 닿으면 원문 노출.
-          if (isBullet && !isTouched(from, to)) {
+          if (isBullet && !coversMarks(from, to)) {
             const line = doc.lineAt(from);
             const depth = Math.min(3, Math.floor((from - line.from) / 2));
             const glyph = BULLET_GLYPHS[depth] ?? "•";
@@ -666,7 +666,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
         }
         if (name === "TaskMarker") {
           addLineClasses(from, from, "md-task-line");
-          if (isTouched(from, to)) return;
+          if (coversMarks(from, to)) return;
           const checked = slice(from, to).charCodeAt(1) === 120; // x
           ranges.push(
             replace({ widget: new TaskItemWidget(checked) }).range(from, to),
@@ -729,7 +729,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
           return;
         }
         if (name === "InlineMath") {
-          if (isTouched(from, to)) return;
+          if (coversMarks(from, to)) return;
           const latex = slice(from + 1, to - 1);
           ranges.push(replace({ widget: new MathWidget(latex, false) }).range(from, to));
           return;

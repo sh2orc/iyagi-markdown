@@ -24,8 +24,9 @@ describe("불릿 글리프", () => {
       c.next();
     }
     expect(bullets).toBe(4); // 최상위 2 + 중첩 1 + 더 깊이 1
-    // 커서를 첫 항목으로 옮기면 그 마커만 원문 노출 → 불릿 3개.
-    view.dispatch({ selection: { anchor: 1 } });
+    // 첫 마커를 선택이 완전히 감싸면 원문 노출 → 불릿 3개(102차 규칙 —
+    // 커서 접촉만으로는 마커가 드러나지 않는다).
+    view.dispatch({ selection: { anchor: 0, head: 2 } });
     await new Promise((r) => setTimeout(r, 100));
     const c2 = view.state.field(__testing.decorationField, false)!.iter();
     let bullets2 = 0;
