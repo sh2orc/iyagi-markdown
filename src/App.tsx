@@ -467,6 +467,7 @@ export function App(): JSX.Element {
             style: exportStyleOf(tab),
             imageWidths,
             tableWidths,
+            frontLists: { toc: !!fm?.toc, lof: !!fm?.lof, lot: !!fm?.lot },
             readBytes: readBytesForExport,
             wikiResolve,
           });

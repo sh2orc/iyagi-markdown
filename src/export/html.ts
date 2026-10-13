@@ -8,6 +8,7 @@
 
 import MarkdownIt, { type MarkdownIt as MarkdownItType, type StateInline, type Token } from "markdown-it";
 import { htmlTableKey } from "../editor/tableKey";
+import { slugifyHeading } from "../links";
 import { captionWorthy } from "../editor/caption";
 import { applyTableCaptions } from "../editor/tableCaption";
 import footnote from "markdown-it-footnote";
@@ -45,6 +46,8 @@ export interface ExportHtmlOptions {
   imageWidths?: Record<string, number>;
   /** 사이드카 표 열 폭(px) — 헤더 내용 키. <colgroup> 비율로. */
   tableWidths?: Record<string, number[]>;
+  /** 문서 앞 목차·그림 목차·표 목차(DOCX lof/lot과 대칭 — 정적 링크 목록). */
+  frontLists?: { toc: boolean; lof: boolean; lot: boolean };
   /** 로컬 이미지를 data URI로 인라인할지(HTML 내보내기 기본 켬). */
   inlineImages?: boolean;
   /** 이미지 바이너리 읽기(앱: Tauri 명령). 없으면 인라인 생략. */
@@ -77,6 +80,18 @@ function makeMd(): MarkdownItType {
   });
   md.renderer.rules.iyagi_highlight = (tokens, idx) =>
     `<mark class="hl">${escapeHtml(tokens[idx].content)}</mark>`;
+  // 제목에 슬러그 id — 내부 앵커(#해시) 링크가 내보내기 HTML에서도 작동하게
+  // 하고 정적 목차가 같은 id를 가리키게 한다. 규칙은 links.ts와 동일.
+  const slugSeen = new Map<string, number>();
+  md.renderer.rules.heading_open = (tokens, idx) => {
+    const lvl = tokens[idx].tag;
+    const text = tokens[idx + 1]?.content ?? "";
+    let slug = slugifyHeading(text);
+    const n = (slugSeen.get(slug) ?? 0) + 1;
+    slugSeen.set(slug, n);
+    if (n > 1) slug = `${slug}-${n - 1}`;
+    return `<${lvl} id="${slug}">`;
+  };
   md.inline.ruler.before("escape", "iyagi_math", (state: StateInline, silent: boolean) => {
     const src = state.src;
     const pos = state.pos;
@@ -194,6 +209,40 @@ function cleanMermaidSvg(svg: string): string {
 // — 이미지 인라인 —
 
 
+
+/** 렌더된 본문에서 정적 목차(목차·그림·표) 조립 — 제목/캡션 id로 링크.
+ *  순수 함수 — 렌더러가 심은 id와 짝 맞추기(테스트 대상). */
+export function buildFrontLists(
+  html: string,
+  want: { toc: boolean; lof: boolean; lot: boolean },
+): string {
+  const out: string[] = [];
+  if (want.toc) {
+    const items: string[] = [];
+    for (const m of html.matchAll(/<h([1-3]) id="([^"]+)">([\s\S]*?)<\/h\1>/g)) {
+      const text = m[3]!.replace(/<[^>]+>/g, "").trim();
+      items.push(`<li class="fl-l${m[1]}"><a href="#${m[2]}">${text}</a></li>`);
+    }
+    if (items.length > 0) {
+      out.push(`<nav class="doc-front"><h2>목차</h2><ol>${items.join("")}</ol></nav>`);
+    }
+  }
+  const captionList = (kind: "fig" | "tbl", label: string): string => {
+    const items: string[] = [];
+    const re = new RegExp(`<figure[^>]*id="${kind}-(\\d+)"[\\s\\S]*?</figure>`, "g");
+    for (const m of html.matchAll(re)) {
+      const cap = /<figcaption>([\s\S]*?)<\/figcaption>/.exec(m[0])?.[1] ?? "";
+      items.push(`<li><a href="#${kind}-${m[1]}">${cap}</a></li>`);
+    }
+    return items.length > 0
+      ? `<nav class="doc-front"><h2>${label}</h2><ol>${items.join("")}</ol></nav>`
+      : "";
+  };
+  if (want.lof) out.push(captionList("fig", "그림 목차"));
+  if (want.lot) out.push(captionList("tbl", "표 목차"));
+  return out.join("");
+}
+
 /** PDF 페이지 장식(머리글·바닥글) 조각 — 순수 함수. WebKit createPDF는
  *  fixed 요소를 한 번만 렌더하므로, JS가 컬럼마다 absolute 요소를 심는다.
  *  제목은 JSON 리터럴로 넣고 </script>만 이스케이프(태그 탈출 방지). */
@@ -298,7 +347,7 @@ export function applyFigcaptions(html: string): string {
       return `<p>${img}</p>`;
     }
     n += 1;
-    return `<figure>${img}<figcaption>그림 ${n} — ${alt}</figcaption></figure>`;
+    return `<figure id="fig-${n}">${img}<figcaption>그림 ${n} — ${alt}</figcaption></figure>`;
   });
 }
 
@@ -468,6 +517,8 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
     : await inlineImages(withWidths, opts.baseDir, opts.readBytes);
   const withCaptions = applyFigcaptions(applyTableCaptions(withImages));
   const sanitized = await sanitize(withCaptions);
+  // 문서 앞 목차(정적) — DOCX의 TOC/lof/lot 필드와 같은 자리.
+  const front = opts.frontLists ? buildFrontLists(sanitized, opts.frontLists) : "";
   const marginCss = opts.forPdf
     ? `body{margin:${opts.marginMm ?? 14}mm !important;}` +
       `html{font-size:${(16 * (opts.scale ?? 1)).toFixed(1)}px;}`
@@ -518,7 +569,7 @@ ${marginCss}
 <body>
 ${chrome.body}
 ${opts.forPdf ? "" : `<header class="doc-header"><h1>${escapeHtml(opts.title)}</h1></header>`}
-<article class="markdown-body">
+${front}<article class="markdown-body">
 ${sanitized}
 </article>
 ${chrome.script ? `<script id="iyagi-pdf-chrome" type="text/plain">
@@ -571,6 +622,12 @@ body{margin:0 auto;padding:24px 16px;max-width:820px;font-family:-apple-system,B
 .markdown-body th{background:${c.codeBg};font-weight:600;}
 .markdown-body img{max-width:100%;border-radius:6px;}
 .markdown-body figure{margin:1.2em 0;text-align:center;}
+.doc-front{margin:1.4em 0;padding:14px 18px;border:1px solid rgba(127,127,127,.18);border-radius:10px;}
+.doc-front h2{margin:0 0 8px;font-size:1.05em;}
+.doc-front ol{margin:0;padding-left:20px;}
+.doc-front li{margin:3px 0;}
+.doc-front .fl-l2{margin-left:14px;}
+.doc-front .fl-l3{margin-left:28px;}
 .markdown-body figcaption{font-size:.85em;color:#8a919c;margin-top:.45em;}
 .markdown-body figure.tbl-fig{margin:1.2em 0;}
 .markdown-body figure.tbl-fig table{margin:0;}

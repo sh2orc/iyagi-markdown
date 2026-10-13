@@ -12,7 +12,7 @@ export function applyTableCaptions(html: string): string {
       const text = cap.trim();
       if (!text) return `${table}${gap}<p>:</p>`;
       n += 1;
-      return `<figure class="tbl-fig">${table}<figcaption>표 ${n} — ${cap}</figcaption></figure>`;
+      return `<figure class="tbl-fig" id="tbl-${n}">${table}<figcaption>표 ${n} — ${cap}</figcaption></figure>`;
     },
   );
 }

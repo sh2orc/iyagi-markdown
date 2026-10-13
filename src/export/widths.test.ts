@@ -101,7 +101,7 @@ describe("applyTableCaptions / tableCaptionLines", () => {
     const out = applyTableCaptions(html);
     expect(out).toContain("<figcaption>표 1 — 첫 표 캡션</figcaption>");
     expect(out).toContain("<figcaption>표 2 — 둘째</figcaption>");
-    expect(out).toContain('<figure class="tbl-fig">');
+    expect(out).toContain('<figure class="tbl-fig" id="tbl-1">');
     expect(out).not.toContain("<p>: ");
   });
 
@@ -116,5 +116,31 @@ describe("applyTableCaptions / tableCaptionLines", () => {
     const md = "| a |\n|---|\n| 1 |\n: 캡션\n";
     expect(tableCaptionLines(md)).toEqual([{ line: 4, text: "캡션" }]);
     expect(tableCaptionLines("그냥 텍스트")).toEqual([]);
+  });
+});
+
+describe("buildFrontLists — 정적 목차", () => {
+  it("제목 목차 — id 링크와 들여쓰기 클래스", async () => {
+    const { buildFrontLists } = await import("./html");
+    const html = `<h1 id="a">개요</h1><h2 id="b">배경</h2><h3 id="c">실험</h3>`;
+    const out = buildFrontLists(html, { toc: true, lof: false, lot: false });
+    expect(out).toContain('<a href="#a">개요</a>');
+    expect(out).toContain('class="fl-l2"');
+    expect(out).toContain('class="fl-l3"');
+  });
+
+  it("그림·표 목차 — 캡션 id 링크", async () => {
+    const { buildFrontLists } = await import("./html");
+    const html = `<figure id="fig-1"><img src="x"><figcaption>그림 1 — 설명</figcaption></figure><figure class="tbl-fig" id="tbl-1"><table></table><figcaption>표 1 — 요약</figcaption></figure>`;
+    const out = buildFrontLists(html, { toc: false, lof: true, lot: true });
+    expect(out).toContain('href="#fig-1"');
+    expect(out).toContain("그림 1 — 설명");
+    expect(out).toContain('href="#tbl-1"');
+    expect(out).toContain("표 1 — 요약");
+  });
+
+  it("항목 없으면 빈 문자열", async () => {
+    const { buildFrontLists } = await import("./html");
+    expect(buildFrontLists("<p>본문</p>", { toc: true, lof: true, lot: true })).toBe("");
   });
 });

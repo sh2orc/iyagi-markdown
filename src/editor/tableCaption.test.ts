@@ -21,7 +21,7 @@ describe("applyTableCaptions(HTML 변환)", () => {
   it("표+<p>: 캡션</p>을 figure/figcaption으로 — 번호 매김", () => {
     const html = "<table><tr><td>a</td></tr></table>\n<p>: 첫 표</p>\n<p>본문</p>";
     const out = applyTableCaptions(html);
-    expect(out).toContain('<figure class="tbl-fig">');
+    expect(out).toContain('<figure class="tbl-fig" id="tbl-1">');
     expect(out).toContain("<figcaption>표 1 — 첫 표</figcaption>");
     expect(out).not.toContain("<p>: 첫 표</p>");
   });
