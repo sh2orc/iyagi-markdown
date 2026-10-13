@@ -28,6 +28,7 @@ import { invalidateLinkPreviews, ttsTextOf } from "../editor/linkPreview";
 import { phrases } from "./phrases";
 import { buildWikiIndex } from "../editor/wiki";
 import { dirname } from "../paths";
+import { hunksOf } from "../components/TrackPanel";
 
 export interface Tab {
   id: string;
@@ -632,6 +633,26 @@ export class AppStore {
       this.emit();
       this.toast(t0("변경을 모두 수락했습니다", "All changes accepted"));
     } catch { /* 무시 */ }
+  }
+
+  /** 다음/이전 변경으로 점프(Word 검토 '다음 변경'). */
+  nextChange(forward: boolean): void {
+    const tab = this.active;
+    const view = this.view;
+    if (!tab || tab.baselineText == null || !view) return;
+    const hunks = hunksOf(tab.baselineText, view.state.doc.toString());
+    if (hunks.length === 0) {
+      this.toast(t0("변경이 없습니다", "No changes"));
+      return;
+    }
+    const cur = view.state.selection.main.head;
+    const curLine = view.state.doc.lineAt(cur).number;
+    // 커서 줄 기준 다음(또는 이전) 덩어리 — 순환(마지막 뒤는 처음).
+    const target = forward
+      ? (hunks.find((h: { line: number }) => h.line > curLine)?.line ?? hunks[0]!.line)
+      : ([...hunks].reverse().find((h: { line: number }) => h.line < curLine)?.line ?? hunks[hunks.length - 1]!.line);
+    const line = view.state.doc.line(Math.min(Math.max(target, 1), view.state.doc.lines));
+    view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
   }
 
   /** 변경 추적 중지 — 베이스라인 폐기. */

@@ -66,14 +66,14 @@ describe("revertChange", () => {
   });
 
   it("del 덩어리 — 그 위치에 베이스라인 텍스트 재삽입", () => {
-    const h = { kind: "del", line: 2, lines: 1, preview: "b", fromLine: 0, toLine: 0, restore: "b" };
+    const h = { kind: "del" as const, line: 2, lines: 1, preview: "b", fromLine: 0, toLine: 0, restore: "b" };
     const c = revertChange(h, line, 4);
     expect(c?.insert).toBe("b");
     expect(c?.from).toBe(c?.to); // 순수 삽입
   });
 
   it("경계 밖은 null", () => {
-    const h = { kind: "add", line: 9, lines: 1, preview: "", fromLine: 9, toLine: 9, restore: "" };
+    const h = { kind: "add" as const, line: 9, lines: 1, preview: "", fromLine: 9, toLine: 9, restore: "" };
     expect(revertChange(h, line, 4)).toBeNull();
   });
 });

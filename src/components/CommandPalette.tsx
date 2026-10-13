@@ -200,6 +200,8 @@ export function CommandPalette({
       { id: "track-start", label: `${t.scReview}: ${t.trackStart}`, run: () => void store.startTracking() },
       { id: "track-accept", label: `${t.scReview}: ${t.trackAccept}`, run: () => void store.acceptAllChanges() },
       { id: "track-stop", label: `${t.scReview}: ${t.trackStop}`, run: () => void store.stopTracking() },
+      { id: "track-next", label: `${t.scReview}: ${t.trackNext}`, run: () => store.nextChange(true) },
+      { id: "track-prev", label: `${t.scReview}: ${t.trackPrev}`, run: () => store.nextChange(false) },
       { id: "tw-toggle", label: `${t.scView}: ${t.setTypewriter}`, run: () => store.toggleTypewriter() },
       { id: "focus-toggle", label: `${t.scView}: ${t.setFocusMode}`, run: () => store.toggleFocusMode() },
       { id: "sentence-toggle", label: `${t.scView}: ${t.setFocusSentence}`, run: () => store.toggleSentenceFocus() },
