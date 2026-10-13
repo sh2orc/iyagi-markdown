@@ -131,8 +131,9 @@ export function App(): JSX.Element {
   const [brokenOpen, setBrokenOpen] = useState(false);
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
-  const [exportPageNumbers, setExportPageNumbers] = useState(true);
-  const [exportHeader, setExportHeader] = useState(true);
+  // 내보내기 토글·옵션은 설정에 산다 — 재시작에도 유지(Word 인쇄 설정 기억).
+  const setExportPageNumbers = (v: boolean) => updateSettings(store, { exportPageNumbers: v });
+  const setExportHeader = (v: boolean) => updateSettings(store, { exportHeader: v });
   const [symbolOpen, setSymbolOpen] = useState(false);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
 
@@ -472,11 +473,11 @@ export function App(): JSX.Element {
             style: exportStyleOf(tab),
             imageWidths,
             tableWidths,
-            pdfHeader: exportHeader ? docTitle : null,
+            pdfHeader: state.settings.exportHeader ? docTitle : null,
             readBytes: readBytesForExport,
             wikiResolve,
           });
-          await api.exportPdf(html, { ...opts, pageNumbers: exportPageNumbers }, out);
+          await api.exportPdf(html, { ...opts, pageNumbers: state.settings.exportPageNumbers }, out);
         } else if (kind === "epub") {
           // EPUB — 본문 조각을 XHTML로(빈 태그 자가 폐쇄) + 최소 가독 CSS.
           // 이미지는 data URI로 인라인하지 않는다 — 로컬 경로를 그대로 두면
@@ -516,15 +517,24 @@ export function App(): JSX.Element {
             firstLineIndent: ds?.firstLineIndent ?? false,
             textAlign: ds?.textAlign ?? "left",
             accent: ds?.accent ?? null,
-            pageNumbers: exportPageNumbers,
+            pageNumbers: state.settings.exportPageNumbers,
           };
           manifest.imageWidths = imageWidths;
           manifest.tableWidths = tableWidths;
           if (metaTitle) manifest.title = metaTitle;
           if (metaAuthor) manifest.author = metaAuthor;
           if (fm?.toc) manifest.toc = true;
-          if (exportHeader) manifest.headerTitle = docTitle;
+          if (state.settings.exportHeader) manifest.headerTitle = docTitle;
           await api.exportDocx(text, manifest, out, baseDir);
+        }
+        // 마지막 옵션 저장(재시작 유지) — PDF 옵션은 pdf에만 있고 docx는 토글만.
+        if (kind === "pdf" || kind === "epub") {
+          updateSettings(store, {
+            exportPaper: opts.paper,
+            exportLandscape: opts.orientation === "landscape",
+            exportMarginMm: opts.marginMm,
+            exportScale: opts.scale,
+          });
         }
         store.setBusy(null);
         store.toast(t.f.exportDone(`${name}.${ext}`));
@@ -982,10 +992,16 @@ export function App(): JSX.Element {
         <ExportSheet
           kind={state.exportKind}
           t={t}
-          pageNumbers={exportPageNumbers}
+          pageNumbers={state.settings.exportPageNumbers}
           onTogglePageNumbers={setExportPageNumbers}
-          pdfHeader={exportHeader}
+          pdfHeader={state.settings.exportHeader}
           onTogglePdfHeader={setExportHeader}
+          saved={{
+            paper: state.settings.exportPaper,
+            landscape: state.settings.exportLandscape,
+            margin: state.settings.exportMarginMm,
+            scale: state.settings.exportScale,
+          }}
           onRun={(kind, opts) => {
             store.setExportKind(null);
             void runExport(kind, opts);
@@ -1115,6 +1131,11 @@ export function App(): JSX.Element {
         <PrintPreview
           store={store}
           t={t}
+          saved={{
+            paper: state.settings.exportPaper,
+            margin: state.settings.exportMarginMm,
+            scale: state.settings.exportScale,
+          }}
           onExport={(kind, opts) => {
             setPrintOpen(false);
             void runExport(kind, opts);

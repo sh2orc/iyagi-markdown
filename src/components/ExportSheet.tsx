@@ -15,6 +15,8 @@ interface Props {
   /** PDF 머리글(문서 제목) 표시 — pdfKind에서만 노출. */
   pdfHeader?: boolean;
   onTogglePdfHeader?: (v: boolean) => void;
+  /** 마지막 내보내기 옵션(설정에서 복원). */
+  saved?: { paper: "a4" | "letter" | "a5"; landscape: boolean; margin: number; scale: number };
 }
 
 export interface PdfOptions {

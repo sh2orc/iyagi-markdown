@@ -73,6 +73,31 @@ pub struct Settings {
     /// 네이티브 맞춤법 검사(contenteditable spellcheck — 시스템 적색 물결).
     #[serde(default)]
     pub spellcheck: bool,
+    /// 마지막 내보내기 옵션(재시작에도 유지 — Word 인쇄 설정 기억).
+    #[serde(default = "default_paper")]
+    pub export_paper: String,
+    #[serde(default)]
+    pub export_landscape: bool,
+    #[serde(default = "default_margin_mm")]
+    pub export_margin_mm: f64,
+    #[serde(default = "default_scale")]
+    pub export_scale: f64,
+    #[serde(default = "default_true")]
+    pub export_page_numbers: bool,
+    #[serde(default = "default_true")]
+    pub export_header: bool,
+}
+
+fn default_paper() -> String {
+    "a4".into()
+}
+
+fn default_margin_mm() -> f64 {
+    14.0
+}
+
+fn default_scale() -> f64 {
+    1.0
 }
 
 fn default_tts_rate() -> u32 {

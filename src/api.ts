@@ -51,6 +51,13 @@ export interface Settings {
   ttsVoice: string;
   /** 네이티브 맞춤법 검사. */
   spellcheck: boolean;
+  /** 마지막 내보내기 옵션(재시작에도 유지 — Word 인쇄 설정 기억). */
+  exportPaper: "a4" | "letter" | "a5";
+  exportLandscape: boolean;
+  exportMarginMm: number;
+  exportScale: number;
+  exportPageNumbers: boolean;
+  exportHeader: boolean;
 }
 
 export interface SessionTab {

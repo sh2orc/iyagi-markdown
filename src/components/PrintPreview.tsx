@@ -14,14 +14,22 @@ interface Props {
   t: Translate;
   onExport: (kind: "pdf", opts: PdfOptions) => void;
   onCancel: () => void;
+  /** 마지막 내보내기 옵션(설정에서 복원). */
+  saved?: { paper: "a4" | "letter" | "a5"; margin: number; scale: number };
 }
 
-export function PrintPreview({ store, t, onExport, onCancel }: Props): JSX.Element | null {
+export function PrintPreview({
+  store,
+  t,
+  onExport,
+  onCancel,
+  saved,
+}: Props): JSX.Element | null {
   const tab = store.active;
   const [html, setHtml] = useState<string | null>(null);
-  const [paper, setPaper] = useState<"a4" | "letter" | "a5">("a4");
-  const [margin, setMargin] = useState(14);
-  const [scale, setScale] = useState(1);
+  const [paper, setPaper] = useState<"a4" | "letter" | "a5">(saved?.paper ?? "a4");
+  const [margin, setMargin] = useState(saved?.margin ?? 14);
+  const [scale, setScale] = useState(saved?.scale ?? 1);
   // 옵션(용지·여백·배율) 바뀌면 재렌더 — 연속 조절에 프레임을 태우지
   // 않게 디바운스.
   const [renderKey, setRenderKey] = useState(0);
