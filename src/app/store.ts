@@ -22,7 +22,7 @@ import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, t
 import { applyWriting, spellcheckComp, spellcheckExtension } from "../editor/writing";
 import { applySmartPunct } from "../editor/smartPunct";
 import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
-import { ttsTextOf } from "../editor/linkPreview";
+import { invalidateLinkPreviews, ttsTextOf } from "../editor/linkPreview";
 import { phrases } from "./phrases";
 import { buildWikiIndex } from "../editor/wiki";
 import { dirname } from "../paths";
@@ -549,6 +549,8 @@ export class AppStore {
       tab.dirty = false;
       tab.conflict = null;
       this.lastSavedAt = Date.now();
+      // 자가 쓰기는 fs 이벤트가 스킵된다 — 호버 미리보기 캐시를 여기서 무효화.
+      invalidateLinkPreviews(path);
       this.emit();
       void this.syncWatch();
       this.scheduleSessionSave();
