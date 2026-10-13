@@ -50,8 +50,10 @@ export const editorTheme = EditorView.theme({
   ".cm-activeLine": { backgroundColor: "transparent" },
 
   // — 문단: 컴팩트(빈 줄이 리듬을 맡는다) — 문서별 간격 설정 지원.
+  // 문단 줄 — padding 없음: 모든 텍스트 줄이 순수 행간으로 동일 높이.
+  // (문단 padding은 줄바꿈 줄마다 걸려 빈 줄과 어긋나고 CM 높이 측정도
+  // 흔들었음 — 2026-10-13 사용자 보고. 문단 사이 여백은 빈 줄이 담당.)
   ".md-para": {
-    paddingBottom: "var(--md-para-space, 0.15em)",
     // 한국어 문서 관례의 첫 줄 들여쓰기(문서 스타일 옵션).
     textIndent: "var(--md-text-indent, 0em)",
     textAlign: "var(--md-text-align, left)",
