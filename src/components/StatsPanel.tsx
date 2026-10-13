@@ -2,7 +2,7 @@
 // 스토어의 증분 카운터 + 문단·제목·표·읽기 시간은 여는 순간에만 계산한다.
 
 import type { AppStore } from "../app/store";
-import { sentenceSpans } from "../editor/writing";
+import { sentenceLengthStats, sentenceSpans } from "../editor/writing";
 import { stripFrontMatter } from "../editor/frontmatter";
 import type { Translate } from "../i18n";
 import { collectHeadings } from "../links";
@@ -33,6 +33,15 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
   const spans = sentenceSpans(body);
   const sentences = spans.length;
   const avgSentenceLen = sentences > 0 ? body.replace(/\s+/g, " ").length / sentences : 0;
+  // 문장 길이 분포(가독성 진단 — Word 읽기 쉬운 정도 지표의 대응물).
+  const sls = sentenceLengthStats(body);
+  const bucketMax = Math.max(1, ...sls.buckets);
+  const bucketRows: Array<[string, number, string]> = [
+    [t.statShort, sls.buckets[0], "b-short"],
+    [t.statNormal, sls.buckets[1], "b-normal"],
+    [t.statLong, sls.buckets[2], "b-long"],
+    [t.statVeryLong, sls.buckets[3], "b-vlong"],
+  ];
 
   const rows: Array<[string, string]> = [
     [t.f.words(tab.words), String(tab.words)],
@@ -64,6 +73,24 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
             ))}
           </tbody>
         </table>
+        {sentences > 0 && (
+          <div className="sentence-dist">
+            <div className="sidebar-subtitle">{t.statSentenceDist}</div>
+            {bucketRows.map(([label, n, cls]) => (
+              <div key={cls} className="sd-row">
+                <span className="sd-label">{label}</span>
+                <span className="sd-bar-wrap">
+                  <span className={`sd-bar ${cls}`} style={{ width: `${(n / bucketMax) * 100}%` }} />
+                </span>
+                <span className="sd-count">{n}</span>
+              </div>
+            ))}
+            <div className="sd-note">
+              {t.statLongMost} {sls.longest}{t.statChars}
+              {sls.longCount > 0 && ` · ${sls.longCount} ${t.statLongWarn}`}
+            </div>
+          </div>
+        )}
         <div className="modal-actions">
           <button className="btn btn-primary" onClick={onClose}>
             {t.done}

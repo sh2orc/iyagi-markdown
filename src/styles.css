@@ -2377,3 +2377,16 @@ body.resizing .toc {
   border: 1px solid var(--md-border);
   border-radius: 5px; padding: 1px 6px;
 }
+
+/* — 문장 길이 분포(통계 패널) — */
+.sentence-dist { padding: 4px 20px 0; }
+.sd-row { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+.sd-label { flex: none; width: 52px; font-size: 11.5px; color: var(--md-fg-dim); }
+.sd-bar-wrap { flex: 1; height: 10px; border-radius: 5px; background: var(--md-code-bg); overflow: hidden; }
+.sd-bar { display: block; height: 100%; border-radius: 5px; min-width: 2px; transition: width 0.3s ease; }
+.sd-bar.b-short { background: rgba(63, 145, 68, 0.55); }
+.sd-bar.b-normal { background: var(--md-accent); }
+.sd-bar.b-long { background: rgba(210, 130, 30, 0.75); }
+.sd-bar.b-vlong { background: var(--md-error, #c53030); }
+.sd-count { flex: none; width: 34px; text-align: right; font-size: 11.5px; color: var(--md-fg-dim); font-variant-numeric: tabular-nums; }
+.sd-note { margin-top: 8px; font-size: 11.5px; color: var(--md-fg-dim); }

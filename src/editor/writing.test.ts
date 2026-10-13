@@ -10,7 +10,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import { languages } from "@codemirror/language-data";
 
-import { computeDimRanges, sentenceSpans } from "./writing";
+import { computeDimRanges, sentenceLengthStats, sentenceSpans } from "./writing";
 import { mathSyntax } from "./mathSyntax";
 
 const parse = (doc: string) => {
@@ -96,3 +96,25 @@ describe("sentenceSpans · 문장 포커스", { retry: 1 }, () => {
   });
 });
 const DOC2 = "첫 문장. 둘째 문장.\n\n다른 블록.\n";
+
+// — 문장 길이 분포(통계 패널 가독성 진단) —
+describe("sentenceLengthStats", () => {
+  it("버킷 분류·최장·긴 문장 수", () => {
+    const short = "짧은 문장이다."; // 공백 제외 7자
+    const normal = "보통 길이의 문장으로 여러 단어가 이어지는 경우를 말한다 하겠다."; // ~30자
+    const long = "긴 문장".padEnd(70, "내용") + "이다."; // 60+
+    const veryLong = "아주 긴 문장".padEnd(110, "서술") + "이다."; // 100+
+    const st = sentenceLengthStats([short, normal, long, veryLong].join(" "));
+    expect(st.total).toBe(4);
+    expect(st.buckets[0]).toBeGreaterThanOrEqual(1);
+    expect(st.longCount).toBeGreaterThanOrEqual(2);
+    expect(st.longest).toBeGreaterThanOrEqual(100);
+  });
+
+  it("빈 텍스트는 전부 0", () => {
+    const st = sentenceLengthStats("");
+    expect(st.total).toBe(0);
+    expect(st.longest).toBe(0);
+    expect(st.buckets).toEqual([0, 0, 0, 0]);
+  });
+});

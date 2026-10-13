@@ -91,6 +91,33 @@ export function sentenceSpans(text: string): Array<[number, number]> {
   return spans.filter(([a, b]) => b > a);
 }
 
+/** 문장 길이 진단 — 분포 버킷(짧음·보통·김·아주 김)과 최장. 순수 함수.
+ *  한국어 기준: 30자 미만 짧음, 30~59 보통, 60~99 김, 100+ 아주 김. */
+export interface SentenceLengthStats {
+  total: number;
+  longest: number;
+  /** [짧음, 보통, 김, 아주 김] 문장 수. */
+  buckets: [number, number, number, number];
+  /** 60자 이상 문장 수(가독성 경고 지표). */
+  longCount: number;
+}
+
+export function sentenceLengthStats(text: string): SentenceLengthStats {
+  const buckets: [number, number, number, number] = [0, 0, 0, 0];
+  let longest = 0;
+  for (const [a, b] of sentenceSpans(text)) {
+    // 길이는 공백 제거 — 부피로 재는 경향 보정.
+    const len = text.slice(a, b).replace(/\s+/g, "").length;
+    if (len > longest) longest = len;
+    if (len < 30) buckets[0]++;
+    else if (len < 60) buckets[1]++;
+    else if (len < 100) buckets[2]++;
+    else buckets[3]++;
+  }
+  const longCount = buckets[2] + buckets[3];
+  return { total: buckets[0] + buckets[1] + buckets[2] + buckets[3], longest, buckets, longCount };
+}
+
 export function writingExtension(conf: WritingConf): Extension {
   const exts: Extension[] = [writingConf.of(conf)];
   if (!conf.active) return exts;
