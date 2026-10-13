@@ -441,6 +441,29 @@ mod replace_tests {
         assert_eq!(fs::read(d.join("a.md")).unwrap(), b"\xEF\xBB\xBFx\r\nbar\r\n");
         let _ = fs::remove_dir_all(&d);
     }
+
+    #[test]
+    fn update_wiki_links_propagates() {
+        let dir = std::env::temp_dir().join(format!("md-core-wiki-upd-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "링크 [[b]] 와 [[b|표시]] 와 [[b#앵커]] 와 [[c]]\n").unwrap();
+        std::fs::write(dir.join("b.md"), "자기 참조 아님, [[a]]는 유지\n").unwrap();
+        std::fs::write(dir.join("fence.md"), "```\n[[b]]\n```\n[[b]]\n").unwrap();
+        let n = update_wiki_links(&dir, "b", "새이름").unwrap();
+        assert_eq!(n, 4);
+        let a = std::fs::read_to_string(dir.join("a.md")).unwrap();
+        assert!(a.contains("[[새이름]]"));
+        assert!(a.contains("[[새이름|표시]]"));
+        assert!(a.contains("[[새이름#앵커]]"));
+        assert!(a.contains("[[c]]"));
+        let b = std::fs::read_to_string(dir.join("b.md")).unwrap();
+        assert!(b.contains("[[a]]"));
+        let f = std::fs::read_to_string(dir.join("fence.md")).unwrap();
+        assert!(f.lines().nth(1).unwrap().contains("[[b]]"));
+        assert!(f.lines().nth(3).unwrap().contains("[[새이름]]"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// 고아 자원(이미지) 정보.
@@ -588,4 +611,87 @@ fn find_wiki_close(line: &str, from: usize) -> Option<usize> {
         }
     }
     None
+}
+
+/// 이름 변경 전파 — 워크스페이스의 [[from]](·[[from|표시]]·[[from#앵커]])를
+/// [[to]]로 고치고 원자적으로 저장(메타 보존). 갱신된 링크 수 반환.
+/// 대상은 정확히 일치하는 스템만(본문의 우연한 같은 단어는 건드리지 않음).
+pub fn update_wiki_links(root: &Path, from: &str, to: &str) -> std::io::Result<u32> {
+    let mut files = Vec::new();
+    collect_files(root, 0, 12, &mut files);
+    let mut total = 0u32;
+    for path in files {
+        let doc = match crate::io::read_doc(&path) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        let (text, meta) = (doc.text, doc.meta);
+        let mut out = String::with_capacity(text.len() + 64);
+        let mut changed = 0u32;
+        let mut in_fence = false;
+        let mut fence = "";
+        let mut first = true;
+        for line in text.split('\n') {
+            if !first {
+                out.push('\n');
+            }
+            first = false;
+            let t = line.trim_start();
+            if let Some(c) = t.chars().next() {
+                if (c == '`' || c == '~') && t.len() >= 3 && t.chars().all(|x| x == c) {
+                    if !in_fence {
+                        in_fence = true;
+                        fence = &t[..3];
+                    } else if &t[..3] == fence {
+                        in_fence = false;
+                    }
+                }
+            }
+            if in_fence || t.starts_with("```") || t.starts_with("~~~") {
+                out.push_str(line);
+                continue;
+            }
+            out.push_str(&replace_line_wiki_links(line, from, to, &mut changed));
+        }
+        if changed > 0 {
+            if let Err(e) = crate::io::write_doc_atomic(&path, &out, meta.clone()) {
+                return Err(std::io::Error::other(e.to_string()));
+            }
+            total += changed;
+        }
+    }
+    Ok(total)
+}
+
+/// 한 줄의 [[from…]] 대상만 to로 치환(표시·앵커는 보존).
+fn replace_line_wiki_links(line: &str, from: &str, to: &str, changed: &mut u32) -> String {
+    let bytes = line.as_bytes();
+    let mut out = String::with_capacity(line.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if i + 1 < bytes.len() && bytes[i] == b'[' && bytes[i + 1] == b'[' {
+            if let Some(close) = find_wiki_close(line, i + 2) {
+                let inner = &line[i + 2..close];
+                let target = inner.split('|').next().unwrap_or(inner);
+                let target = target.split('#').next().unwrap_or(target).trim();
+                if target == from {
+                    // 대상 부분만 교체 — 이후 |·# 그대로.
+                    let after = &inner[target.len()..];
+                    out.push_str("[[");
+                    out.push_str(to);
+                    out.push_str(after);
+                    out.push_str("]]");
+                    *changed += 1;
+                    i = close + 2;
+                    continue;
+                }
+            }
+        }
+        // 바이트 단위가 아니라 문자 단위로 전진(한글 등 멀티바이트 경계 보존).
+        let ch = line[i..].chars().next().unwrap_or('\u{0}');
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+
 }
