@@ -97,6 +97,20 @@ export class DiagramWidget extends WidgetType {
       // 높이가 확정되는 비동기 채움 뒤 재측정(뷰포트 계산이 갱신되게).
       if (view.dom.isConnected) view.requestMeasure();
     });
+    // 클릭 → 커서를 펜스 코드로 — 원문 노출로 즉석 편집(클릭=편집, 104-105차 규칙).
+    wrap.addEventListener("mousedown", (e: Event) => {
+      if ((e as MouseEvent).button !== 0) return;
+      e.preventDefault();
+      const pos = view.posAtDOM(wrap);
+      const doc = view.state.doc;
+      const line = doc.lineAt(pos);
+      // 펜스 시작 줄 다음(코드 첫 줄)으로.
+      view.dispatch({
+        selection: { anchor: Math.min(line.to + 1, doc.length) },
+        scrollIntoView: true,
+      });
+      view.focus();
+    });
     return wrap;
   }
 
@@ -606,9 +620,17 @@ export class FrontMatterWidget extends WidgetType {
     return other.yaml === this.yaml;
   }
 
-  toDOM() {
+  toDOM(view: EditorView) {
     const wrap = document.createElement("div");
     wrap.className = "md-frontmatter-panel";
+    // 클릭 → 커서를 YAML 원문으로(메타 편집 — 클릭=편집 규칙).
+    wrap.addEventListener("mousedown", (e: Event) => {
+      if ((e as MouseEvent).button !== 0) return;
+      e.preventDefault();
+      const pos = view.posAtDOM(wrap);
+      view.dispatch({ selection: { anchor: Math.min(pos + 1, view.state.doc.length) }, scrollIntoView: true });
+      view.focus();
+    });
     for (const [k, v] of parseFrontMatter(this.yaml)) {
       const row = wrap.appendChild(document.createElement("div"));
       row.className = "fm-row";
