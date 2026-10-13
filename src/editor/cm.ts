@@ -5,6 +5,7 @@
 // "보기"일 뿐이므로 전환에 변환이 없다(§0 D4/D5).
 
 import { searchKeymap } from "@codemirror/search";
+import { looksLikeTsv, tsvToTable } from "./tsvTable";
 import { trackChanges } from "./trackChanges";
 import { occurrenceHighlight } from "./occurrences";
 import { copyFormat, pasteFormat } from "./formatPainter";
@@ -427,6 +428,16 @@ function baseExtensions(): Extension[] {
           view.dispatch({
             changes: { from: sel.from, to: sel.to, insert: `[${selected}](${text.trim()})` },
             userEvent: "input.pasteLink",
+          });
+          return true;
+        }
+        // TSV(엑셀·시트) → 마크다운 표(Word가 엑셀 표를 표로 붙이듯).
+        // 서식 없는 HTML이 있는 경우(시트 복사) text/html 경로가 이긴다.
+        if (!plainPasteQueued && looksLikeTsv(text)) {
+          event.preventDefault();
+          view.dispatch({
+            changes: { from: sel.from, to: sel.to, insert: `${tsvToTable(text)}\n` },
+            userEvent: "input.pasteTable",
           });
           return true;
         }
