@@ -545,6 +545,8 @@ export function App(): JSX.Element {
           if (metaTitle) manifest.title = metaTitle;
           if (metaAuthor) manifest.author = metaAuthor;
           if (fm?.toc) manifest.toc = true;
+          if (fm?.lof) manifest.lof = true;
+          if (fm?.lot) manifest.lot = true;
           if (state.settings.exportHeader) manifest.headerTitle = docTitle;
           await api.exportDocx(text, manifest, out, baseDir);
         }

@@ -44,6 +44,8 @@ $$x^2 + \frac{1}{2}$$
             title: Some("예제 문서"),
             author: Some("iyagi"),
             toc: true,
+            lof: true,
+            lot: true,
             header_title: Some("예제 문서"),
             highlight: Some("FFD60A"),
             comments: &[(2, "예제 메모".into())],

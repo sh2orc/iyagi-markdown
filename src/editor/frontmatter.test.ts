@@ -124,3 +124,12 @@ describe("frontMatterMeta toc", { retry: 1 }, () => {
     expect(frontMatterMeta("---\ntitle: 문서\ntoc: false\n---\n")?.toc).toBeUndefined();
   });
 });
+
+describe("frontMatterMeta lof/lot", () => {
+  it("그림 목차·표 목차 플래그", () => {
+    const m = frontMatterMeta("---\nlof: true\nlot: yes\n---\n");
+    expect(m?.lof).toBe(true);
+    expect(m?.lot).toBe(true);
+    expect(frontMatterMeta("---\nlof: no\n---\n")?.lof).toBeUndefined();
+  });
+});

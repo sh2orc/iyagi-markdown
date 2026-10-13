@@ -30,6 +30,10 @@ export interface FrontMatterMeta {
   date: string;
   /** 네이티브 목차 요청(toc: true / toc: yes / toc: 1). */
   toc: boolean;
+  /** 그림 목차(lof: true) — 캡션 SEQ Figure 목록. */
+  lof: boolean;
+  /** 표 목차(lot: true) — 캡션 SEQ Table 목록. */
+  lot: boolean;
 }
 
 /** 프론트매터에서 title/author/date 추출(대소문자 무시). 없으면 null. */
@@ -45,8 +49,12 @@ export function frontMatterMeta(text: string): Partial<FrontMatterMeta> | null {
     else if ((key === "author" || key === "authors") && !out.author) out.author = v;
     else if (key === "date" && !out.date) out.date = v;
     else if (key === "toc") out.toc = /^(true|yes|1)$/i.test(v);
+    else if (key === "lof") out.lof = /^(true|yes|1)$/i.test(v);
+    else if (key === "lot") out.lot = /^(true|yes|1)$/i.test(v);
   }
   if (!out.toc) delete out.toc;
+  if (!out.lof) delete out.lof;
+  if (!out.lot) delete out.lot;
   return Object.keys(out).length > 0 ? out : null;
 }
 

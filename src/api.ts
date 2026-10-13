@@ -124,6 +124,9 @@ export interface DocxManifest {
   author?: string;
   /** 네이티브 목차(TOC 필드). */
   toc?: boolean;
+  /** 그림 목차 / 표 목차. */
+  lof?: boolean;
+  lot?: boolean;
   /** 머리글 문서 제목(Some이면 매 페이지 상단). */
   headerTitle?: string;
   /** 문서 메모(본문 기준 줄 번호) — Word 원생 메모로. */

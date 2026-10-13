@@ -462,6 +462,11 @@ pub struct DocxManifest {
     /// 네이티브 목차(TOC 필드) 삽입 — 프런트매터 toc: true.
     #[serde(default)]
     pub toc: bool,
+    /// 그림 목차 / 표 목차 — 프런트매터 lof/lot.
+    #[serde(default)]
+    pub lof: bool,
+    #[serde(default)]
+    pub lot: bool,
     /// 문서 메모(줄 앵커) — Word 원생 메모로 내보냄.
     #[serde(default)]
     pub comments: Vec<(u32, String)>,
@@ -532,6 +537,8 @@ pub fn export_docx(
             title: manifest.title.as_deref(),
             author: manifest.author.as_deref(),
             toc: manifest.toc,
+            lof: manifest.lof,
+            lot: manifest.lot,
             header_title: manifest.header_title.as_deref(),
             highlight: manifest.style.as_ref().and_then(|s| s.highlight.as_deref()),
             comments: &manifest.comments,
