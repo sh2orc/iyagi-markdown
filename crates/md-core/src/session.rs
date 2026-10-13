@@ -42,6 +42,9 @@ pub struct SessionState {
     pub active: Option<String>,
     /// 사이드바 폴더(있으면 열림 상태로 복원).
     pub workspace: Option<String>,
+    /// 참조 보기로 고정한 문서 경로(없으면 닫힘).
+    #[serde(default)]
+    pub pinned_path: Option<String>,
     #[serde(default = "default_true")]
     pub sidebar_open: bool,
     #[serde(default = "default_sidebar_width")]
@@ -82,6 +85,7 @@ impl Default for SessionState {
             tabs: Vec::new(),
             active: None,
             workspace: None,
+            pinned_path: None,
             sidebar_open: true,
             sidebar_width: default_sidebar_width(),
             toc_open: false,
@@ -147,6 +151,7 @@ mod tests {
         assert_eq!(load(&path).unwrap(), SessionState::default());
         let state = SessionState {
             version: SESSION_VERSION,
+            pinned_path: None,
             tabs: vec![SessionTab {
                 path: Some("/tmp/a.md".into()),
                 mode: ViewMode::Read,

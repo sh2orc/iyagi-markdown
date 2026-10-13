@@ -83,6 +83,8 @@ export interface SessionState {
   tabs: SessionTab[];
   active: string | null;
   workspace: string | null;
+  /** 참조 보기로 고정한 문서 경로. */
+  pinnedPath?: string | null;
   sidebarOpen: boolean;
   sidebarWidth: number;
   tocOpen: boolean;

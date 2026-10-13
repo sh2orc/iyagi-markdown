@@ -154,6 +154,11 @@ export function App(): JSX.Element {
   const [imgEditPos, setImgEditPos] = useState<number | null>(null);
   /** 참조 보기 — 옆에 고정한 탭(읽기 전용 iframe 렌더). */
   const [pinnedTabId, setPinnedTabId] = useState<string | null>(null);
+  // 세션 복원으로 스토어가 지정하면 화면에 반영.
+  useEffect(() => {
+    if (store.pinnedTabId && store.pinnedTabId !== pinnedTabId) setPinnedTabId(store.pinnedTabId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.pinnedTabId]);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -263,6 +268,12 @@ export function App(): JSX.Element {
         /* 무시 */
       }
       if (store.state.tabs.length === 0) store.newTab();
+      // 참조 보기 복원 — 경로로 탭 id 해소.
+      if (store.pendingPinnedPath) {
+        const t = store.state.tabs.find((x) => x.path === store.pendingPinnedPath);
+        if (t) store.pinnedTabId = t.id;
+        store.pendingPinnedPath = null;
+      }
       store.state.ready = true;
       store.activate(store.state.activeId ?? store.state.tabs[0]?.id ?? "");
       void api.appReady().catch(() => {});
@@ -997,7 +1008,11 @@ export function App(): JSX.Element {
             const idx = state.tabs.findIndex((x) => x.id === tab.id);
             closeTabsBatch(state.tabs.filter((_, i) => i > idx));
           }}
-          onPin={(tab) => setPinnedTabId(pinnedTabId === tab.id ? null : tab.id)}
+          onPin={(tab) => {
+            const next = pinnedTabId === tab.id ? null : tab.id;
+            store.pinnedTabId = next;
+            setPinnedTabId(next);
+          }}
         />
           <Toolbar store={store} t={t} onInsertTable={() => setTableDialogOpen(true)} />
           <SearchPanel store={store} view={editorView.current} t={t} open={state.searchOpen} />

@@ -126,6 +126,10 @@ let nextTabId = 1;
 let nextToastId = 1;
 
 export class AppStore {
+  /** 참조 보기로 고정한 탭 id — App이 세션 복원 때 지정. */
+  public pinnedTabId: string | null = null;
+  /** 세션 복원 중의 참조 보기 경로 — 탭이 열리면 App이 resolve. */
+  public pendingPinnedPath: string | null = null;
   state: AppStoreState = {
     tabs: [],
     activeId: null,
@@ -1024,6 +1028,9 @@ export class AppStore {
   // — 세션 —
 
   async restoreSession(session: SessionState): Promise<void> {
+    // 참조 보기 — 경로는 탭 열림 뒤 App이 id로 해소.
+    this.pinnedTabId = null;
+    this.pendingPinnedPath = session.pinnedPath ?? null;
     this.state.sidebarOpen = session.sidebarOpen;
     this.state.sidebarWidth = session.sidebarWidth ?? 240;
     this.state.tocOpen = session.tocOpen;
@@ -1093,6 +1100,10 @@ export class AppStore {
       })),
       active: this.active?.path ?? null,
       workspace: this.state.workspace,
+      pinnedPath:
+        this.pinnedTabId != null
+          ? (this.state.tabs.find((t) => t.id === this.pinnedTabId)?.path ?? null)
+          : null,
       sidebarOpen: this.state.sidebarOpen,
       sidebarWidth: this.state.sidebarWidth,
       tocOpen: this.state.tocOpen,
