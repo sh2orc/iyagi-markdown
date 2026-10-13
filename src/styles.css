@@ -2519,3 +2519,11 @@ body.resizing .toc {
 .ref-pane-close:hover { background: var(--md-accent-soft); color: var(--md-fg); }
 .ref-pane-body { flex: 1; border: none; width: 100%; background: var(--md-bg); }
 .ref-pane-loading { flex: 1; display: flex; align-items: center; justify-content: center; }
+
+/* — 개요 드래그 재배치 — */
+.toc-row[draggable="true"] { cursor: grab; }
+.toc-row[draggable="true"]:active { cursor: grabbing; }
+.toc-row.is-drop .toc-item {
+  border-left-color: var(--md-accent);
+  box-shadow: inset 0 2px 0 var(--md-accent); /* 놓임 위치 상단 표시 */
+}

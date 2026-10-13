@@ -10,6 +10,7 @@ import type { AppStore } from "../app/store";
 import { smoothScrollIntoView } from "../editor/cm";
 import { collectHeadings, type Heading } from "../links";
 import { ancestorSlugs, filterHeadings, tocTree, visibleNodes } from "../app/tocTree";
+import { moveSection, trimSectionForMove } from "../editor/sectionMove";
 import type { Translate } from "../i18n";
 
 interface Props {
@@ -28,6 +29,8 @@ export function TocPanel({ store, t, open }: Props): JSX.Element {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [selIdx, setSelIdx] = useState(-1);
+  /** 개요 드래그 재배치 — 원본 제목 인덱스(Word 네비게이션 창 방식). */
+  const [dragHead, setDragHead] = useState<{ idx: number; over: number } | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
@@ -107,6 +110,33 @@ export function TocPanel({ store, t, open }: Props): JSX.Element {
     view.focus();
   };
 
+  const dropOn = (dstIdx: number) => {
+    const d = dragHead;
+    setDragHead(null);
+    const view = store.view;
+    if (!d || !view) return;
+    const doc = view.state.doc.toString();
+    // 표시 트리 인덱스 → 플랫 제목 인덱스(드래그·놓임 모두 node.idx 사용).
+    const m = moveSection(headings, d.idx, dstIdx, doc.length);
+    if (!m) return;
+    const block = doc.slice(m.from, m.to);
+    const { text } = trimSectionForMove(block);
+    const cut = block.length - text.length;
+    // 이동 뒤에도 문서가 섹션 경계를 유지하게 — 앞·뒤 빈 줄 정리 후 삽입.
+    const after = doc.slice(0, m.from).replace(/\n{2,}$/, "\n\n") + doc.slice(m.to).replace(/^\n{2,}/, "\n\n");
+    const at = m.insertAt <= m.from ? m.insertAt : m.insertAt; // 보정은 moveSection이
+    const prefix = at === 0 ? "" : after.slice(0, at).match(/\n\n?$/) ? "" : "\n\n";
+    const next = after.slice(0, at) + prefix + text + "\n\n" + after.slice(at);
+    view.dispatch({
+      changes: { from: 0, to: doc.length, insert: next },
+      selection: { anchor: (prefix + text).length > 0 ? at + prefix.length : at },
+      userEvent: "input.moveSection",
+      scrollIntoView: true,
+    });
+    void cut;
+    view.focus();
+  };
+
   const toggleCollapse = (slug: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -153,7 +183,28 @@ export function TocPanel({ store, t, open }: Props): JSX.Element {
       .filter(Boolean)
       .join(" ");
     return (
-      <div key={`${h.slug}-${node.idx}`} className="toc-row" data-idx={node.idx} data-d={node.depth}>
+      <div
+        key={`${h.slug}-${node.idx}`}
+        className={`toc-row ${dragHead?.over === node.idx ? "is-drop" : ""}`}
+        data-idx={node.idx}
+        data-d={node.depth}
+        draggable
+        onDragStart={(e) => {
+          setDragHead({ idx: node.idx, over: -1 });
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", h.slug);
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          if (dragHead && dragHead.over !== node.idx) setDragHead({ ...dragHead, over: node.idx });
+        }}
+        onDragEnd={() => setDragHead(null)}
+        onDrop={(e) => {
+          e.preventDefault();
+          dropOn(node.idx);
+        }}
+      >
         {hasKids ? (
           <button
             className={`toc-chevron ${isCollapsed ? "is-collapsed" : ""}`}
