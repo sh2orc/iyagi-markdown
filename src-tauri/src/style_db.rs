@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use rusqlite::Connection;
+use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 pub struct StyleDb {
@@ -28,6 +29,14 @@ impl StyleDb {
                  line_no    INTEGER NOT NULL,
                  created_at REAL NOT NULL,
                  PRIMARY KEY (path, line_no)
+             );
+             CREATE TABLE IF NOT EXISTS doc_comment (
+                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                 path       TEXT NOT NULL,
+                 line_no    INTEGER NOT NULL,
+                 text       TEXT NOT NULL,
+                 created_at REAL NOT NULL,
+                 resolved   INTEGER NOT NULL DEFAULT 0
              );",
         )
         .ok()?;
@@ -159,4 +168,135 @@ pub async fn bookmark_remove(app: AppHandle, path: String, line_no: i64) -> Resu
         .map_err(|e| e.to_string())??;
     }
     Ok(())
+}
+
+
+/// 문서 메모(Word "메모" — 줄 앵커 사이드카, 원문 불변).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocComment {
+    pub id: i64,
+    pub line_no: i64,
+    pub text: String,
+    pub created_at: f64,
+    pub resolved: bool,
+}
+
+#[tauri::command]
+pub async fn comment_list(app: AppHandle, path: String) -> Vec<DocComment> {
+    let db = match app.state::<crate::state::AppState>().style_db.clone() {
+        Some(db) => db,
+        None => return Vec::new(),
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let Ok(conn) = db.conn.lock() else {
+            return Vec::new();
+        };
+        conn.prepare(
+            "SELECT id, line_no, text, created_at, resolved \
+             FROM doc_comment WHERE path = ?1 ORDER BY line_no, id",
+        )
+        .and_then(|mut stmt| {
+            let rows = stmt.query_map([&path], |row| {
+                Ok(DocComment {
+                    id: row.get(0)?,
+                    line_no: row.get(1)?,
+                    text: row.get(2)?,
+                    created_at: row.get(3)?,
+                    resolved: row.get::<_, i64>(4)? != 0,
+                })
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()
+        })
+        .unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+#[tauri::command]
+pub async fn comment_add(
+    app: AppHandle,
+    path: String,
+    line_no: i64,
+    text: String,
+) -> Result<i64, String> {
+    let db = app
+        .state::<crate::state::AppState>()
+        .style_db
+        .clone()
+        .ok_or("메모 저장소를 열 수 없습니다")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO doc_comment (path, line_no, text, created_at) VALUES (?1, ?2, ?3, unixepoch())",
+                rusqlite::params![path, line_no, text],
+            )
+            .map(|_| db.conn.lock().unwrap().last_insert_rowid())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn comment_update(app: AppHandle, id: i64, text: String) -> Result<(), String> {
+    let db = app
+        .state::<crate::state::AppState>()
+        .style_db
+        .clone()
+        .ok_or("메모 저장소를 열 수 없습니다")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        db.conn
+            .lock()
+            .unwrap()
+            .execute("UPDATE doc_comment SET text = ?2 WHERE id = ?1", rusqlite::params![id, text])
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn comment_resolve(app: AppHandle, id: i64, resolved: bool) -> Result<(), String> {
+    let db = app
+        .state::<crate::state::AppState>()
+        .style_db
+        .clone()
+        .ok_or("메모 저장소를 열 수 없습니다")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        db.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE doc_comment SET resolved = ?2 WHERE id = ?1",
+                rusqlite::params![id, if resolved { 1i64 } else { 0i64 }],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn comment_remove(app: AppHandle, id: i64) -> Result<(), String> {
+    let db = app
+        .state::<crate::state::AppState>()
+        .style_db
+        .clone()
+        .ok_or("메모 저장소를 열 수 없습니다")?;
+    tauri::async_runtime::spawn_blocking(move || {
+        db.conn
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM doc_comment WHERE id = ?1", rusqlite::params![id])
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

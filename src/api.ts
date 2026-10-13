@@ -242,6 +242,14 @@ export const api = {
   importImage: (src: string, dir: string) => invoke<string>("import_image", { src, dir }),
   docStyleGet: (path: string) => invoke<string | null>("doc_style_get", { path }),
   bookmarkList: (path: string) => invoke<number[]>("bookmark_list", { path }),
+  /** 문서 메모(줄 앵커 사이드카 — 원문 불변). */
+  commentList: (path: string) =>
+    invoke<Array<{ id: number; lineNo: number; text: string; createdAt: number; resolved: boolean }>>("comment_list", { path }),
+  commentAdd: (path: string, lineNo: number, text: string) =>
+    invoke<number>("comment_add", { path, lineNo, text }),
+  commentUpdate: (id: number, text: string) => invoke<void>("comment_update", { id, text }),
+  commentResolve: (id: number, resolved: boolean) => invoke<void>("comment_resolve", { id, resolved }),
+  commentRemove: (id: number) => invoke<void>("comment_remove", { id }),
   bookmarkAdd: (path: string, lineNo: number) => invoke<void>("bookmark_add", { path, lineNo }),
   bookmarkRemove: (path: string, lineNo: number) => invoke<void>("bookmark_remove", { path, lineNo }),
   docStyleSet: (path: string, styleJson: string) =>

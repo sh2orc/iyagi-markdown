@@ -133,6 +133,8 @@ export interface PreviewConfigParam {
   theme: "light" | "dark";
   imageWidths: Record<string, number>;
   bookmarks: number[];
+  /** 메모가 달린 줄 번호(선택). */
+  commentLines?: number[];
   tableWidths: Record<string, number[]>;
   wikiIndex: Map<string, string[]>;
 }

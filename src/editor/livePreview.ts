@@ -62,6 +62,8 @@ export interface PreviewConfig {
   imageWidths: Record<string, number>;
   /** 책갈피 줄 번호 — SQLite 사이드카. */
   bookmarks: number[];
+  /** 메모(주석)가 달린 줄 번호(선택 — 없으면 []). */
+  commentLines?: number[];
   /** 표 표시 폭(시작 줄 번호 문자열 → 열 px) — 문서 스타일 사이드카. */
   tableWidths: Record<string, number[]>;
   /** 위키링크 인덱스(소문자 이름 → 경로들) — 워크스페이스 트리에서(store). */
@@ -108,8 +110,14 @@ function previewConfigEquals(a: PreviewConfig | undefined, b: PreviewConfig): bo
   }
   // 책갈피 — 배열 내용이 다르면 다른 설정이다(줄 번호 오름차순 정렬 전제).
   if (a.bookmarks.length !== b.bookmarks.length) return false;
+  const aCl = a.commentLines ?? [];
+  const bCl = b.commentLines ?? [];
+  if (aCl.length !== bCl.length) return false;
   for (let i = 0; i < a.bookmarks.length; i++) {
     if (a.bookmarks[i] !== b.bookmarks[i]) return false;
+  }
+  for (let i = 0; i < aCl.length; i++) {
+    if (aCl[i] !== bCl[i]) return false;
   }
   // 위키링크 인덱스 — 참조 비교(트리가 바뀔 때만 store가 새 인스턴스를 만든다).
   if (a.wikiIndex !== b.wikiIndex) return false;
@@ -236,7 +244,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
   const doc = view.state.doc;
   const behavior = view.state.facet(previewBehavior);
   const config = view.state.field(previewConfigField);
-  const { baseDir, remoteImages, showImages, theme, imageWidths, bookmarks, tableWidths } = config;
+  const { baseDir, remoteImages, showImages, theme, imageWidths, bookmarks, tableWidths, commentLines = [] } = config;
 
   // 노출할 줄 = 편집 모드에서 커서·선택(·조합)이 걸친 줄.
   const revealed = new Set<number>();
@@ -347,6 +355,13 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
       const line = doc.line(Math.min(Math.max(bm, 1), doc.lines));
       if (line.from >= chunkFrom && line.from < chunkTo) {
         ranges.push(Decoration.line({ class: "md-bookmark" }).range(line.from));
+      }
+    }
+    // 메모 줄 장식 — 책갈피와 같은 방식(왼쪽 앰버 바).
+    for (const cl of commentLines) {
+      const line = doc.line(Math.min(Math.max(cl, 1), doc.lines));
+      if (line.from >= chunkFrom && line.from < chunkTo) {
+        ranges.push(Decoration.line({ class: "md-comment-line" }).range(line.from));
       }
     }
     // 빈 줄은 낮게 — 블록 사이가 오밀조밀 붙게(불렛↔표 등). 코드 블록 안은 제외.

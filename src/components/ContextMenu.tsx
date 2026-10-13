@@ -10,6 +10,7 @@ import * as fmt from "../editor/format";
 import { copyFormat, pasteFormat } from "../editor/formatPainter";
 import { findImageAt, findLinkAt } from "../editor/livePreview";
 import { LinkDialog, type LinkEditTarget } from "./LinkDialog";
+import { CommentDialog } from "./CommentDialog";
 import { previewConfigField } from "../editor/livePreview";
 
 interface Props {
@@ -32,6 +33,7 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [linkEdit, setLinkEdit] = useState<LinkEditTarget | null>(null);
   const [imgEdit, setImgEdit] = useState<LinkEditTarget | null>(null);
+  const [commentLine, setCommentLine] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -169,6 +171,7 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
             store.active?.bookmarks.includes(menuLine(store)) ? t.ctxRemoveBookmark : t.ctxAddBookmark,
             () => run(() => store.toggleBookmark()),
           )}
+          {item(t.ctxAddComment, () => setCommentLine(menuLine(store)))}
         </>
       )}
       {editable && menu.inTable && (
@@ -204,6 +207,17 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
             });
             view.focus();
             store.toast(t.linkEdited);
+          }}
+        />
+      )}
+      {commentLine !== null && (
+        <CommentDialog
+          t={t}
+          lineNo={commentLine}
+          onCancel={() => setCommentLine(null)}
+          onConfirm={(text) => {
+            setCommentLine(null);
+            void store.addComment(commentLine, text);
           }}
         />
       )}

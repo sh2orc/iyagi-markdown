@@ -52,6 +52,8 @@ export interface Tab {
   checkbox: { done: number; total: number } | null;
   /** 이 문서를 가리키는 백링크 수(null=아직 모름/폴더 없음). */
   backlinks: number | null;
+  /** 메모가 달린 줄 번호(사이드카 로드). */
+  commentLines: number[];
   /** 책갈피 줄 번호(SQLite 사이드카 — 원문 불변). */
   bookmarks: number[];
   /** 저장 안 됨 표시 — 입력마다 O(문서) 비교 대신 증분 유지(정확성: 길이가
@@ -107,6 +109,8 @@ export interface StoreIO {
   bookmarkRemove?(path: string, lineNo: number): Promise<void>;
   setSettings?(settings: Settings): Promise<void>;
   backlinks?(root: string, path: string): Promise<unknown[]>;
+  commentList?(path: string): Promise<Array<{ id: number; lineNo: number; text: string; createdAt: number; resolved: boolean }>>;
+  commentAdd?(path: string, lineNo: number, text: string): Promise<number>;
   speakStart?(text: string, rate: number, voice: string): Promise<boolean>;
   speakStop?(): Promise<void>;
   speakStatus?(): Promise<boolean>;
@@ -242,6 +246,7 @@ export class AppStore {
       checkbox: checkboxOf(doc.text),
       backlinks: null,
       bookmarks: [],
+      commentLines: [],
       dirty: false,
       // 통계는 본문만(프론트매터는 메타 — Obsidian 방식).
       words: countWords(stripFrontMatter(doc.text)),
@@ -300,6 +305,7 @@ export class AppStore {
       marks: { bold: false, italic: false, strike: false, code: false, link: false },
       selChars: 0,
       bookmarks: [],
+      commentLines: [],
       dirty: false,
       words: countWords(stripFrontMatter(content)),
       chars: stripFrontMatter(content).length,
@@ -332,6 +338,7 @@ export class AppStore {
       checkbox: null,
       backlinks: null,
       bookmarks: [],
+      commentLines: [],
       dirty: false,
       words: 0,
       chars: 0,
@@ -357,6 +364,7 @@ export class AppStore {
       this.applyConfig();
       if (this.state.searchOpen) this.emitSearchRefresh();
       this.scheduleBacklinks();
+      void this.refreshComments();
     }
     this.emit();
     this.scheduleSessionSave();
@@ -676,6 +684,7 @@ export class AppStore {
       this.backlinksCache.clear(); // 다른 파일이 바뀌었을 수 있다
       this.applyConfig();
       this.scheduleBacklinks();
+      void this.refreshComments();
       this.emit();
     } catch {
       // 폴더가 사라졌을 수 있다 — 조용히 둔다.
@@ -801,6 +810,7 @@ export class AppStore {
       theme: this.state.theme,
       imageWidths: tab?.docStyle?.imageWidths ?? {},
       bookmarks: tab?.bookmarks ?? [],
+      commentLines: tab?.commentLines ?? [],
       tableWidths: tab?.docStyle?.tableWidths ?? {},
       wikiIndex: this.wikiIndex,
     });
@@ -826,7 +836,35 @@ export class AppStore {
   private backlinksCache = new Map<string, number>();
   private backlinksTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /** 활성 문서 백링크 수 — 캐시 우선, 없으면(폴더 열림+커맨드 가능 시) 스캔.
+  /** 문서 메모(사이드카) 로드 — 줄 번호만 에디터 장식으로. */
+  async refreshComments(): Promise<void> {
+    const tab = this.active;
+    if (!tab?.path || !this.io.commentList) return;
+    try {
+      const list = await this.io.commentList(tab.path);
+      const t = this.state.tabs.find((x) => x.path === tab.path);
+      if (t && t === this.active) {
+        t.commentLines = list.filter((c) => !c.resolved).map((c) => c.lineNo);
+        this.emit();
+      }
+    } catch {
+      /* 사이드카 오류 — 장식 없이 */
+    }
+  }
+
+  /** 메모 추가 — 추가 후 장식 갱신. */
+  async addComment(lineNo: number, text: string): Promise<void> {
+    const tab = this.active;
+    if (!tab?.path || !this.io.commentAdd || !text.trim()) return;
+    try {
+      await this.io.commentAdd(tab.path, lineNo, text.trim());
+      await this.refreshComments();
+    } catch {
+      /* 무시 */
+    }
+  }
+
+  /** 활성 문서 백마크 수 — 캐시 우선, 없으면(폴더 열림+커맨드 가능 시) 스캔.
    *  탭 전환마다 디바운스(400ms)해 워크스페이스 스캔을 아낀다. */
   private scheduleBacklinks(): void {
     if (this.backlinksTimer) clearTimeout(this.backlinksTimer);
@@ -987,6 +1025,7 @@ export class AppStore {
         checkbox: checkboxOf(doc.text),
         backlinks: null,
         bookmarks: [],
+      commentLines: [],
         dirty: false,
         words: countWords(stripFrontMatter(doc.text)),
         chars: stripFrontMatter(doc.text).length,

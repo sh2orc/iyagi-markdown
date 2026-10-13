@@ -293,6 +293,10 @@ export const editorTheme = EditorView.theme({
   },
   ".md-image:hover .md-img-handle": { display: "block" },
   ".md-image img": { maxWidth: "100%", borderRadius: "6px", display: "block" },
+  ".md-comment-line": {
+    borderLeft: "2px solid rgba(210, 130, 30, 0.65)",
+    background: "rgba(210, 130, 30, 0.05)",
+  },
   ".md-table-cap-line": {
     textAlign: "center",
     color: "var(--md-raw, #8a919c)",
