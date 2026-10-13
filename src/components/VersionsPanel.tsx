@@ -2,7 +2,7 @@
 // 되돌린다(Obsidian file recovery·Notion 버전 기록). 되돌리기는 버퍼만 바꾼다
 // — 사용자가 저장(⌘S)해야 확정된다(실수로 원문까지 즉시 덮지 않게).
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api, isInApp, type SnapshotInfo } from "../api";
 import type { AppStore } from "../app/store";
@@ -33,6 +33,22 @@ export function VersionsPanel({ store, t, onClose, onRestore }: Props): JSX.Elem
   const [sel, setSel] = useState(-1);
   const [preview, setPreview] = useState<string | null>(null);
   const [view, setView] = useState<"preview" | "diff">("diff");
+  const listRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    // 오버레이 자체 포커스 — 키보드 탐색(다른 패널과 같은 규칙).
+    listRef.current?.parentElement?.focus();
+  }, []);
+
+  const step = (from: number, delta: number): number => {
+    let i = from;
+    const n = items?.length ?? 0;
+    for (;;) {
+      const next = i + delta;
+      if (next < 0 || next >= n) return i;
+      i = next;
+    }
+  };
 
   useEffect(() => {
     setSel(-1);
@@ -88,14 +104,36 @@ export function VersionsPanel({ store, t, onClose, onRestore }: Props): JSX.Elem
   const summary = useMemo(() => diffSummary(ops), [ops]);
 
   return (
-    <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="overlay modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSel((v) => step(v, 1));
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSel((v) => step(v, -1));
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          const snap = items?.[sel];
+          if (snap && preview !== null) onRestore(preview);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        }
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div className="modal versions-modal">
         <div className="modal-title">
           {t.versionsTitle}
           <span className="modal-file-name">{store.active?.title ?? t.untitled}</span>
         </div>
         <div className="versions-body">
-          <div className="versions-list">
+          <div className="versions-list" ref={listRef}>
             {items === null && <div className="palette-empty">…</div>}
             {items !== null && items.length === 0 && (
               <div className="palette-empty">{path ? t.versionsEmpty : t.emptyNoDoc}</div>
