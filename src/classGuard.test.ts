@@ -72,3 +72,22 @@ describe("CodeMirror 클래스 충돌 가드", () => {
     expect(bad).toEqual([]);
   });
 });
+
+describe("빈 줄 높이 규칙 가드", () => {
+  it(".md-blank은 높이 속성을 가져선 안 된다(병합 되돌림 방지)", async () => {
+    const { editorTheme } = await import("./editor/theme");
+    // EditorView.theme은 모듈 평가 시 객체를 받는다 — 근원 텍스트 검사가
+    // 더 확실하다: theme.ts에서 .md-blank 블록 직후 '}' 앞에 속성이 없는지.
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const src = fs.readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), "editor/theme.ts"),
+      "utf-8",
+    );
+    const m = /"\.md-blank":\s*\{([^}]*)\}/.exec(src);
+    expect(m).not.toBeNull();
+    const body = (m?.[1] ?? "").trim();
+    expect(body).toBe(""); // 어떤 높이 오버라이드도 금지
+    void editorTheme;
+  });
+});

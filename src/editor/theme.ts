@@ -58,12 +58,9 @@ export const editorTheme = EditorView.theme({
     textIndent: "var(--md-text-indent, 0em)",
     textAlign: "var(--md-text-align, left)",
   },
-  // 마크다운 빈 줄은 낮게 — 블록들이 오밀조밀 붙게(불렛↔표 등).
-  ".md-blank": {
-    lineHeight: "0.42",
-    paddingBottom: "0 !important",
-    paddingTop: "0 !important",
-  },
+  // 마크다운 빈 줄 — 높이 오버라이드 없음(.cm-content 행간 상속이 단일 원천).
+  // 빈 줄과 본문 줄이 어긋나 보이면 여기에 높이 속성이 다시 들어간 것.
+  ".md-blank": {},
 
   // — 제목(Word 기본 스케일: 본문 11pt 기준 H1≈16pt·H2≈13pt·H3≈12pt) —
   ".md-h1": {
