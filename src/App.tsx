@@ -48,6 +48,7 @@ import { ShortcutsPanel } from "./components/ShortcutsPanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { SymbolPanel } from "./components/SymbolPanel";
 import { TableDialog } from "./components/TableDialog";
+import { CommentsPanel } from "./components/CommentsPanel";
 import { Welcome } from "./components/Welcome";
 import { CommandPalette } from "./components/CommandPalette";
 import { VersionsPanel } from "./components/VersionsPanel";
@@ -77,6 +78,9 @@ const ioAdapter = {
   backlinks: (root: string, path: string) => api.backlinks(root, path),
   commentList: (path: string) => api.commentList(path),
   commentAdd: (path: string, lineNo: number, text: string) => api.commentAdd(path, lineNo, text),
+  commentUpdate: (id: number, text: string) => api.commentUpdate(id, text),
+  commentResolve: (id: number, resolved: boolean) => api.commentResolve(id, resolved),
+  commentRemove: (id: number) => api.commentRemove(id),
   speakStart: (text: string, rate: number, voice: string) => api.speakStart(text, rate, voice),
   speakStop: () => api.speakStop(),
   speakStatus: () => api.speakStatus(),
@@ -138,6 +142,7 @@ export function App(): JSX.Element {
   const setExportHeader = (v: boolean) => updateSettings(store, { exportHeader: v });
   const [symbolOpen, setSymbolOpen] = useState(false);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
 
   const lang: Lang = useMemo(() => {
     if (state.settings.language === "ko") return "ko";
@@ -974,7 +979,7 @@ export function App(): JSX.Element {
               />
             )}
           </div>
-          <StatusBar store={store} t={t} onOpenSettings={() => setSettingsOpen(true)} onOpenStyle={() => setStyleOpen(true)} onOpenStats={() => setStatsOpen(true)} onOpenBacklinks={() => setBacklinksOpen(true)} />
+          <StatusBar store={store} t={t} onOpenSettings={() => setSettingsOpen(true)} onOpenStyle={() => setStyleOpen(true)} onOpenStats={() => setStatsOpen(true)} onOpenBacklinks={() => setBacklinksOpen(true)} onOpenComments={() => setCommentsOpen(true)} />
         </main>
         <TocPanel store={store} t={t} open={state.tocOpen} />
       </div>
@@ -1109,6 +1114,7 @@ export function App(): JSX.Element {
       )}
       {shortcutsOpen && <ShortcutsPanel t={t} onClose={() => setShortcutsOpen(false)} />}
       {statsOpen && <StatsPanel store={store} t={t} onClose={() => setStatsOpen(false)} />}
+      {commentsOpen && <CommentsPanel store={store} t={t} onClose={() => setCommentsOpen(false)} />}
       {tableDialogOpen && (
         <TableDialog store={store} t={t} onClose={() => setTableDialogOpen(false)} />
       )}

@@ -2426,3 +2426,26 @@ body.resizing .toc {
   background: var(--md-bg); color: var(--md-fg); outline: none;
 }
 .comment-textarea:focus { border-color: var(--md-accent); }
+
+/* — 메모 패널 — */
+.comments-modal { min-width: 440px; }
+.cm-list { display: flex; flex-direction: column; gap: 2px; padding: 4px 16px; max-height: 300px; overflow-y: auto; }
+.cm-row { display: flex; align-items: stretch; gap: 4px; border-radius: 8px; }
+.cm-row.is-resolved { opacity: 0.55; }
+.cm-goto {
+  flex: 1; min-width: 0; display: flex; gap: 8px; align-items: baseline; text-align: left;
+  border: none; background: none; cursor: pointer; padding: 6px 8px; border-radius: 8px;
+  color: var(--md-fg); font-size: 12.5px;
+}
+.cm-goto:hover { background: var(--md-accent-soft); }
+.cm-line { flex: none; font-size: 10px; color: var(--md-fg-dim); min-width: 24px; text-align: right; font-variant-numeric: tabular-nums; }
+.cm-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.is-resolved .cm-text { text-decoration: line-through; }
+.cm-actions { display: flex; align-items: center; gap: 2px; }
+.cm-act {
+  border: none; background: none; cursor: pointer; color: var(--md-fg-dim);
+  font-size: 13px; padding: 4px 6px; border-radius: 6px;
+}
+.cm-act:hover { background: var(--md-accent-soft); color: var(--md-fg); }
+.cm-act-del:hover { color: var(--md-error, #c53030); }
+.cm-resolved-head { padding: 8px 20px 0; }
