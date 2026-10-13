@@ -79,6 +79,7 @@ interface Props {
   onOpenTableDialog?: () => void;
   onOpenComments?: () => void;
   onOpenReview?: () => void;
+  onOpenFrontMatter?: () => void;
   onOpenStyle: () => void;
   onOpenPrint: () => void;
   onOpenExport: (kind: "html" | "pdf" | "docx") => void;
@@ -94,6 +95,7 @@ export function CommandPalette({
   onOpenTableDialog,
   onOpenComments,
   onOpenReview,
+  onOpenFrontMatter,
   onOpenStyle,
   onOpenPrint,
   onOpenExport,
@@ -178,6 +180,7 @@ export function CommandPalette({
       { id: "backlinks", label: `${t.scView}: ${t.backlinksTitle}`, run: () => onOpenBacklinks?.() },
       ...(onOpenComments ? [{ id: "comments", label: `${t.commentsTitle}…`, run: onOpenComments }] : []),
       ...(onOpenReview ? [{ id: "review", label: `${t.reviewTitle}…`, run: onOpenReview }] : []),
+      ...(onOpenFrontMatter ? [{ id: "frontmatter", label: `${t.fmTitle}…`, run: onOpenFrontMatter }] : []),
       { id: "broken-links", label: `${t.scEdit}: ${t.brokenLinksTitle}`, run: () => onOpenBrokenLinks?.() },
       { id: "speak", label: `${t.scView}: ${t.speakStart}`, run: () => store.speakActive() },
       { id: "speak-stop", label: `${t.scView}: ${t.speakStop}`, run: () => store.speakStop() },

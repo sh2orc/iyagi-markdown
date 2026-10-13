@@ -623,10 +623,14 @@ export class FrontMatterWidget extends WidgetType {
   toDOM(view: EditorView) {
     const wrap = document.createElement("div");
     wrap.className = "md-frontmatter-panel";
-    // 클릭 → 커서를 YAML 원문으로(메타 편집 — 클릭=편집 규칙).
+    // 클릭 → 문서 정보 대화상자(폼 편집 — 클릭=편집). 핸들러 없으면 원문 진입.
     wrap.addEventListener("mousedown", (e: Event) => {
       if ((e as MouseEvent).button !== 0) return;
       e.preventDefault();
+      if (frontMatterEditHandler) {
+        frontMatterEditHandler();
+        return;
+      }
       const pos = view.posAtDOM(wrap);
       view.dispatch({ selection: { anchor: Math.min(pos + 1, view.state.doc.length) }, scrollIntoView: true });
       view.focus();
@@ -705,4 +709,10 @@ export class WikiLinkWidget extends WidgetType {
   ignoreEvent() {
     return false; // 클릭은 cm의 링크 처리가 위임받는다
   }
+}
+
+/** 문서 정보 대화상자 열기 — App이 등록(위젯 클릭 → 폼 편집). */
+export let frontMatterEditHandler: (() => void) | null = null;
+export function setFrontMatterEditHandler(fn: (() => void) | null): void {
+  frontMatterEditHandler = fn;
 }

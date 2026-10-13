@@ -112,3 +112,44 @@ export const frontMatterSyntax: MarkdownExtension = {
     },
   ],
 };
+
+
+/** 프런트매터 키 값 갱신 — 다른 줄은 그대로(순서·주석 보존).
+ *  null이면 그 키 삭제. 블록이 없으면(패치 비었지 않으면) 새로 만든다.
+ *  순수 함수(테스트 대상). */
+export function upsertFrontMatter(
+  text: string,
+  patch: Record<string, string | boolean | null>,
+): string {
+  const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) return text;
+  const m = head(text).match(FM_SCAN);
+  const fmt = (v: string | boolean): string => (typeof v === "boolean" ? String(v) : v);
+  if (!m) {
+    const body = entries.map(([k, v]) => `${k}: ${fmt(v!)}`).join("\n");
+    return `---\n${body}\n---\n\n${text}`;
+  }
+  const block = m[0];
+  const eol = block.endsWith("\n") ? "" : "\n";
+  const inner = block.replace(/^---\r?\n/, "").replace(/\r?\n---(?:\r?\n|$)/, "");
+  const kept: string[] = [];
+  const seen = new Set<string>();
+  for (const line of inner.split("\n")) {
+    const key = /^([^:\s][^:]*):/.exec(line)?.[1]?.trim();
+    if (key !== undefined && key in patch) {
+      if (!seen.has(key)) {
+        seen.add(key);
+        const v = patch[key];
+        if (v !== null) kept.push(`${key}: ${fmt(v)}`);
+      }
+      // null이거나 이미 씀 — 줄 삭제.
+    } else {
+      kept.push(line);
+    }
+  }
+  for (const [k, v] of entries) {
+    if (!seen.has(k) && v !== null) kept.push(`${k}: ${fmt(v)}`);
+    seen.add(k);
+  }
+  return `---\n${kept.join("\n").replace(/\n+$/, "")}\n---${eol ? "\n" : ""}` + text.slice(block.length);
+}

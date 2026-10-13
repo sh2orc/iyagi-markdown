@@ -10,7 +10,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { GFM } from "@lezer/markdown";
 import { languages } from "@codemirror/language-data";
 
-import { frontMatterMeta, frontMatterSyntax, frontMatterLen, parseFrontMatter, stripFrontMatter } from "./frontmatter";
+import { frontMatterMeta, frontMatterSyntax, frontMatterLen, parseFrontMatter, stripFrontMatter, upsertFrontMatter } from "./frontmatter";
 import { mathSyntax } from "./mathSyntax";
 
 const parse = (doc: string) => {
@@ -131,5 +131,29 @@ describe("frontMatterMeta lof/lot", () => {
     expect(m?.lof).toBe(true);
     expect(m?.lot).toBe(true);
     expect(frontMatterMeta("---\nlof: no\n---\n")?.lof).toBeUndefined();
+  });
+});
+
+describe("upsertFrontMatter", () => {
+  it("키 갱신 — 다른 줄·순서 보존", () => {
+    const doc = "---\ntitle: 옛제목\nauthor: 홍길동\n# 주석 아님 일반 줄\ntoc: false\n---\n\n본문";
+    const out = upsertFrontMatter(doc, { title: "새제목", toc: true });
+    expect(out).toContain("title: 새제목");
+    expect(out).toContain("author: 홍길동");
+    expect(out).toContain("toc: true");
+    expect(out).toContain("본문");
+    expect(out.indexOf("author")).toBeLessThan(out.indexOf("toc")); // 순서 유지
+  });
+
+  it("null이면 키 삭제, 없던 키는 추가", () => {
+    const doc = "---\ntitle: 제목\n---\n본문";
+    const out = upsertFrontMatter(doc, { title: null, author: "이작가" });
+    expect(out).not.toContain("title:");
+    expect(out).toContain("author: 이작가");
+  });
+
+  it("블록 없으면 새로 생성, 본문 무결", () => {
+    const out = upsertFrontMatter("본문\n", { title: "제목", toc: true });
+    expect(out.startsWith("---\ntitle: 제목\ntoc: true\n---\n\n본문\n")).toBe(true);
   });
 });
