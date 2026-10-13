@@ -256,8 +256,8 @@ function baseExtensions(): Extension[] {
       { key: "`", run: (v) => fmt.typePair(v, "`") },
       // 목록 들여쓰기 — Tab/Shift-Tab으로 단계 조정(Word 표준). 목록 밖에서는
       // 기본 Tab(포커스 이동)을 그대로 둔다.
-      { key: "Tab", run: (v) => fmt.tabTableCell(v, false) || fmt.indentListItem(v, false) },
-      { key: "Shift-Tab", run: (v) => fmt.tabTableCell(v, true) || fmt.indentListItem(v, true) },
+      { key: "Tab", run: (v) => fmt.tabTableCell(v, false) || fmt.indentListItem(v, false) || fmt.indentLines(v, false) },
+      { key: "Shift-Tab", run: (v) => fmt.tabTableCell(v, true) || fmt.indentListItem(v, true) || fmt.indentLines(v, true) },
       // 강제 줄바꿈(Word Shift+Enter) — 마크다운 관례의 두 공백 + 개행.
       {
         key: "Shift-Enter",

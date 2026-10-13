@@ -456,3 +456,33 @@ describe("insertMath", async () => {
     v.destroy();
   });
 });
+
+// — 일반 텍스트 줄 들여쓰기(Tab 체인 끝) —
+describe("indentLines", async () => {
+  const { EditorState } = await import("@codemirror/state");
+  const { EditorView } = await import("@codemirror/view");
+  const { indentLines } = await import("./format");
+
+  function mount(doc: string, a: number, b: number): EditorView {
+    const host = document.createElement("div");
+    document.body.append(host);
+    return new EditorView({ state: EditorState.create({ doc, selection: { anchor: a, head: b } }), parent: host });
+  }
+
+  it("여러 줄 선택 — 2칸 들여쓰기(빈 줄 제외)", () => {
+    const v = mount("a\nb\n\nc\n", 0, 6);
+    expect(indentLines(v, false)).toBe(true);
+    expect(v.state.doc.toString()).toBe("  a\n  b\n\n  c\n");
+    v.destroy();
+  });
+
+  it("내어쓰기 — 1~2칸 제거, 한 줄 선택은 false", () => {
+    const v = mount("  a\n   b\nc\n", 0, 10);
+    expect(indentLines(v, true)).toBe(true);
+    expect(v.state.doc.toString()).toBe("a\n b\nc\n");
+    v.destroy();
+    const v2 = mount("a\nb", 0, 1);
+    expect(indentLines(v2, false)).toBe(false);
+    v2.destroy();
+  });
+});

@@ -121,6 +121,30 @@ export function toggleHeading(view: EditorView, level: number): boolean {
 }
 
 /** 블록 수평선/수식/코드블록 삽입(빈 줄 하나를 만들어 넣는다). */
+/** 선택 줄 들여쓰기/내어쓰기(2칸) — 표·목록이 아닌 곳의 Tab.
+ *  여러 줄 선택 시에만 동작(한 줄은 커서 이동 우선). */
+export function indentLines(view: EditorView, outdent: boolean): boolean {
+  const sel = view.state.selection.main;
+  const doc = view.state.doc;
+  const first = doc.lineAt(sel.from).number;
+  const last = doc.lineAt(sel.to).number;
+  if (first === last) return false;
+  const changes: Array<{ from: number; to: number; insert: string }> = [];
+  for (let n = first; n <= last; n++) {
+    const line = doc.line(n);
+    if (!line.text.trim() && !outdent) continue;
+    if (outdent) {
+      const m = /^ {1,2}/.exec(line.text);
+      if (m) changes.push({ from: line.from, to: line.from + m[0].length, insert: "" });
+    } else {
+      changes.push({ from: line.from, to: line.from, insert: "  " });
+    }
+  }
+  if (changes.length === 0) return false;
+  view.dispatch({ changes, userEvent: "input.indentLines" });
+  return true;
+}
+
 /** 수식 삽입 — 인라인 $..$ / 블록 $$..$$. 커서는 안쪽(즉시 입력). */
 export function insertMath(view: EditorView, display: boolean): boolean {
   const sel = view.state.selection.main;
