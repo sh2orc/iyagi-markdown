@@ -709,6 +709,13 @@ export class AppStore {
     this.toast(t0("변경 추적을 중지했습니다", "Tracking stopped"));
   }
 
+  /** 모든 더티 탭 저장 — 마지막 하나만 표시하지만 전부 확정. */
+  async saveAllTabs(): Promise<void> {
+    for (const t of this.state.tabs) {
+      if (t.dirty && t.path) await this.saveTabById(t.id);
+    }
+  }
+
   /** 지정 탭 저장(자동 저장 — 분할 편집 탭 포함). 원자적·무수정 no-op.
    *  저장 준간 편집으로 밀린 메모·책갈피 줄을 diff로 재앵커한다. */
   async saveTabById(id: string): Promise<boolean> {
