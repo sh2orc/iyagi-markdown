@@ -20,6 +20,14 @@ interface Props {
 
 const REF_W_KEY = "iyagi.refPaneWidth";
 
+/** 에디터 스크롤 이벤트 등록/해제(재사용). */
+function sd_scroll(view: { scrollDOM: HTMLElement }, fn: () => void): void {
+  view.scrollDOM.addEventListener("scroll", fn, { passive: true });
+}
+function sd_unscroll(view: { scrollDOM: HTMLElement }, fn: () => void): void {
+  view.scrollDOM.removeEventListener("scroll", fn);
+}
+
 export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null {
   const [refW, setRefW] = useState<number>(() => {
     const saved = Number(localStorage.getItem(REF_W_KEY));
@@ -62,6 +70,32 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
   const tab = store.state.tabs.find((x) => x.id === tabId) ?? null;
   const [html, setHtml] = useState<string | null>(null);
   const doc = tab?.state.doc;
+
+  // 스크롤 동기 — 메인 에디터 스크롤을 참조 iframe에 비례 적용(번역 대조).
+  useEffect(() => {
+    const view = store.view;
+    if (editMode || !view) return;
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const sd = view.scrollDOM;
+        const max = sd.scrollHeight - sd.clientHeight;
+        const frac = max > 0 ? sd.scrollTop / max : 0;
+        const win = frameRef.current?.contentWindow;
+        if (!win) return;
+        const d = win.document.documentElement;
+        const fmax = d.scrollHeight - win.innerHeight;
+        if (fmax > 0) win.scrollTo(0, frac * fmax);
+      });
+    };
+    sd_scroll(view, onScroll);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      sd_unscroll(view, onScroll);
+    };
+  }, [editMode, store.view, html]);
 
   // 분할 편집 뷰 — 탭 상태를 그대로 얹는다(확장 포함). 스토어 라우팅용 등록.
   useEffect(() => {
