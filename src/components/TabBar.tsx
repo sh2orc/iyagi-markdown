@@ -37,6 +37,12 @@ export function TabBar({ store, t, onClose, onCloseOthers, onCloseRight, onPin, 
       }}
     >
       <div
+        onWheel={(e) => {
+          // 탭 바에서 휠 — 탭 순회(브라우저 관례).
+          if (Math.abs(e.deltaY) < 8) return;
+          e.preventDefault();
+          store.cycleTabs(e.deltaY > 0);
+        }}
         className="tabbar-tabs"
         onDragOver={(e) => {
           e.preventDefault();
