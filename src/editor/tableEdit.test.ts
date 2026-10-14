@@ -10,7 +10,7 @@ import {
   tableAddRow,
   tableAround,
   tableDeleteColumn,
-  tableDeleteRow, wrapCodeBlock,
+  tableDeleteRow,
 } from "./format";
 
 function viewWith(doc: string, cursor: number): EditorView {
