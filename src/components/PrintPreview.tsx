@@ -9,6 +9,7 @@ import type { AppStore } from "../app/store";
 import { frontMatterMeta } from "../editor/frontmatter";
 
 const printFrame = { current: null as HTMLIFrameElement | null };
+const lastScroll = { current: 0 };
 
 /** 문서별 미리보기 본문 캐시(인쇄 슬라이더가 껍데기만 다시 조립하게). */
 const previewBodyCache = new Map<string, string>();
@@ -173,7 +174,20 @@ export function PrintPreview({
             <div className="spinner" />
           </div>
         ) : (
-          <iframe ref={(el) => { printFrame.current = el; }} className="print-page" title={t.printPreviewTitle} srcDoc={html} sandbox="allow-same-origin" />
+          <iframe
+            ref={(el) => { printFrame.current = el; }}
+            className="print-page"
+            title={t.printPreviewTitle}
+            srcDoc={html}
+            sandbox="allow-same-origin"
+            onLoad={() => {
+              // 슬라이더 재렌더에도 스크롬 위치 유지(127차 참조 보기 패턴).
+              try {
+                const win = printFrame.current?.contentWindow;
+                if (win && lastScroll.current > 0) win.scrollTo(0, lastScroll.current);
+              } catch { /* 무시 */ }
+            }}
+          />
         )}
       </div>
     </div>
