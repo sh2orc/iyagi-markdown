@@ -89,7 +89,8 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
 
   const run = (fn: () => void) => {
     setMenu(null);
-    fn();
+    // 잠긴 문서의 편집 동작 차단(151차 일관성 — 열기·복사 등은 그대로).
+    if (!view.state.readOnly) fn();
     view.focus();
   };
 
