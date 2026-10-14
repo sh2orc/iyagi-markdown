@@ -425,6 +425,33 @@ function baseExtensions(): Extension[] {
         }
         const text = event.clipboardData?.getData("text/plain") ?? "";
         const sel = view.state.selection.main;
+        // 이미지 파일 경로 붙여넣기 — 절대 경로 + 이미지 확장자면 assets/로
+        // 임포트해 참조 삽입(드래그앤드롭과 같은 경로, Word 붙여넣기 관례).
+        if (
+          isInApp() &&
+          /^\/(\S+)\.(png|jpe?g|gif|webp|svg|bmp|heic|avif|tiff?)$/i.test(text.trim())
+        ) {
+          event.preventDefault();
+          void import("../api").then(async (a) => {
+            try {
+              const tab = view.state.field(previewConfigField, false);
+              const dir = tab?.baseDir ?? "";
+              if (!dir) return;
+              const abs = await a.api.importImage(text.trim(), dir);
+              const { relPath } = await import("../paths");
+              const { insertImageRef } = await import("./format");
+              insertImageRef(view, relPath(dir, abs));
+              view.focus();
+            } catch {
+              // 임포트 실패(존재 안 함 등) — 일반 텍스트로 폴백.
+              view.dispatch({
+                changes: { from: sel.from, to: sel.to, insert: text },
+                userEvent: "input.pastePlain",
+              });
+            }
+          });
+          return true;
+        }
         const isUrl = /^https?:\/\/\S+$/i.test(text.trim()) && !/\s/.test(text.trim());
         if (!sel.empty && isUrl) {
           event.preventDefault();
