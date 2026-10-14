@@ -1020,6 +1020,7 @@ export function App(): JSX.Element {
             store.pinnedTabId = next;
             setPinnedTabId(next);
           }}
+          onLock={(tab) => store.setLocked(tab.id, !store.lockedTabIds.has(tab.id))}
         />
           <Toolbar store={store} t={t} onInsertTable={() => setTableDialogOpen(true)} />
           <SearchPanel store={store} view={editorView.current} t={t} open={state.searchOpen} />

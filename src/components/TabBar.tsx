@@ -15,9 +15,11 @@ interface Props {
   onCloseRight?: (tab: Tab) => void;
   /** 참조 보기 토글 — 옆에 고정(읽기 전용). */
   onPin?: (tab: Tab) => void;
+  /** 읽기 전용 잠금 토글. */
+  onLock?: (tab: Tab) => void;
 }
 
-export function TabBar({ store, t, onClose, onCloseOthers, onCloseRight, onPin }: Props): JSX.Element {
+export function TabBar({ store, t, onClose, onCloseOthers, onCloseRight, onPin, onLock }: Props): JSX.Element {
   const state = store.getSnapshot();
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [ctx, setCtx] = useState<{ x: number; y: number; tab: Tab } | null>(null);
@@ -69,7 +71,7 @@ export function TabBar({ store, t, onClose, onCloseOthers, onCloseRight, onPin }
               }}
               title={tab.path ?? t.untitled}
             >
-              <span className="tab-mark">{modeMark(tab.mode)}</span>
+              <span className="tab-mark">{store.lockedTabIds.has(tab.id) ? "🔒" : modeMark(tab.mode)}</span>
               <span className="tab-title">{tab.path ? tab.title : t.untitled}</span>
               <span className={`tab-dot ${dirty ? "tab-dot-dirty" : ""}`} title={t.dirtyTitle} />
               <button
@@ -134,6 +136,11 @@ export function TabBar({ store, t, onClose, onCloseOthers, onCloseRight, onPin }
               }}
             >
               {t.tabCloseOthers}
+            </button>
+          )}
+          {onLock && (
+            <button className="ctx-item" onClick={() => { onLock(ctx.tab); closeCtx(); }}>
+              {store.lockedTabIds.has(ctx.tab.id) ? t.tabUnlock : t.tabLock}
             </button>
           )}
           {onPin && ctx.tab.path && (

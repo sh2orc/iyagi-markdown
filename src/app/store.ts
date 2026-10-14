@@ -21,7 +21,7 @@ import { applyDocStyle, DEFAULT_DOC_STYLE as DEFAULT_DOC_STYLE_T } from "./docSt
 import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, type ViewMode } from "../editor/cm";
 import { applyWriting, spellcheckComp, spellcheckExtension } from "../editor/writing";
 import { applySmartPunct } from "../editor/smartPunct";
-import { setCommentsProvider } from "../editor/cm";
+import { editableComp, setCommentsProvider } from "../editor/cm";
 import { changedLines, setDelRevertHandler, setTrackProvider, shiftLineNo } from "../editor/trackChanges";
 import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
 import { invalidateLinkPreviews, ttsTextOf } from "../editor/linkPreview";
@@ -149,6 +149,8 @@ export class AppStore {
   public collapsedFolders: Set<string> = new Set();
   /** 목차 패널에서 접어 둔 제목 슬러그(세션 저장·복원). */
   public tocCollapsed: Set<string> = new Set();
+  /** 읽기 전용 잠금 탭(실수 편집 방지 — 모드와 독립). */
+  public lockedTabIds: Set<string> = new Set();
   /** 분할 편집 — 두 번째 뷰와 그 탭 id(RefPane 편집 모드). */
   public splitView: EditorView | null = null;
   public splitTabId: string | null = null;
@@ -1036,6 +1038,29 @@ export class AppStore {
   /** 백링크 수 캐시(경로→개수) — 트리가 바뀌면 다 지운다(다른 파일이 고쳐졌을 수 있음). */
   private backlinksCache = new Map<string, number>();
   private backlinksTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** 읽기 전용 잠금 토글 — 편집 모드를 유지한 채 입력 차단(탭 단위). */
+  setLocked(id: string, locked: boolean): void {
+    const tab = this.state.tabs.find((t) => t.id === id);
+    if (!tab) return;
+    if (locked) this.lockedTabIds.add(id);
+    else this.lockedTabIds.delete(id);
+    if (this.view && tab.id === this.state.activeId && tab.mode !== "read") {
+      // 편집 모드에서만 재구성 — 읽기 모드는 이미 읽기 전용.
+      const ro = [
+        EditorState.readOnly.of(true),
+        EditorView.editable.of(false),
+      ];
+      const rw = [
+        EditorState.readOnly.of(false),
+        EditorView.editable.of(true),
+      ];
+      this.view.dispatch({
+        effects: editableComp.reconfigure(locked ? ro : rw),
+      });
+    }
+    this.emit();
+  }
 
   /** 문서 메모(사이드카) 로드 — 줄 번호만 에디터 장식으로. */
   async refreshComments(): Promise<void> {
