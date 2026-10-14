@@ -10,7 +10,7 @@ import {
   tableAddRow,
   tableAround,
   tableDeleteColumn,
-  tableDeleteRow,
+  tableDeleteRow, wrapCodeBlock,
 } from "./format";
 
 function viewWith(doc: string, cursor: number): EditorView {
@@ -522,5 +522,32 @@ describe("cycleCase / joinCurrentLine", async () => {
     joinCurrentLine(v2);
     expect(v2.state.doc.toString()).toBe("가나 다라");
     v2.destroy();
+  });
+});
+
+// — 코드 블록 감싸기 —
+describe("wrapCodeBlock", async () => {
+  const { EditorState } = await import("@codemirror/state");
+  const { EditorView } = await import("@codemirror/view");
+  const { wrapCodeBlock } = await import("./format");
+
+  function mount(doc: string, a: number, b: number): EditorView {
+    const host = document.createElement("div");
+    document.body.append(host);
+    return new EditorView({ state: EditorState.create({ doc, selection: { anchor: a, head: b } }), parent: host });
+  }
+
+  it("선택을 펜스로 감싼다 — 첫 줄이 식별자면 언어로", () => {
+    const v = mount("rust\nfn main() {}", 0, 14);
+    wrapCodeBlock(v);
+    expect(v.state.doc.toString()).toBe("\`\`\`rust\nfn main() {}\n\`\`\`");
+    v.destroy();
+  });
+
+  it("토글 — 이미 감싼 선택은 벗긴다", () => {
+    const v = mount("\`\`\`\ncode\n\`\`\`", 0, 12);
+    wrapCodeBlock(v);
+    expect(v.state.doc.toString()).toBe("code");
+    v.destroy();
   });
 });

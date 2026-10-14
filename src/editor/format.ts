@@ -140,6 +140,40 @@ export function joinCurrentLine(view: EditorView): boolean {
   return true;
 }
 
+/** 코드 블록 감싸기 — 선택을 \`\`\` 펜스로(줄 단위). 토글: 이미 감싸면 벗기기. */
+export function wrapCodeBlock(view: EditorView): boolean {
+  const sel = view.state.selection.main;
+  const doc = view.state.doc;
+  const from = doc.lineAt(sel.from).from;
+  const to = doc.lineAt(sel.to).to;
+  const text = doc.sliceString(from, to);
+  const lines = text.split("\n");
+  // 이미 펜스 안 선택이면 벗긴다(첫/끝 줄이 펜스).
+  if (lines.length >= 3 && /^(```|~~~)/.test(lines[0]!) && /^(```|~~~)/.test(lines[lines.length - 1]!)) {
+    const inner = lines.slice(1, -1).join("\n");
+    view.dispatch({
+      changes: { from, to, insert: inner },
+      selection: { anchor: from },
+      userEvent: "input.unwrapCodeBlock",
+    });
+    return true;
+  }
+  // 언어 추정: 첫 줄이 짧은 식별자면 언어로 승격.
+  let lang = "";
+  let body = lines;
+  if (lines.length > 1 && /^[A-Za-z0-9+#-]{1,12}$/.test(lines[0]!.trim())) {
+    lang = lines[0]!.trim();
+    body = lines.slice(1);
+  }
+  const fence = `\`\`\`${lang}`;
+  view.dispatch({
+    changes: { from, to, insert: `${fence}\n${body.join("\n")}\n\`\`\`` },
+    selection: { anchor: from + fence.length + 1 },
+    userEvent: "input.wrapCodeBlock",
+  });
+  return true;
+}
+
 /** 대소문자 순환(Shift+F3) — lower → UPPER → Title. 라틴에만 의미.
  *  선택 없으면 커서 단어. 순수 판정은 wordCaseOf(테스트 대상). */
 export function wordCaseOf(text: string): "lower" | "upper" | "title" | "mixed" {

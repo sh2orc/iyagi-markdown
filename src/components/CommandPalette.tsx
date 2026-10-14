@@ -232,6 +232,7 @@ export function CommandPalette({
         { id: "ul", label: `${t.tbBullet}`, run: go(() => fmt.toggleBulletList(view)) },
         { id: "ol", label: `${t.tbNumbered}`, run: go(() => fmt.toggleOrderedList(view)) },
         { id: "quote", label: `${t.tbQuote}`, run: go(() => fmt.toggleQuote(view)) },
+        { id: "wrap-code", label: `${t.scFormat}: ${t.cmdWrapCode}`, run: go(() => fmt.wrapCodeBlock(view)) },
         { id: "table", label: `${t.tbTable}`, run: go(() => fmt.insertTable(view)) },
         ...(onOpenTableDialog ? [{ id: "table-dialog", label: `${t.tbTable}: ${t.tableInsertTitle}…`, run: onOpenTableDialog }] : []),
         { id: "toc-insert", label: `${t.tbInsertToc}`, run: go(() => fmt.insertToc(view)) },
