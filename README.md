@@ -116,7 +116,7 @@ npm run tauri build    # .app + DMG
 
 ## 테스트
 
-**프런트 319개**(vitest) + **Rust 85개**(cargo test) = **404개** 통과 · clippy 0 경고.
+**프런트 323개**(vitest) + **Rust 85개**(cargo test) = **408개** 통과 · clippy 0 경고.
 
 ## 라이선스
 
