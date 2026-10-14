@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
+import { LinkDialog } from "./LinkDialog";
+import { findLinkAt } from "../editor/livePreview";
 
 interface Props {
   store: AppStore;
@@ -17,6 +19,8 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
   const view = store.view;
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
   const hostRef = useRef<HTMLDivElement | null>(null);
+  /** 링크 편집 대화상자 위치(커서가 링크 안일 때 ✎). */
+  const [linkEditPos, setLinkEditPos] = useState<number | null>(null);
   const [hidden, setHidden] = useState(false);
 
   // 스크롤에는 접힌다(위치가 어긋나 보이는 것보다 낫다) — 다음 선택에서 재등장.
@@ -71,6 +75,7 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
   };
 
   return (
+    <>
     <div ref={hostRef} className="mini-tb" style={{ top: pos.top, left: pos.left }}>
       <button className="mtb-btn" title={t.tbBold} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleBold)}>
         <b>B</b>
@@ -90,6 +95,11 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
       <button className="mtb-btn" title={t.tbLink} onMouseDown={(e) => e.preventDefault()} onClick={() => run((v) => fmt.insertLink(v))}>
         🔗
       </button>
+      {tab?.marks.link && (
+        <button className="mtb-btn" title={t.ctxEditLink} onClick={() => setLinkEditPos(pos ? view!.state.selection.main.from : null)}>
+          ✎
+        </button>
+      )}
       <span className="mtb-sep" />
       <button className="mtb-btn" title={t.tbBullet} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleBulletList)}>
         •—
@@ -104,5 +114,27 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
         ❝
       </button>
     </div>
+    {linkEditPos !== null && (() => {
+      const v = view;
+      if (!v) return null;
+      const link = findLinkAt(v.state, linkEditPos);
+      if (!link) return null;
+      return (
+        <LinkDialog
+          initial={{ text: link.text, url: link.url, from: link.from, to: link.to }}
+          t={t}
+          onCancel={() => setLinkEditPos(null)}
+          onConfirm={(next) => {
+            setLinkEditPos(null);
+            v.dispatch({
+              changes: { from: link.from, to: link.to, insert: `[${next.text}](${next.url})` },
+              userEvent: "input.editLink",
+            });
+            v.focus();
+          }}
+        />
+      );
+    })()}
+    </>
   );
 }
