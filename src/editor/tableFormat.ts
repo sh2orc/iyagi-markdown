@@ -102,3 +102,29 @@ export function formatTableText(tableText: string): string | null {
   const result = out.join("\n") + (tableText.endsWith("\n") ? "\n" : "");
   return result === tableText ? null : result;
 }
+
+/** 문서 전체의 표를 정리 — 표 블록(파이프 줄 연속)을 찾아 각각
+ *  formatTableText 적용. 비표 줄은 그대로. 순수 함수(테스트 대상). */
+export function formatAllTables(text: string): string {
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  const isRow = (l: string): boolean => {
+    const t = l.trim();
+    return t.startsWith("|") && t.endsWith("|") && t.length > 1;
+  };
+  while (i < lines.length) {
+    if (isRow(lines[i]!)) {
+      let j = i;
+      while (j < lines.length && isRow(lines[j]!)) j++;
+      const block = lines.slice(i, j).join("\n");
+      const fmt = formatTableText(block);
+      out.push(fmt ?? block);
+      i = j;
+    } else {
+      out.push(lines[i]!);
+      i += 1;
+    }
+  }
+  return out.join("\n");
+}

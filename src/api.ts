@@ -51,6 +51,8 @@ export interface Settings {
   longSentenceMarks: boolean;
   /** 긴 문장 임계값(자). */
   longSentenceMin: number;
+  /** 저장 시 표 서식 자동 정리. */
+  autoFormatTables: boolean;
   /** 집필 목표 단어 수(0 = 없음). */
   writingGoal: number;
   /** 찾기 바 마지막 상태. */

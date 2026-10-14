@@ -77,6 +77,9 @@ pub struct Settings {
     /// 긴 문장 표시 임계값(자, 기본 60).
     #[serde(default = "default_long_sentence_min")]
     pub long_sentence_min: f64,
+    /// 저장 시 표 서식 자동 정리(파이프 정렬).
+    #[serde(default)]
+    pub auto_format_tables: bool,
     /// 집필 목표 단어 수(0 = 없음) — 상태 줄 진행 표시.
     #[serde(default)]
     pub writing_goal: f64,

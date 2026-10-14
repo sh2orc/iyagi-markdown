@@ -5,6 +5,7 @@
 // 순수 로직(의존 주입형 IO)이라 단위 테스트가 가능하다.
 
 import { EditorState } from "@codemirror/state";
+import { formatAllTables } from "../editor/tableFormat";
 import { syntaxTree } from "@codemirror/language";
 import { EditorView, type ViewUpdate } from "@codemirror/view";
 
@@ -707,8 +708,20 @@ export class AppStore {
   async saveTabById(id: string): Promise<boolean> {
     const tab = this.state.tabs.find((t) => t.id === id);
     if (!tab?.path || !tab.dirty) return false;
-    const newText = tab.state.doc.toString();
+    let newText = tab.state.doc.toString();
     const oldText = tab.savedText;
+    // 표 서식 자동 정리 — 원문 재배치일 뿐(내용 불변, §4-2).
+    if (this.state.settings.autoFormatTables) {
+      const fmt = formatAllTables(newText);
+      if (fmt !== newText) {
+        newText = fmt;
+        if (this.view && tab.id === this.state.activeId) {
+          this.view.dispatch({ changes: { from: 0, to: this.view.state.doc.length, insert: fmt } });
+        } else {
+          tab.state = tab.state.update({ changes: { from: 0, to: tab.state.doc.length, insert: fmt } }).state;
+        }
+      }
+    }
     try {
       const res = await this.io.writeDocument(tab.path, newText, tab.meta);
       // 메모·책갈피 재앵커 — 이전 저장본→새 본문 diff로 줄 보정.
@@ -1538,6 +1551,7 @@ export function defaultSettings(): Settings {
     smartPunctuation: true,
     longSentenceMarks: false,
     longSentenceMin: 60,
+    autoFormatTables: false,
     writingGoal: 0,
     searchCase: false,
     searchRegex: false,

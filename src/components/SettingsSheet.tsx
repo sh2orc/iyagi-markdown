@@ -121,6 +121,14 @@ export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element |
           <label className="settings-check">
             <input
               type="checkbox"
+              checked={s.autoFormatTables}
+              onChange={(e) => set({ autoFormatTables: e.target.checked })}
+            />
+            {t.setAutoFormatTables}
+          </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
               checked={s.autosave}
               onChange={(e) => set({ autosave: e.target.checked })}
             />

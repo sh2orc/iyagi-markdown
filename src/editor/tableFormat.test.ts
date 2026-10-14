@@ -3,7 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { cellWidth, formatTableText } from "./tableFormat";
+import { cellWidth, formatAllTables, formatTableText,
+} from "./tableFormat";
 
 describe("cellWidth", () => {
   it("전각은 2, 반각은 1", () => {
@@ -44,5 +45,19 @@ describe("formatTableText", () => {
   it("이미 정렬된 표는 null(디스패치 없음), 비-표도 null", () => {
     expect(formatTableText("| a | b |\n| --- | --- |\n")).toBeNull();
     expect(formatTableText("그냥 텍스트\n두 번째 줄\n")).toBeNull();
+  });
+});
+
+describe("formatAllTables — 문서 전체 표 정리", () => {
+  it("표 블록만 정리, 비표 줄·코드펜스 보존", () => {
+    const doc = "서론\n\n|a|bb|\n|---|---|\n|1|2|\n\n\`\`\`\n|x|\n\`\`\`\n";
+    const out = formatAllTables(doc);
+    expect(out).toContain("| a | bb |");
+    expect(out).toContain("| 1 | 2  |"); // 열 폭은 셋 중 최장에 맞춰짐
+    expect(out).toContain("|x|"); // 펜스 안 무결
+  });
+
+  it("표 없는 문서는 무변경", () => {
+    expect(formatAllTables("그냥 텍스트\n")).toBe("그냥 텍스트\n");
   });
 });
