@@ -10,6 +10,7 @@ import type { AppStore } from "../app/store";
 import { flattenFiles, scoreFile, subsequence, type FileEntry } from "../app/quickOpen";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
+import { tidyDocument } from "../editor/tableFormat";
 import { splitHighlights } from "../search/searchCm";
 import { copyFormat, pasteFormat } from "../editor/formatPainter";
 import { pasteAsPlainText } from "../editor/cm";
@@ -240,6 +241,16 @@ export function CommandPalette({
         ...(onOpenTableDialog ? [{ id: "table-dialog", label: `${t.tbTable}: ${t.tableInsertTitle}…`, run: onOpenTableDialog }] : []),
         { id: "toc-insert", label: `${t.tbInsertToc}`, run: go(() => fmt.insertToc(view)) },
         { id: "hr", label: `${t.tbRule}`, run: go(() => fmt.insertBlock(view, "---")) },
+        { id: "tidy-document", label: `${t.scEdit}: ${t.cmdTidy}`, run: go(() => {
+          const v = view!;
+          const next = tidyDocument(v.state.doc.toString());
+          if (next !== v.state.doc.toString()) {
+            v.dispatch({
+              changes: { from: 0, to: v.state.doc.length, insert: next },
+              userEvent: "input.tidyDocument",
+            });
+          }
+        }) },
         { id: "row-add", label: `${t.ctxAddRow}`, run: go(() => fmt.tableAddRow(view)) },
         { id: "row-del", label: `${t.ctxDelRow}`, run: go(() => fmt.tableDeleteRow(view)) },
         { id: "col-add", label: `${t.ctxAddCol}`, run: go(() => fmt.tableAddColumn(view)) },

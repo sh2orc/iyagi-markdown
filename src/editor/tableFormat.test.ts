@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { cellWidth, formatAllTables, formatTableText,
+import { cellWidth, formatAllTables, formatTableText, tidyDocument,
 } from "./tableFormat";
 
 describe("cellWidth", () => {
@@ -59,5 +59,19 @@ describe("formatAllTables — 문서 전체 표 정리", () => {
 
   it("표 없는 문서는 무변경", () => {
     expect(formatAllTables("그냥 텍스트\n")).toBe("그냥 텍스트\n");
+  });
+});
+
+describe("tidyDocument", () => {
+  it("3줄+ 빈 줄 → 1줄, 끝 정리", () => {
+    const doc = "a\n\n\n\nb\n\n\n";
+    expect(tidyDocument(doc)).toBe("a\n\nb\n");
+  });
+
+  it("표 정렬 동반·줄 끝 공백(강제줄바꿈) 보존", () => {
+    const doc = "|a|b|\n|---|---|\n|1|2|\n\n\n\n끝  \n";
+    const out = tidyDocument(doc);
+    expect(out).toContain("| a | b |");
+    expect(out).toContain("끝  \n"); // 두 칸 유지
   });
 });

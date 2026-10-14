@@ -128,3 +128,12 @@ export function formatAllTables(text: string): string {
   }
   return out.join("\n");
 }
+
+/** 문서 정리 — 3줄+ 빈 줄 → 1줄, 끝 연속 빈 줄 제거, 표 정렬.
+ *  줄 끝 공백은 강제줄바꿈(두 칸)일 수 있어 건드리지 않는다. 순수 함수. */
+export function tidyDocument(text: string): string {
+  const tabled = formatAllTables(text);
+  const collapsed = tabled.replace(/\n{3,}/g, "\n\n");
+  const trimmedEnd = collapsed.replace(/\n+$/, "\n");
+  return trimmedEnd;
+}
