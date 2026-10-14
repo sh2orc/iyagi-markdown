@@ -35,6 +35,7 @@ export function PrintPreview({
   const tab = store.active;
   const [html, setHtml] = useState<string | null>(null);
   const [paper, setPaper] = useState<"a4" | "letter" | "a5">(saved?.paper ?? "a4");
+  const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
   const [margin, setMargin] = useState(saved?.margin ?? 14);
   const [scale, setScale] = useState(saved?.scale ?? 1);
   // 옵션(용지·여백·배율) 바뀌면 재렌더 — 연속 조절에 프레임을 태우지
@@ -139,6 +140,15 @@ export function PrintPreview({
             <option value="letter">Letter</option>
             <option value="a5">A5</option>
           </select>
+          <select
+            className="print-paper"
+            value={orientation}
+            onChange={(e) => setOrientation(e.target.value as "portrait" | "landscape")}
+            title={t.exportOrientation}
+          >
+            <option value="portrait">{t.exportPortrait}</option>
+            <option value="landscape">{t.exportLandscape}</option>
+          </select>
           <label className="print-ctl" title={t.exportMargin}>
             {t.exportMargin} ({margin}mm)
             <input type="range" min={0} max={30} value={margin} onChange={(e) => setMargin(Number(e.target.value))} />
@@ -155,13 +165,13 @@ export function PrintPreview({
                 printFrame.current?.contentWindow?.print();
               } catch {
                 /* 차단 시 PDF 경로 안내 */
-                onExport("pdf", { paper, orientation: "portrait", marginMm: margin, scale });
+                onExport("pdf", { paper, orientation, marginMm: margin, scale });
               }
             }}
           >
             {t.printButton}
           </button>
-          <button className="btn" onClick={() => onExport("pdf", { paper, orientation: "portrait", marginMm: margin, scale })}>
+          <button className="btn" onClick={() => onExport("pdf", { paper, orientation, marginMm: margin, scale })}>
             PDF
           </button>
           <button className="btn btn-plain" onClick={onCancel}>
