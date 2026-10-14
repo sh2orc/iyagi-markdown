@@ -94,6 +94,8 @@ export interface SessionState {
   pinnedPath?: string | null;
   /** 사이드바에서 접어 둔 폴더 경로들. */
   collapsedFolders?: string[];
+  /** 목차 패널에서 접어 둔 제목 슬러그. */
+  tocCollapsed?: string[];
   sidebarOpen: boolean;
   sidebarWidth: number;
   tocOpen: boolean;

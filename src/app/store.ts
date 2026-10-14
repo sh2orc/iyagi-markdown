@@ -147,6 +147,8 @@ export class AppStore {
   public pendingPinnedPath: string | null = null;
   /** 사이드바에서 접어 둔 폴더 경로(세션 저장·복원, Sidebar가 사용). */
   public collapsedFolders: Set<string> = new Set();
+  /** 목차 패널에서 접어 둔 제목 슬러그(세션 저장·복원). */
+  public tocCollapsed: Set<string> = new Set();
   /** 분할 편집 — 두 번째 뷰와 그 탭 id(RefPane 편집 모드). */
   public splitView: EditorView | null = null;
   public splitTabId: string | null = null;
@@ -1205,6 +1207,7 @@ export class AppStore {
     this.pinnedTabId = null;
     this.pendingPinnedPath = session.pinnedPath ?? null;
     this.collapsedFolders = new Set(session.collapsedFolders ?? []);
+    this.tocCollapsed = new Set(session.tocCollapsed ?? []);
     this.state.sidebarOpen = session.sidebarOpen;
     this.state.sidebarWidth = session.sidebarWidth ?? 240;
     this.state.tocOpen = session.tocOpen;
@@ -1277,6 +1280,7 @@ export class AppStore {
       active: this.active?.path ?? null,
       workspace: this.state.workspace,
       collapsedFolders: [...this.collapsedFolders].sort(),
+      tocCollapsed: [...this.tocCollapsed].sort(),
       pinnedPath:
         this.pinnedTabId != null
           ? (this.state.tabs.find((t) => t.id === this.pinnedTabId)?.path ?? null)

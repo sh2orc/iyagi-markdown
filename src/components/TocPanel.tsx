@@ -26,9 +26,11 @@ export function TocPanel({ store, t, open }: Props): JSX.Element {
   const [headings, setHeadings] = useState<Heading[]>([]);
   const [activeIdx, setActiveIdx] = useState(-1);
   /** 접힌 제목 slug — 문서가 살짝 바뀌어도 접기가 풀리지 않게. */
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // 접힘 상태는 스토어가 소유(세션 저장·복원).
+  const collapsed = store.tocCollapsed;
   const [query, setQuery] = useState("");
   const [selIdx, setSelIdx] = useState(-1);
+  const [, setTick] = useState(0);
   /** 개요 드래그 재배치 — 원본 제목 인덱스(Word 네비게이션 창 방식). */
   const [dragHead, setDragHead] = useState<{ idx: number; over: number } | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -138,12 +140,11 @@ export function TocPanel({ store, t, open }: Props): JSX.Element {
   };
 
   const toggleCollapse = (slug: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(slug)) next.delete(slug);
-      else next.add(slug);
-      return next;
-    });
+    const next = new Set(store.tocCollapsed);
+    if (next.has(slug)) next.delete(slug);
+    else next.add(slug);
+    store.tocCollapsed = next;
+    setTick((n) => n + 1);
   };
 
   // 키보드 탐색 — ↑↓ 선택 이동, Enter 점프(필터 중에도 같은 목록 순서로).

@@ -48,6 +48,9 @@ pub struct SessionState {
     /// 사이드바에서 접어 둔 폴더 경로들.
     #[serde(default)]
     pub collapsed_folders: Vec<String>,
+    /// 목차 패널에서 접어 둔 제목 슬러그들.
+    #[serde(default)]
+    pub toc_collapsed: Vec<String>,
     #[serde(default = "default_true")]
     pub sidebar_open: bool,
     #[serde(default = "default_sidebar_width")]
@@ -90,6 +93,7 @@ impl Default for SessionState {
             workspace: None,
             pinned_path: None,
             collapsed_folders: Vec::new(),
+            toc_collapsed: Vec::new(),
             sidebar_open: true,
             sidebar_width: default_sidebar_width(),
             toc_open: false,
@@ -157,6 +161,7 @@ mod tests {
             version: SESSION_VERSION,
             pinned_path: None,
             collapsed_folders: Vec::new(),
+            toc_collapsed: Vec::new(),
             tabs: vec![SessionTab {
                 path: Some("/tmp/a.md".into()),
                 mode: ViewMode::Read,
