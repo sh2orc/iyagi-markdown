@@ -1281,6 +1281,20 @@ export function App(): JSX.Element {
           alt={viewer.alt}
           t={t}
           onClose={() => setViewer(null)}
+          onNav={(dir) => {
+            // 문서의 ![..](src) 위치 목록 — 현재 src 위치에서 이전/다음(순환).
+            const v = editorView.current;
+            if (!v) return;
+            const doc = v.state.doc.toString();
+            const positions: Array<{ src: string; at: number }> = [];
+            for (const m of doc.matchAll(/!\[[^\]]*\]\(([^)\s]+)[^)]*\)/g)) {
+              positions.push({ src: m[1]!, at: m.index ?? 0 });
+            }
+            if (positions.length === 0) return;
+            const cur = positions.findIndex((p) => p.src === viewer.src);
+            const next = positions[(cur + dir + positions.length) % positions.length] ?? positions[0]!;
+            setViewer({ src: next.src, alt: "" });
+          }}
           onEditAlt={() => {
             // 문서에서 이 src의 첫 등장 위치를 찾아 편집 대화상자로.
             const v = editorView.current;

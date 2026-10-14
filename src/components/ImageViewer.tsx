@@ -13,9 +13,11 @@ interface Props {
   onClose: () => void;
   /** 대체 텍스트 편집(뷰어 안에서) — 제공되면 ✎ 버튼. */
   onEditAlt?: () => void;
+  /** 좌/우 화살표로 문서의 이전/다음 이미지로 — 제공되면 순회. */
+  onNav?: (dir: -1 | 1) => void;
 }
 
-export function ImageViewer({ src, alt, t, onClose, onEditAlt }: Props): JSX.Element {
+export function ImageViewer({ src, alt, t, onClose, onEditAlt, onNav }: Props): JSX.Element {
   const [zoom, setZoom] = useState(1);
   const [rot, setRot] = useState(0);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -29,8 +31,14 @@ export function ImageViewer({ src, alt, t, onClose, onEditAlt }: Props): JSX.Ele
   };
 
   useEffect(() => {
+    setPan({ x: 0, y: 0 });
+  }, [src]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowLeft") onNav?.(-1);
+      else if (e.key === "ArrowRight") onNav?.(1);
       else if (e.key === "+" || e.key === "=") setZoom((z) => Math.min(8, z * 1.25));
       else if (e.key === "-") setZoom((z) => Math.max(0.1, z / 1.25));
       else if (e.key === "0") reset();
