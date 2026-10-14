@@ -2599,3 +2599,6 @@ body.resizing .toc {
 
 /* — 마지막 저장 시각 — */
 .status-saved-at { color: var(--md-fg-dim); font-variant-numeric: tabular-nums; opacity: 0.8; }
+
+/* — 뷰어 위치(N / M) — */
+.imgviewer-index { color: var(--md-fg-dim); font-size: 12px; font-variant-numeric: tabular-nums; }

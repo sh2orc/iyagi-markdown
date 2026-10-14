@@ -15,9 +15,12 @@ interface Props {
   onEditAlt?: () => void;
   /** 좌/우 화살표로 문서의 이전/다음 이미지로 — 제공되면 순회. */
   onNav?: (dir: -1 | 1) => void;
+  /** 문서 내 위치(N/M 표시용) — 없으면 숨김. */
+  index?: number;
+  total?: number;
 }
 
-export function ImageViewer({ src, alt, t, onClose, onEditAlt, onNav }: Props): JSX.Element {
+export function ImageViewer({ src, alt, t, onClose, onEditAlt, onNav, index, total }: Props): JSX.Element {
   const [zoom, setZoom] = useState(1);
   const [rot, setRot] = useState(0);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -69,6 +72,9 @@ export function ImageViewer({ src, alt, t, onClose, onEditAlt, onNav }: Props): 
         <button className="mtb-btn" title="-" onClick={() => setZoom((z) => Math.max(0.1, z / 1.25))}>
           −
         </button>
+        {index !== undefined && total !== undefined && (
+          <span className="imgviewer-index">{index + 1} / {total}</span>
+        )}
         <span className="imgviewer-zoom">{Math.round(zoom * 100)}%</span>
         <button className="mtb-btn" title="+" onClick={() => setZoom((z) => Math.min(8, z * 1.25))}>
           +

@@ -146,6 +146,8 @@ export function App(): JSX.Element {
   const [backlinksOpen, setBacklinksOpen] = useState(false);
   const [brokenOpen, setBrokenOpen] = useState(false);
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
+  const [viewerIndex, setViewerIndex] = useState(0);
+  const [viewerTotal, setViewerTotal] = useState(0);
   const [diffOpen, setDiffOpen] = useState(false);
   // 내보내기 토글·옵션은 설정에 산다 — 재시작에도 유지(Word 인쇄 설정 기억).
   const setExportPageNumbers = (v: boolean) => updateSettings(store, { exportPageNumbers: v });
@@ -338,7 +340,13 @@ export function App(): JSX.Element {
   // 이미지 폭 조절 → 사이드카 / 이미지 클릭 → 확대 뷰어(원문 불변).
   useEffect(() => {
     setImageResizeHandler((src, pct) => store.setImageWidth(src, pct));
-    setImageViewerHandler((src, alt) => setViewer({ src, alt }));
+    setImageViewerHandler((src, alt) => {
+      const doc = store.view?.state.doc.toString() ?? "";
+      const all = [...doc.matchAll(/!\[[^\]]*\]\(([^)\s]+)[^)]*\)/g)].map((m) => m[1]);
+      setViewerIndex(Math.max(0, all.indexOf(src)));
+      setViewerTotal(all.length);
+      setViewer({ src, alt });
+    });
     setFrontMatterEditHandler(() => setFmOpen(true));
     // 이미지 '설명 추가' 칩 — 그 이미지의 대체 텍스트 편집(69차 대화상자 재사용).
     setImageCaptionHandler((_src, pos) => setImgEditPos(pos));
@@ -1281,6 +1289,8 @@ export function App(): JSX.Element {
           alt={viewer.alt}
           t={t}
           onClose={() => setViewer(null)}
+          index={viewerIndex}
+          total={viewerTotal}
           onNav={(dir) => {
             // 문서의 ![..](src) 위치 목록 — 현재 src 위치에서 이전/다음(순환).
             const v = editorView.current;
@@ -1294,6 +1304,8 @@ export function App(): JSX.Element {
             const cur = positions.findIndex((p) => p.src === viewer.src);
             const next = positions[(cur + dir + positions.length) % positions.length] ?? positions[0]!;
             setViewer({ src: next.src, alt: "" });
+            setViewerIndex(positions.indexOf(next));
+            setViewerTotal(positions.length);
           }}
           onEditAlt={() => {
             // 문서에서 이 src의 첫 등장 위치를 찾아 편집 대화상자로.
