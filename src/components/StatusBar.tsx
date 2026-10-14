@@ -165,6 +165,11 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, 
                 ☑ {tab.checkbox.done}/{tab.checkbox.total}
               </span>
             )}
+            {!dirty && tab.savedAt > 0 && (
+              <span className="status-saved-at">
+                {new Date(tab.savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
             {dirty && <span className="status-dot" title={t.dirtyTitle} />}
           </>
         )}

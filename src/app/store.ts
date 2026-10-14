@@ -67,6 +67,8 @@ export interface Tab {
   trackStats: { added: number; removed: number } | null;
   /** 책갈피 줄 번호(SQLite 사이드카 — 원문 불변). */
   bookmarks: number[];
+  /** 마지막 저장 시각(ms). */
+  savedAt: number;
   /** 저장 안 됨 표시 — 입력마다 O(문서) 비교 대신 증분 유지(정확성: 길이가
    *  같을 때만 문자열 비교로 확정한다). */
   dirty: boolean;
@@ -310,6 +312,7 @@ export class AppStore {
       baselineText: null,
       trackStats: null,
       dirty: false,
+      savedAt: 0,
       // 통계는 본문만(프론트매터는 메타 — Obsidian 방식).
       words: countWords(stripFrontMatter(doc.text)),
       chars: stripFrontMatter(doc.text).length,
@@ -384,6 +387,7 @@ export class AppStore {
       baselineText: null,
       trackStats: null,
       dirty: false,
+      savedAt: 0,
       words: countWords(stripFrontMatter(content)),
       chars: stripFrontMatter(content).length,
       checkbox: checkboxOf(content),
@@ -420,6 +424,7 @@ export class AppStore {
       baselineText: null,
       trackStats: null,
       dirty: false,
+      savedAt: 0,
       words: 0,
       chars: 0,
     };
@@ -750,6 +755,7 @@ export class AppStore {
       }
       tab.savedText = newText;
       tab.savedMtime = res.mtime;
+      tab.savedAt = Date.now();
       tab.dirty = false;
       this.emit();
       return true;
@@ -777,6 +783,7 @@ export class AppStore {
       tab.title = baseName(path);
       tab.savedText = text;
       tab.savedMtime = out.mtime;
+      tab.savedAt = Date.now();
       tab.dirty = false;
       tab.conflict = null;
       this.lastSavedAt = Date.now();
@@ -1317,6 +1324,7 @@ export class AppStore {
       baselineText: null,
       trackStats: null,
         dirty: false,
+      savedAt: 0,
         words: countWords(stripFrontMatter(doc.text)),
         chars: stripFrontMatter(doc.text).length,
       };

@@ -2596,3 +2596,6 @@ body.resizing .toc {
 }
 .goal-fill.is-done { background: #34c759; }
 .goal-label { margin-top: 5px; font-size: 11.5px; color: var(--md-fg-dim); font-variant-numeric: tabular-nums; }
+
+/* — 마지막 저장 시각 — */
+.status-saved-at { color: var(--md-fg-dim); font-variant-numeric: tabular-nums; opacity: 0.8; }
