@@ -325,7 +325,8 @@ export class AppStore {
         const t = this.state.tabs.find((x) => x.id === tab.id);
         if (t && text != null) {
           t.baselineText = text;
-          t.trackStats = { added: 0, removed: 0 };
+          const r = changedLines(text, t.state.doc.toString());
+          t.trackStats = { added: r.added.size, removed: r.removed };
           if (this.state.activeId === t.id) this.emit();
         }
       });
@@ -707,6 +708,7 @@ export class AppStore {
         if (bmNew.some((b, i) => b !== tab.bookmarks[i])) {
           for (const b of tab.bookmarks) void this.io.bookmarkRemove?.(tab.path, b);
           for (const b of bmNew) void this.io.bookmarkAdd?.(tab.path, b);
+          tab.bookmarks = bmNew.sort((a, b) => a - b); // 로컬 상태도 동기화
         }
       }
       tab.savedText = newText;
