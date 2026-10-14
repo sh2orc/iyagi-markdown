@@ -214,8 +214,10 @@ export class ImageWidget extends WidgetType {
     // 클릭 → 확대 뷰어(App이 등록한 콜백 — 원문 불변, 보기만).
     img.addEventListener("click", () => imageViewerHandler?.(this.src, this.alt));
     wrap.append(img);
-    // alt가 비었으면 호버 칩 '설명 추가' — 캡션·접근성의 진입점(63차 퍼널).
-    if (!this.alt.trim() && imageCaptionHandler) {
+    // alt가 비었거나 파일명 모양이면 호버 칩 '설명 추가' — 캡션·접근성
+    // 진입점(63·108차 퍼널 확장: screenshot.png 같은 무의미 alt도 유도).
+    const altIsFilename = /^(img|image|screenshot|screen|shot|pic|photo)?[\s_-]*[\w-]*\.(png|jpe?g|gif|webp|svg|bmp|heic|avif|tiff?)$/i.test(this.alt.trim());
+    if ((!this.alt.trim() || altIsFilename) && imageCaptionHandler) {
       const chip = document.createElement("button");
       chip.className = "md-img-caption-add";
       chip.textContent = "＋ 설명";

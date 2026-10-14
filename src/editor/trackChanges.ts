@@ -117,7 +117,9 @@ export function trackChanges(): Extension {
           const target = Math.min(h.line, doc.lines);
           const pos = doc.line(target).from;
           if (!this.view.visibleRanges.some((r) => pos >= r.from - 40 && pos <= r.to + 40)) continue;
-          const lines = h.restore.split("\n").slice(0, 8);
+          const all = h.restore.split("\n");
+          const lines = all.slice(0, 8);
+          if (all.length > 8) lines.push(`… (${all.length - 8}줄 더 — 패널 참조)`);
           ranges.push(Decoration.widget({ widget: new DelLinesWidget(lines, h), block: true, side: -1 }).range(pos));
           if (ranges.length > 700) break;
         }
