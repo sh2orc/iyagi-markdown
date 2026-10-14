@@ -166,6 +166,7 @@ mod tests {
             pinned_path: None,
             collapsed_folders: Vec::new(),
             toc_collapsed: Vec::new(),
+            locked_paths: Vec::new(),
             tabs: vec![SessionTab {
                 path: Some("/tmp/a.md".into()),
                 mode: ViewMode::Read,
