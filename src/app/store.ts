@@ -758,6 +758,7 @@ export class AppStore {
       tab.savedAt = Date.now();
       tab.dirty = false;
       this.emit();
+      this.scheduleSessionSave(); // 분할 편집 탭의 커서·상태도 세션에
       return true;
     } catch {
       return false;
