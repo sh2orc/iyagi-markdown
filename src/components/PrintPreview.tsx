@@ -8,6 +8,8 @@ import { resolveWikiLink } from "../editor/wiki";
 import type { AppStore } from "../app/store";
 import { frontMatterMeta } from "../editor/frontmatter";
 
+const printFrame = { current: null as HTMLIFrameElement | null };
+
 /** 문서별 미리보기 본문 캐시(인쇄 슬라이더가 껍데기만 다시 조립하게). */
 const previewBodyCache = new Map<string, string>();
 import type { Translate } from "../i18n";
@@ -144,7 +146,21 @@ export function PrintPreview({
             {t.exportScale} ({scale.toFixed(2)}×)
             <input type="range" min={0.5} max={2} step={0.05} value={scale} onChange={(e) => setScale(Number(e.target.value))} />
           </label>
-          <button className="btn btn-primary" onClick={() => onExport("pdf", { paper, orientation: "portrait", marginMm: margin, scale })}>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              try {
+                printFrame.current?.contentWindow?.focus();
+                printFrame.current?.contentWindow?.print();
+              } catch {
+                /* 차단 시 PDF 경로 안내 */
+                onExport("pdf", { paper, orientation: "portrait", marginMm: margin, scale });
+              }
+            }}
+          >
+            {t.printButton}
+          </button>
+          <button className="btn" onClick={() => onExport("pdf", { paper, orientation: "portrait", marginMm: margin, scale })}>
             PDF
           </button>
           <button className="btn btn-plain" onClick={onCancel}>
@@ -157,7 +173,7 @@ export function PrintPreview({
             <div className="spinner" />
           </div>
         ) : (
-          <iframe className="print-page" title={t.printPreviewTitle} srcDoc={html} sandbox="" />
+          <iframe ref={(el) => { printFrame.current = el; }} className="print-page" title={t.printPreviewTitle} srcDoc={html} sandbox="allow-same-origin" />
         )}
       </div>
     </div>
