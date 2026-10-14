@@ -64,7 +64,8 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
 
   const run = (fn: (v: NonNullable<typeof view>) => boolean) => {
     if (view) {
-      fn(view);
+      // 잠긴 문서는 서식 명령도 차단(144차 일관성).
+      if (!view.state.readOnly) fn(view);
       view.focus();
     }
   };
