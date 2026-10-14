@@ -701,7 +701,15 @@ export class AppStore {
         const cUpd = tab.comments
           .map((c) => [c.id, shiftLineNo(c.lineNo, oldText, newText)] as [number, number])
           .filter(([, l]) => l > 0);
-        if (cUpd.length > 0) void this.io.commentReanchor?.(tab.path, cUpd);
+        if (cUpd.length > 0) {
+          void this.io.commentReanchor?.(tab.path, cUpd);
+          // 로컬 상태 동기화 — 줄 번호 갱신(삭제된 것은 제외), 장식 재계산 유발.
+          const updMap = new Map(cUpd);
+          tab.comments = tab.comments
+            .filter((c) => updMap.has(c.id))
+            .map((c) => ({ ...c, lineNo: updMap.get(c.id)! }));
+          void this.refreshComments();
+        }
         const bmNew = tab.bookmarks
           .map((b) => shiftLineNo(b, oldText, newText))
           .filter((b) => b > 0);
