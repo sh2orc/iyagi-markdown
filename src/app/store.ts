@@ -404,7 +404,6 @@ export class AppStore {
       id: `t${nextTabId++}`,
       path: null,
       title: "",
-      savedAt: 0,
       state: createDocState("", this.state.settings.defaultMode),
       mode: this.state.settings.defaultMode,
       savedText: "",
