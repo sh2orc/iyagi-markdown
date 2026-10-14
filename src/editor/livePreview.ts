@@ -387,6 +387,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
     // 메모 줄 장식 — 책갈피와 같은 방식(왼쪽 앰버 바) + 줄 끝 개수 배지.
     const commentCounts = new Map<number, number>();
     for (const cm of config.comments ?? []) {
+      if (cm.resolved) continue; // 배지는 미해결만 — 장식과 동일 기준
       commentCounts.set(cm.lineNo, (commentCounts.get(cm.lineNo) ?? 0) + 1);
     }
     for (const cl of commentLines) {

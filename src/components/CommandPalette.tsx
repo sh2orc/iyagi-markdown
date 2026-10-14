@@ -79,6 +79,7 @@ interface Props {
   onOpenSymbols?: () => void;
   onOpenTableDialog?: () => void;
   onOpenComments?: () => void;
+  onAddComment?: () => void;
   onOpenReview?: () => void;
   onOpenFrontMatter?: () => void;
   onOpenStyle: () => void;

@@ -49,6 +49,7 @@ import { StatsPanel } from "./components/StatsPanel";
 import { SymbolPanel } from "./components/SymbolPanel";
 import { TableDialog } from "./components/TableDialog";
 import { CommentsPanel } from "./components/CommentsPanel";
+import { CommentDialog } from "./components/CommentDialog";
 import { FrontMatterDialog } from "./components/FrontMatterDialog";
 import { RefPane } from "./components/RefPane";
 import { TrackPanel } from "./components/TrackPanel";
@@ -152,6 +153,8 @@ export function App(): JSX.Element {
   const [symbolOpen, setSymbolOpen] = useState(false);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  /** 메모 추가 대화상자 줄(팔레트). */
+  const [commentAddLine, setCommentAddLine] = useState<number | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [fmOpen, setFmOpen] = useState(false);
   /** 이미지 설명 편집(칩 클릭 위치 → 그 이미지). */
@@ -1185,6 +1188,18 @@ export function App(): JSX.Element {
       {shortcutsOpen && <ShortcutsPanel t={t} onClose={() => setShortcutsOpen(false)} />}
       {statsOpen && <StatsPanel store={store} t={t} onClose={() => setStatsOpen(false)} />}
       {commentsOpen && <CommentsPanel store={store} t={t} onClose={() => setCommentsOpen(false)} />}
+      {commentAddLine !== null && (
+        <CommentDialog
+          t={t}
+          lineNo={commentAddLine}
+          onCancel={() => setCommentAddLine(null)}
+          onConfirm={(text) => {
+            const line = commentAddLine;
+            setCommentAddLine(null);
+            void store.addComment(line, text);
+          }}
+        />
+      )}
       {fmOpen && <FrontMatterDialog store={store} t={t} onClose={() => setFmOpen(false)} />}
       {trackOpen && <TrackPanel store={store} t={t} onClose={() => setTrackOpen(false)} />}
       {imgEditPos !== null && (() => {
