@@ -732,6 +732,30 @@ export function setFrontMatterEditHandler(fn: (() => void) | null): void {
   frontMatterEditHandler = fn;
 }
 
+/** 메모 개수 배지 — 메모 줄 끝(여러 개면 N). */
+export class CommentCountWidget extends WidgetType {
+  constructor(readonly count: number, readonly onOpen: () => void) {
+    super();
+  }
+  eq(other: CommentCountWidget) {
+    return other.count === this.count;
+  }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = "md-comment-badge";
+    el.textContent = `💬${this.count > 1 ? this.count : ""}`;
+    el.title = "메모 보기(클릭)";
+    el.addEventListener("mousedown", (e: Event) => {
+      e.preventDefault();
+      this.onOpen();
+    });
+    return el;
+  }
+  ignoreEvent() {
+    return false;
+  }
+}
+
 /** 이미지 설명 추가 칩 → 대화상자 — App이 등록(src와 클릭 위치 전달). */
 export let imageCaptionHandler: ((src: string, pos: number) => void) | null = null;
 export function setImageCaptionHandler(fn: ((src: string, pos: number) => void) | null): void {

@@ -23,6 +23,7 @@ import { applyPreviewConfig, createDocState, smoothScrollIntoView, switchMode, t
 import { applyWriting, spellcheckComp, spellcheckExtension } from "../editor/writing";
 import { applySmartPunct } from "../editor/smartPunct";
 import { editableComp, setCommentsProvider } from "../editor/cm";
+
 import { changedLines, setDelRevertHandler, setTrackProvider, shiftLineNo } from "../editor/trackChanges";
 import { frontMatterLen, stripFrontMatter } from "../editor/frontmatter";
 import { invalidateLinkPreviews, ttsTextOf } from "../editor/linkPreview";
@@ -1038,6 +1039,7 @@ export class AppStore {
       imageWidths: tab?.docStyle?.imageWidths ?? {},
       bookmarks: tab?.bookmarks ?? [],
       commentLines: tab?.commentLines ?? [],
+      comments: tab?.comments ?? [],
       longSentenceMarks: this.state.settings.longSentenceMarks,
       longSentenceMin: this.state.settings.longSentenceMin,
       tableWidths: tab?.docStyle?.tableWidths ?? {},

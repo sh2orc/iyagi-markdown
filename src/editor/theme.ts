@@ -319,6 +319,13 @@ export const editorTheme = EditorView.theme({
     textUnderlineOffset: "3px",
     textDecorationSkipInk: "none",
   },
+  ".md-comment-badge": {
+    color: "#b07818",
+    fontSize: "0.72em",
+    marginLeft: "0.4em",
+    cursor: "pointer",
+    userSelect: "none",
+  },
   ".md-comment-line": {
     borderLeft: "2px solid rgba(210, 130, 30, 0.65)",
     background: "rgba(210, 130, 30, 0.05)",

@@ -49,7 +49,7 @@ import {
   MathWidget,
   SpacerWidget,
   TableWidget,
-  TaskItemWidget,
+  TaskItemWidget, CommentCountWidget,
 } from "./widgets";
 
 // — 설정 전달(문서 경로·이미지 정책·테마) —
@@ -65,6 +65,7 @@ export interface PreviewConfig {
   bookmarks: number[];
   /** 메모(주석)가 달린 줄 번호(선택 — 없으면 []). */
   commentLines?: number[];
+  comments?: Array<{ lineNo: number; resolved: boolean }>;
   /** 긴 문장 점선 밑줄 — 작가 보조 토글과 임계값(자). */
   longSentenceMarks?: boolean;
   longSentenceMin?: number;
@@ -383,11 +384,21 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
         }
       }
     }
-    // 메모 줄 장식 — 책갈피와 같은 방식(왼쪽 앰버 바).
+    // 메모 줄 장식 — 책갈피와 같은 방식(왼쪽 앰버 바) + 줄 끝 개수 배지.
+    const commentCounts = new Map<number, number>();
+    for (const cm of config.comments ?? []) {
+      commentCounts.set(cm.lineNo, (commentCounts.get(cm.lineNo) ?? 0) + 1);
+    }
     for (const cl of commentLines) {
       const line = doc.line(Math.min(Math.max(cl, 1), doc.lines));
       if (line.from >= chunkFrom && line.from < chunkTo) {
         ranges.push(Decoration.line({ class: "md-comment-line" }).range(line.from));
+        const n = commentCounts.get(cl);
+        if (n && commentOpenHandler) {
+          ranges.push(
+            Decoration.widget({ widget: new CommentCountWidget(n, commentOpenHandler) }).range(line.to),
+          );
+        }
       }
     }
     // 빈 줄은 낮게 — 블록 사이가 오밀조밀 붙게(불렛↔표 등). 코드 블록 안은 제외.
@@ -1027,6 +1038,12 @@ export function blockPosOfWidget(view: EditorView, widget: object): number | nul
     iter.next();
   }
   return found;
+}
+
+/** 메모 패널 열기 — App이 등록(배지 클릭). */
+export let commentOpenHandler: (() => void) | null = null;
+export function setCommentOpenHandler(fn: (() => void) | null): void {
+  commentOpenHandler = fn;
 }
 
 /** 테스트 전용 내부 노출. */

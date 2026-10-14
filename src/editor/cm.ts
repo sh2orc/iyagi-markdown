@@ -188,6 +188,8 @@ export interface PreviewConfigParam {
   bookmarks: number[];
   /** 메모가 달린 줄 번호(선택). */
   commentLines?: number[];
+  /** 메모 전체 목록(배지 개수, 선택). */
+  comments?: Array<{ lineNo: number; resolved: boolean }>;
   /** 긴 문장 점선 밑줄 토글·임계값. */
   longSentenceMarks?: boolean;
   longSentenceMin?: number;
