@@ -31,6 +31,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
   const [caseSensitive, setCaseSensitive] = useState(store.state.settings.searchCase);
   const [regexp, setRegexp] = useState(store.state.settings.searchRegex);
   const [wholeWord, setWholeWord] = useState(store.state.settings.searchWord);
+  const [regexError, setRegexError] = useState(false);
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [, force] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -116,8 +117,18 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
             setText(v);
             // 주의: 렌더 시점의 query는 한 글자 뒤처진 값이다 — 여기서 새로 만든다.
             if (v) {
-              applyDebounced({ text: v, caseSensitive, regexp, wholeWord, replacement });
-              store.persistSettings({ searchQuery: v });
+              // 정규식 오류 즉시 피드백(침묵 실패 방지).
+              let bad = false;
+              if (regexp) {
+                try {
+                  new RegExp(v);
+                } catch {
+                  bad = true;
+                }
+              }
+              setRegexError(bad);
+              if (!bad) applyDebounced({ text: v, caseSensitive, regexp, wholeWord, replacement });
+              if (!bad) store.persistSettings({ searchQuery: v });
             }
             else apply(null);
           }}
@@ -135,7 +146,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
           }}
         />
         <span className={`search-count ${count === 0 && text ? "is-none" : ""}`}>
-          {text ? (count > 0 ? t.f.findCount(current, count) : t.findNone) : ""}
+          {text ? (regexError ? t.searchRegexError : count > 0 ? t.f.findCount(current, count) : t.findNone) : ""}
         </span>
         <button
           className={`search-toggle ${caseSensitive ? "is-on" : ""}`}
