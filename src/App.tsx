@@ -520,6 +520,7 @@ export function App(): JSX.Element {
             tableWidths,
             frontLists: { toc: !!fm?.toc, lof: !!fm?.lof, lot: !!fm?.lot },
             lang,
+            externalLinksNewTab: true,
             readBytes: readBytesForExport,
             wikiResolve,
           });

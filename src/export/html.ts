@@ -53,6 +53,8 @@ export interface ExportHtmlOptions {
   /** 미리 렌더한 본문(renderExportBody 결과) — 조립만 다시 할 때(인쇄
    *  미리보기 슬라이더). 없으면 내부에서 렌더한다. */
   preRendered?: string;
+  /** 외부 링크를 새 탭으로(target=_blank + noopener). */
+  externalLinksNewTab?: boolean;
   /** 로컬 이미지를 data URI로 인라인할지(HTML 내보내기 기본 켬). */
   inlineImages?: boolean;
   /** 이미지 바이너리 읽기(앱: Tauri 명령). 없으면 인라인 생략. */
@@ -530,7 +532,11 @@ export async function renderExportBody(markdown: string, opts: ExportHtmlOptions
     ? withWidths
     : await inlineImages(withWidths, opts.baseDir, opts.readBytes);
   const withCaptions = applyFigcaptions(applyTableCaptions(withImages));
-  const sanitized = await sanitize(withCaptions);
+  // 외부 링크 새 탭 — 내부 앵커(#...)는 그대로.
+  const withTargets = opts.externalLinksNewTab
+    ? withCaptions.replace(/<a (?![^>]*target=)(href="https?:[^"]*")/g, '<a $1 target="_blank" rel="noopener"')
+    : withCaptions;
+  const sanitized = await sanitize(opts.preRendered ?? withTargets);
   return sanitized;
 }
 

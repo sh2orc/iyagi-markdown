@@ -121,3 +121,5 @@ npm run tauri build    # .app + DMG
 ## 라이선스
 
 Apache-2.0. 형제 프로젝트: [iyagi-layout](../iyagi-layout), [iyagi-term](../iyagi-term).
+
+- 뷰어 위치 표시 — N / M
