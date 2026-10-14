@@ -11,9 +11,11 @@ interface Props {
   alt: string;
   t: Translate;
   onClose: () => void;
+  /** 대체 텍스트 편집(뷰어 안에서) — 제공되면 ✎ 버튼. */
+  onEditAlt?: () => void;
 }
 
-export function ImageViewer({ src, alt, t, onClose }: Props): JSX.Element {
+export function ImageViewer({ src, alt, t, onClose, onEditAlt }: Props): JSX.Element {
   const [zoom, setZoom] = useState(1);
   const [rot, setRot] = useState(0);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -66,6 +68,11 @@ export function ImageViewer({ src, alt, t, onClose }: Props): JSX.Element {
         <button className="mtb-btn" title="100%" onClick={reset}>
           1:1
         </button>
+        {onEditAlt && (
+          <button className="mtb-btn" title={t.imageEditTitle} onClick={onEditAlt}>
+            ✎
+          </button>
+        )}
         <button className="mtb-btn" title="↻" onClick={() => setRot((r) => (r + 90) % 360)}>
           ↻
         </button>

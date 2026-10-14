@@ -1275,7 +1275,26 @@ export function App(): JSX.Element {
       )}
       <ContextMenu store={store} t={t} />
       {diffOpen && <DiffPanel store={store} t={t} onClose={() => setDiffOpen(false)} />}
-      {viewer && <ImageViewer src={viewer.src} alt={viewer.alt} t={t} onClose={() => setViewer(null)} />}
+      {viewer && (
+        <ImageViewer
+          src={viewer.src}
+          alt={viewer.alt}
+          t={t}
+          onClose={() => setViewer(null)}
+          onEditAlt={() => {
+            // 문서에서 이 src의 첫 등장 위치를 찾아 편집 대화상자로.
+            const v = editorView.current;
+            if (!v) return;
+            const doc = v.state.doc.toString();
+            const needle = `](${viewer.src}`;
+            const at = doc.indexOf(needle);
+            if (at >= 0) {
+              setViewer(null);
+              setImgEditPos(at);
+            }
+          }}
+        />
+      )}
       {/* 라이브 영역 — 저장 확인·오류가 스크린 리더에 발표된다(에러는 즉시). */}
       <div className="toasts" aria-live="polite">
         {state.toasts.map((toast) => (
