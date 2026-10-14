@@ -86,3 +86,15 @@ export function headingPath(headings: Heading[], pos: number): Heading[] {
   }
   return stack;
 }
+
+/** 중복 슬러그 제목 — GitHub식 -1 접미로 앵커가 갈라지는 것들. 순수 함수. */
+export function duplicateHeadings(headings: Heading[]): Array<{ text: string; pos: number }> {
+  const seen = new Map<string, number>();
+  const out: Array<{ text: string; pos: number }> = [];
+  for (const h of headings) {
+    const n = (seen.get(h.slug) ?? 0) + 1;
+    seen.set(h.slug, n);
+    if (n === 2) out.push({ text: h.text, pos: h.pos });
+  }
+  return out;
+}

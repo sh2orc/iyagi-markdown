@@ -7,6 +7,7 @@ import { smoothScrollIntoView } from "../editor/cm";
 import { stripFrontMatter } from "../editor/frontmatter";
 import type { Translate } from "../i18n";
 import { collectHeadings } from "../links";
+import { duplicateHeadings } from "../app/tocTree";
 
 interface Props {
   store: AppStore;
@@ -52,6 +53,7 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
   // 집필 목표 진행(139차) — 상태 줄 %의 시각판.
   const goal = store.state.settings.writingGoal;
   const goalPct = goal > 0 ? Math.min(100, (tab.words / goal) * 100) : 0;
+  const dups = duplicateHeadings(collectHeadings(text));
   const rows: Array<[string, string]> = [
     [t.f.words(tab.words), String(tab.words)],
     [t.f.chars(tab.chars), String(tab.chars)],
@@ -64,6 +66,9 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
     [t.statAvgSentence, `${avgSentenceLen.toFixed(1)} ${t.statChars}`],
     ...(goal > 0
       ? [[t.goalTitle, `${tab.words.toLocaleString()} / ${goal.toLocaleString()} (${Math.round(goalPct)}%)`] as [string, string]]
+      : []),
+    ...(dups.length > 0
+      ? [[t.statDupHeadings, String(dups.length)] as [string, string]]
       : []),
   ];
   void t;

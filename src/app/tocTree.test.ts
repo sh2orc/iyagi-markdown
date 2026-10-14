@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ancestorSlugs, filterHeadings, headingPath, tocTree, visibleNodes } from "./tocTree";
+import { ancestorSlugs, duplicateHeadings, filterHeadings, headingPath, tocTree, visibleNodes } from "./tocTree";
 import type { Heading } from "../links";
 
 const H = (level: number, text: string, i: number): Heading => ({
@@ -99,5 +99,18 @@ describe("headingPath", () => {
     // pos가 정확히 제목 위치면 포함(제목 줄에 커서)
     expect(headingPath(hs, 0).map((h) => h.text)).toEqual(["개요"]);
     expect(headingPath([], 5)).toEqual([]);
+  });
+});
+
+describe("duplicateHeadings", () => {
+  it("같은 텍스트 제목 두 번째 등장부터 수집", () => {
+    // H 헬퍼는 slug에 인덱스를 붙이므로 슬러그 동일 케이스는 직접构造.
+    const mk = (text: string, slug: string, pos: number): Heading => ({ level: 1, text, slug, pos });
+    const d = duplicateHeadings([mk("개요", "개요", 0), mk("다른", "다른", 5), mk("개요", "개요", 20)]);
+    expect(d).toEqual([{ text: "개요", pos: 20 }]);
+  });
+
+  it("고유하면 빈 배열", () => {
+    expect(duplicateHeadings([H(1, "a", 0), H(2, "b", 5)])).toEqual([]);
   });
 });
