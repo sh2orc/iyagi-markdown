@@ -51,6 +51,9 @@ pub struct SessionState {
     /// 목차 패널에서 접어 둔 제목 슬러그들.
     #[serde(default)]
     pub toc_collapsed: Vec<String>,
+    /// 읽기 전용 잠금 문서 경로들.
+    #[serde(default)]
+    pub locked_paths: Vec<String>,
     #[serde(default = "default_true")]
     pub sidebar_open: bool,
     #[serde(default = "default_sidebar_width")]
@@ -94,6 +97,7 @@ impl Default for SessionState {
             pinned_path: None,
             collapsed_folders: Vec::new(),
             toc_collapsed: Vec::new(),
+            locked_paths: Vec::new(),
             sidebar_open: true,
             sidebar_width: default_sidebar_width(),
             toc_open: false,

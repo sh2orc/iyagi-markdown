@@ -96,6 +96,8 @@ export interface SessionState {
   collapsedFolders?: string[];
   /** 목차 패널에서 접어 둔 제목 슬러그. */
   tocCollapsed?: string[];
+  /** 읽기 전용 잠금 문서 경로들. */
+  lockedPaths?: string[];
   sidebarOpen: boolean;
   sidebarWidth: number;
   tocOpen: boolean;

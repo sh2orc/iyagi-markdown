@@ -151,6 +151,8 @@ export class AppStore {
   public tocCollapsed: Set<string> = new Set();
   /** 읽기 전용 잠금 탭(실수 편집 방지 — 모드와 독립). */
   public lockedTabIds: Set<string> = new Set();
+  /** 세션 복원 중 잠금 경로 — 탭 열림 후 App이 해소. */
+  public pendingLockedPaths: Set<string> = new Set();
   /** 분할 편집 — 두 번째 뷰와 그 탭 id(RefPane 편집 모드). */
   public splitView: EditorView | null = null;
   public splitTabId: string | null = null;
@@ -495,7 +497,18 @@ export class AppStore {
     const tab = this.active;
     if (!tab) return;
     tab.mode = mode;
-    if (this.view) switchMode(this.view, mode);
+    if (this.view) {
+      switchMode(this.view, mode);
+      // 잠긴 탭은 모드 전환 후에도 읽기 전용 유지(편집 모드로 돌아와도).
+      if (mode !== "read" && this.lockedTabIds.has(tab.id)) {
+        this.view.dispatch({
+          effects: editableComp.reconfigure([
+            EditorState.readOnly.of(true),
+            EditorView.editable.of(false),
+          ]),
+        });
+      }
+    }
     this.emit();
     this.scheduleSessionSave();
   }
@@ -1243,6 +1256,8 @@ export class AppStore {
     this.pendingPinnedPath = session.pinnedPath ?? null;
     this.collapsedFolders = new Set(session.collapsedFolders ?? []);
     this.tocCollapsed = new Set(session.tocCollapsed ?? []);
+    // 잠금 — 경로로 복원(탭 열림 후 적용은 restoreSession 마지막에).
+    this.pendingLockedPaths = new Set(session.lockedPaths ?? []);
     this.state.sidebarOpen = session.sidebarOpen;
     this.state.sidebarWidth = session.sidebarWidth ?? 240;
     this.state.tocOpen = session.tocOpen;
@@ -1316,6 +1331,9 @@ export class AppStore {
       workspace: this.state.workspace,
       collapsedFolders: [...this.collapsedFolders].sort(),
       tocCollapsed: [...this.tocCollapsed].sort(),
+      lockedPaths: [...this.lockedTabIds]
+        .map((id) => this.state.tabs.find((t) => t.id === id)?.path)
+        .filter((p): p is string => !!p),
       pinnedPath:
         this.pinnedTabId != null
           ? (this.state.tabs.find((t) => t.id === this.pinnedTabId)?.path ?? null)

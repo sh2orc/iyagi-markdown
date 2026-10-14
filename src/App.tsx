@@ -279,6 +279,12 @@ export function App(): JSX.Element {
         if (t) store.pinnedTabId = t.id;
         store.pendingPinnedPath = null;
       }
+      // 잠금 복원 — 경로로 탭에 적용.
+      for (const lp of store.pendingLockedPaths) {
+        const t = store.state.tabs.find((x) => x.path === lp);
+        if (t) store.setLocked(t.id, true);
+      }
+      store.pendingLockedPaths.clear();
       store.state.ready = true;
       store.activate(store.state.activeId ?? store.state.tabs[0]?.id ?? "");
       void api.appReady().catch(() => {});
