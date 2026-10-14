@@ -140,6 +140,36 @@ export function joinCurrentLine(view: EditorView): boolean {
   return true;
 }
 
+/** 다음 각주 번호 — 기존 정의의 최대 번호+1. 순수 함수. */
+export function nextFootnoteId(text: string): number {
+  let max = 0;
+  for (const m of text.matchAll(/^\[\^(\d+)\]:/gm)) {
+    max = Math.max(max, Number(m[1]));
+  }
+  return max + 1;
+}
+
+/** 각주 삽입 — 커서에 [^N] 참조, 문서 끝에 [^N]: 정의 추가(자동 정렬 아님). */
+export function insertFootnote(view: EditorView): boolean {
+  const sel = view.state.selection.main;
+  const doc = view.state.doc;
+  const id = nextFootnoteId(doc.toString());
+  const ref = `[^${id}]`;
+  const tail = doc.lines > 0 && doc.sliceString(doc.length - 1, doc.length) === "\n" ? "" : "\n";
+  view.dispatch({
+    changes: [
+      { from: sel.from, to: sel.to, insert: ref },
+      { from: doc.length, to: doc.length, insert: `${tail}\n${ref}: ` },
+    ],
+    selection: {
+      // 참조 삽입(+ref.length) 뒤의 정의 끝 = 문서 끝.
+      anchor: doc.length + tail.length + 1 + ref.length * 2 + 2,
+    },
+    userEvent: "input.insertFootnote",
+  });
+  return true;
+}
+
 /** 코드 블록 감싸기 — 선택을 \`\`\` 펜스로(줄 단위). 토글: 이미 감싸면 벗기기. */
 export function wrapCodeBlock(view: EditorView): boolean {
   const sel = view.state.selection.main;

@@ -551,3 +551,28 @@ describe("wrapCodeBlock", async () => {
     v.destroy();
   });
 });
+
+// — 각주 삽입 —
+describe("insertFootnote / nextFootnoteId", async () => {
+  const { EditorState } = await import("@codemirror/state");
+  const { EditorView } = await import("@codemirror/view");
+  const { insertFootnote, nextFootnoteId } = await import("./format");
+
+  it("다음 번호 — 기존 정의 최대+1", () => {
+    expect(nextFootnoteId("본문[^2]\n\n[^2]: 정의\n")).toBe(3);
+    expect(nextFootnoteId("없음\n")).toBe(1);
+  });
+
+  it("참조 + 문서 끝 정의, 커서는 정의 안", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const v = new EditorView({ state: EditorState.create({ doc: "본문\n", selection: { anchor: 2 } }), parent: host });
+    insertFootnote(v);
+    const out = v.state.doc.toString();
+    expect(out).toContain("본문[^1]");
+    expect(out.endsWith("[^1]: ")).toBe(true);
+    const sel = v.state.selection.main;
+    expect(sel.head).toBe(v.state.doc.length); // 정의 끝(입력 준비)
+    v.destroy();
+  });
+});
