@@ -34,6 +34,8 @@ export interface FrontMatterMeta {
   lof: boolean;
   /** 표 목차(lot: true) — 캡션 SEQ Table 목록. */
   lot: boolean;
+  /** EPUB 표지(false면 첫 이미지도 표지 안 씀). */
+  cover: boolean;
 }
 
 /** 프론트매터에서 title/author/date 추출(대소문자 무시). 없으면 null. */
@@ -51,10 +53,12 @@ export function frontMatterMeta(text: string): Partial<FrontMatterMeta> | null {
     else if (key === "toc") out.toc = /^(true|yes|1)$/i.test(v);
     else if (key === "lof") out.lof = /^(true|yes|1)$/i.test(v);
     else if (key === "lot") out.lot = /^(true|yes|1)$/i.test(v);
+    else if (key === "cover") out.cover = /^(false|no|0)$/i.test(v);
   }
   if (!out.toc) delete out.toc;
   if (!out.lof) delete out.lof;
   if (!out.lot) delete out.lot;
+  if (out.cover !== false) delete out.cover;
   return Object.keys(out).length > 0 ? out : null;
 }
 

@@ -549,8 +549,8 @@ export function App(): JSX.Element {
             applyTableCaptions(applyTableWidths(applyImageWidths(body, imageWidths), tableWidths)),
           );
           const chapters = epubChapterInputs(splitEpubChapters(decorated));
-          // 표지 — 문서의 첫 로컬 이미지(없으면 생략).
-          const coverPath = firstLocalImage(text, baseDir);
+          // 표지 — 문서의 첫 로컬 이미지. 프런트매터 cover: false면 끔.
+          const coverPath = fm?.cover === false ? null : firstLocalImage(text, baseDir);
           await api.exportEpub(
             {
               chapters,

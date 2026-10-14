@@ -22,6 +22,7 @@ export function FrontMatterDialog({ store, t, onClose }: Props): JSX.Element | n
   const [toc, setToc] = useState(false);
   const [lof, setLof] = useState(false);
   const [lot, setLot] = useState(false);
+  const [noCover, setNoCover] = useState(false);
   const titleRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -33,6 +34,7 @@ export function FrontMatterDialog({ store, t, onClose }: Props): JSX.Element | n
     setToc(!!fm?.toc);
     setLof(!!fm?.lof);
     setLot(!!fm?.lot);
+    setNoCover(fm?.cover === false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab?.id]);
 
@@ -52,6 +54,7 @@ export function FrontMatterDialog({ store, t, onClose }: Props): JSX.Element | n
       toc,
       lof,
       lot,
+      cover: noCover ? false : null,
     });
     onClose();
     if (next !== view.state.doc.toString()) {
@@ -93,6 +96,7 @@ export function FrontMatterDialog({ store, t, onClose }: Props): JSX.Element | n
           <input value={date} placeholder="2026-10-13" onChange={(e) => setDate(e.target.value)} />
         </label>
         <div className="fm-toggles">
+          {check(t.fmNoCover, noCover, setNoCover, t.fmNoCoverHint)}
           {check(t.fmToc, toc, setToc, t.fmTocHint)}
           {check(t.fmLof, lof, setLof, t.fmLofHint)}
           {check(t.fmLot, lot, setLot, t.fmLotHint)}
