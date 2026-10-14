@@ -224,6 +224,8 @@ export function CommandPalette({
         { id: "link", label: `${t.scFormat}: ${t.tbLink}`, run: go(() => fmt.insertLink(view)) },
         { id: "math-inline", label: `${t.scFormat}: ${t.tbMath} $…$`, run: go(() => fmt.insertMath(view, false)) },
         { id: "math-block", label: `${t.scFormat}: ${t.tbMathBlock} $$…$$`, run: go(() => fmt.insertMath(view, true)) },
+        { id: "case-cycle", label: `${t.scEdit}: ${t.cmdCycleCase} ⇧F3`, run: go(() => fmt.cycleCase(view)) },
+        { id: "join-lines", label: `${t.scEdit}: ${t.cmdJoinLines} ⌘J`, run: go(() => fmt.joinCurrentLine(view)) },
         { id: "h1", label: `${t.scFormat}: ${t.tbHeading} 1`, run: go(() => fmt.toggleHeading(view, 1)) },
         { id: "h2", label: `${t.scFormat}: ${t.tbHeading} 2`, run: go(() => fmt.toggleHeading(view, 2)) },
         { id: "h3", label: `${t.scFormat}: ${t.tbHeading} 3`, run: go(() => fmt.toggleHeading(view, 3)) },
