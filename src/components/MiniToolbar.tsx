@@ -113,6 +113,9 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
       <button className="mtb-btn" title={t.tbQuote} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleQuote)}>
         ❝
       </button>
+      <button className="mtb-btn" title={t.tbMath} onMouseDown={(e) => e.preventDefault()} onClick={() => run((v) => fmt.insertMath(v, false))}>
+        ∑
+      </button>
     </div>
     {linkEditPos !== null && (() => {
       const v = view;
