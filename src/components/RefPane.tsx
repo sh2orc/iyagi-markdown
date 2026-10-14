@@ -142,6 +142,7 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
             firstLineIndent: tab.docStyle?.firstLineIndent ?? false,
             textAlign: tab.docStyle?.textAlign ?? "left",
             accent: tab.docStyle?.accent ?? null,
+            highlightColor: tab.docStyle?.highlightColor ?? null,
           },
           wikiResolve: (name) => resolveWikiLink(name, baseDir, store.wikiIndex),
           readBytes: async (p) => {
