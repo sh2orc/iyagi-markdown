@@ -8,7 +8,8 @@
   --md-bg-side: #f5f5f7;
   --md-bg-tab: #ececee;
   --md-fg: #24292f;
-  --md-fg-dim: #6e7781;
+  /* 보조 텍스트 — 상태 줄·사이드바·목차(bg-side 위 소형 텍스트) WCAG AA 4.5:1 충족. */
+  --md-fg-dim: #656d76;
   --md-border: #d8dade;
   --md-border-strong: #b8bcc4;
   --md-accent: #4f46e5;
