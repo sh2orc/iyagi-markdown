@@ -435,6 +435,26 @@ export class TableWidget extends WidgetType {
     table.style.tableLayout = "fixed"; // 열 폭 드래그가 정확히 반영되게.
     const nCols = Math.max(parsed.header.length, 1);
     const startLine = (): number => view.state.doc.lineAt(view.posAtDOM(wrap)).number;
+    // 편집 중 다른 셀 클릭 — blur 커밋이 표를 재생성해도 클릭한 셀에서 이어지게(Word).
+    // 캡처 단계에서 대상을 먼저 기록한다(blur는 그 뒤에 온다).
+    let activeEdit: HTMLElement | null = null;
+    let clickFocus: { row: number; col: number } | null = null;
+    wrap.addEventListener(
+      "mousedown",
+      (e) => {
+        clickFocus = null;
+        if (!activeEdit) return;
+        const cell = (e.target as HTMLElement | null)?.closest?.("td, th");
+        const rowEl = cell?.closest?.("tr");
+        if (!(cell instanceof HTMLElement) || !(rowEl instanceof HTMLElement)) return;
+        const rows = Array.from(wrap.querySelectorAll("tr"));
+        const r = rows.indexOf(rowEl);
+        const c = Array.from(rowEl.children).indexOf(cell);
+        if (r < 0 || c < 0) return;
+        clickFocus = { row: r, col: c };
+      },
+      true,
+    );
     // 변경된 구조를 원문에 반영(표 전체 재직렬화) — 위젯은 이후 재생성된다.
     const commit = (next: ParsedTable, focus?: { row: number; col: number }): void => {
       const from = view.posAtDOM(wrap);
@@ -460,6 +480,7 @@ export class TableWidget extends WidgetType {
         cell.contentEditable = "true";
         cell.textContent = raw;
         cell.classList.add("md-cell-editing");
+        activeEdit = cell;
         cell.focus();
         const sel = window.getSelection();
         if (sel) {
@@ -473,6 +494,7 @@ export class TableWidget extends WidgetType {
       const finish = (focus?: { row: number; col: number }): void => {
         if (!editing) return;
         editing = false;
+        if (activeEdit === cell) activeEdit = null;
         cell.classList.remove("md-cell-editing");
         const value = cancelled ? raw : (cell.textContent ?? "").replace(/\s*\n\s*/g, " ").trim();
         const next: ParsedTable = {
@@ -514,7 +536,12 @@ export class TableWidget extends WidgetType {
           finish({ row: r, col: c });
         }
       });
-      cell.addEventListener("blur", () => finish());
+      cell.addEventListener("blur", () => {
+        // 클릭으로 옮겨가는 중이면 그 셀을 이어 편집(재생성 후 restoreFocus).
+        const f = clickFocus;
+        clickFocus = null;
+        finish(f ?? undefined);
+      });
       cell.addEventListener("paste", (e) => {
         e.preventDefault();
         document.execCommand("insertText", false, e.clipboardData?.getData("text/plain") ?? "");
