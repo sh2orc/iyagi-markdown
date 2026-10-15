@@ -38,6 +38,10 @@ export interface FrontMatterMeta {
   cover: boolean;
   /** 다단(1~3) — Word Layout > Columns. */
   columns: number;
+  /** 머리글 자유 텍스트 — 내보내기 머리글(제목 기본값 대체). */
+  header: string;
+  /** 바닥글 자유 텍스트 — 쪽번호와 함께 표시. */
+  footer: string;
 }
 
 /** 프론트매터에서 title/author/date 추출(대소문자 무시). 없으면 null. */
@@ -59,7 +63,8 @@ export function frontMatterMeta(text: string): Partial<FrontMatterMeta> | null {
     else if (key === "columns") {
       const n = parseInt(v, 10);
       if (n >= 1 && n <= 3) out.columns = n;
-    }
+    } else if (key === "header" && !out.header) out.header = v;
+    else if (key === "footer" && !out.footer) out.footer = v;
   }
   if (!out.toc) delete out.toc;
   if (!out.lof) delete out.lof;

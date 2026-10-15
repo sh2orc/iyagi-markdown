@@ -536,7 +536,9 @@ export function App(): JSX.Element {
             style: exportStyleOf(tab),
             imageWidths,
             tableWidths,
-            pdfHeader: state.settings.exportHeader ? docTitle : null,
+            // 머리글 — 프런트매터 header: 가 있으면 문서가 정한 대로(설정 무시).
+            pdfHeader: fm?.header ?? (state.settings.exportHeader ? docTitle : null),
+            pdfFooter: fm?.footer ?? null,
             readBytes: readBytesForExport,
             wikiResolve,
           });
@@ -603,7 +605,9 @@ export function App(): JSX.Element {
           if (fm?.toc) manifest.toc = true;
           if (fm?.lof) manifest.lof = true;
           if (fm?.lot) manifest.lot = true;
-          if (state.settings.exportHeader) manifest.headerTitle = docTitle;
+          if (fm?.header) manifest.headerTitle = fm.header;
+          else if (state.settings.exportHeader) manifest.headerTitle = docTitle;
+          if (fm?.footer) manifest.footerText = fm.footer;
           await api.exportDocx(text, manifest, out, baseDir);
         }
         // 마지막 옵션 저장(재시작 유지) — PDF 옵션은 pdf에만 있고 docx는 토글만.

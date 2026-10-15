@@ -477,6 +477,8 @@ pub struct DocxManifest {
     pub front_lang: String,
     #[serde(default)]
     pub columns: u32,
+    #[serde(default)]
+    pub footer_text: Option<String>,
     /// 머리글 문서 제목(Some이면 매 페이지 상단).
     #[serde(default)]
     pub header_title: Option<String>,
@@ -551,6 +553,7 @@ pub fn export_docx(
             comments: &manifest.comments,
             front_lang: manifest.front_lang.as_str(),
             columns: manifest.columns,
+            footer_text: manifest.footer_text.as_deref(),
         },
         Path::new(&out_path),
     )

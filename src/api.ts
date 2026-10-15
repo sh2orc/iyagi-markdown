@@ -158,6 +158,8 @@ export interface DocxManifest {
   frontLang?: string;
   /** 다단(1~3) — sectPr w:cols. */
   columns?: number;
+  /** 바닥글 자유 텍스트 — footer1.xml. */
+  footerText?: string;
 }
 
 /** 문서별 스타일(SQLite 사이드카 — .md 원문은 불변). */

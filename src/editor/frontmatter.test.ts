@@ -145,6 +145,14 @@ describe("frontMatterMeta columns(다단)", () => {
   });
 });
 
+describe("frontMatterMeta header/footer(머리글·바닥글)", () => {
+  it("자유 텍스트 파싱", () => {
+    const m = frontMatterMeta("---\nheader: 분기 보고서\nfooter: 기밀 · 내부용\n---\n");
+    expect(m?.header).toBe("분기 보고서");
+    expect(m?.footer).toBe("기밀 · 내부용");
+  });
+});
+
 describe("upsertFrontMatter", () => {
   it("키 갱신 — 다른 줄·순서 보존", () => {
     const doc = "---\ntitle: 옛제목\nauthor: 홍길동\n# 주석 아님 일반 줄\ntoc: false\n---\n\n본문";

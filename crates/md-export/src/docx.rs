@@ -123,6 +123,8 @@ pub struct DocxExportOptions<'a> {
     pub front_lang: &'a str,
     /// 다단(1~3, 0·1=1단) — sectPr w:cols.
     pub columns: u32,
+    /// 바닥글 자유 텍스트(프런트매터 footer:) — 쪽번호와 함께 footer1.xml.
+    pub footer_text: Option<&'a str>,
 }
 
 /// 진입점: 마크다운 → .docx 파일.
@@ -146,6 +148,7 @@ pub fn export_docx(
         comments,
         front_lang,
         columns,
+        footer_text,
         ..
     } = opts;
     let mut options = Options::default();
@@ -215,7 +218,8 @@ pub fn export_docx(
     for child in root.children() {
         block(child, &mut ctx, &mut body, 0, false)?;
     }
-    body.push_str(&sect_pr(*page_numbers, header_title.is_some(), *columns));
+    let show_footer = *page_numbers || footer_text.is_some();
+    body.push_str(&sect_pr(show_footer, header_title.is_some(), *columns));
 
     // 각주 참조 자리표시자(\\u{E000}라벨\\u{E000}) → footnoteReference 런.
     let body = resolve_footnote_refs(&body, &ctx);
@@ -281,8 +285,8 @@ fn toc_placeholder(lang: &str) -> &'static str {
 }
 
 /// 섹션 속성 — A4·25mm 여백. 페이지 번호면 바닥글 참조가 먼저 온다(규격 순서).
-fn sect_pr(page_numbers: bool, has_header: bool, columns: u32) -> String {
-    let footer = if page_numbers {
+fn sect_pr(has_footer: bool, has_header: bool, columns: u32) -> String {
+    let footer = if has_footer {
         "<w:footerReference w:type=\"default\" r:id=\"rIdFooter\"/>"
     } else {
         ""
@@ -459,9 +463,9 @@ fn header_xml(title: &str) -> String {
     )
 }
 
-/// 바닥글 — 가운데 "현재 페이지 / 전체 페이지"(PAGE·NUMPAGES 필드, 9pt 회색).
-/// 필드 결과값(1 등)은 Word가 열 때 다시 계산한다.
-fn footer_xml() -> String {
+/// 바닥글 — 가운데 자유 텍스트(선택) + "현재 페이지 / 전체 페이지"
+/// (PAGE·NUMPAGES 필드, 9pt 회색). 필드 결과값(1 등)은 Word가 열 때 다시 계산한다.
+fn footer_xml(text: Option<&str>, show_page: bool) -> String {
     const RPR: &str =
         "<w:rPr><w:sz w:val=\"18\"/><w:szCs w:val=\"18\"/><w:color w:val=\"808080\"/></w:rPr>";
     let field = |instr: &str, shown: &str| {
@@ -473,19 +477,34 @@ fn footer_xml() -> String {
 <w:r>{RPR}<w:fldChar w:fldCharType=\"end\"/></w:r>"
         )
     };
+    let text_run = match (text, show_page) {
+        (Some(t), true) => format!(
+            "<w:r>{RPR}<w:t xml:space=\"preserve\">{} · </w:t></w:r>",
+            crate::xml::esc(t)
+        ),
+        (Some(t), false) => format!("<w:r>{RPR}<w:t>{}</w:t></w:r>", crate::xml::esc(t)),
+        (None, _) => String::new(),
+    };
+    let fields = if show_page {
+        format!(
+            "{}<w:r>{RPR}<w:t xml:space=\"preserve\"> / </w:t></w:r>{}",
+            field("PAGE", "1"),
+            field("NUMPAGES", "1")
+        )
+    } else {
+        String::new()
+    };
     format!(
         concat!(
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>",
             "<w:ftr xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">",
             "<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr>",
-            "{}",
-            "<w:r>{RPR}<w:t xml:space=\"preserve\"> / </w:t></w:r>",
-            "{}",
+            "{text_run}",
+            "{fields}",
             "</w:p></w:ftr>"
         ),
-        field("PAGE", "1"),
-        field("NUMPAGES", "1"),
-        RPR = RPR,
+        text_run = text_run,
+        fields = fields,
     )
 }
 
@@ -1467,7 +1486,7 @@ fn write_docx_zip(
     opts: &DocxExportOptions<'_>,
     style: Option<(&str, f64, f64, bool, String, String)>,
 ) -> Result<(), DocxError> {
-    let (page_numbers, title, author, toc, lof, lot, header_title) = (
+    let (page_numbers, title, author, toc, lof, lot, header_title, footer_text) = (
         opts.page_numbers,
         opts.title,
         opts.author,
@@ -1475,6 +1494,7 @@ fn write_docx_zip(
         opts.lof,
         opts.lot,
         opts.header_title,
+        opts.footer_text,
     );
     let file = std::fs::File::create(out)?;
     let mut zip = zip::ZipWriter::new(file);
@@ -1495,7 +1515,7 @@ fn write_docx_zip(
         "[Content_Types].xml",
         &content_types(
             ctx,
-            page_numbers,
+            page_numbers || footer_text.is_some(),
             header_title.is_some(),
             !ctx.comments.is_empty(),
         ),
@@ -1505,8 +1525,12 @@ fn write_docx_zip(
     if has_footnotes {
         add(&mut zip, "word/footnotes.xml", &footnotes_xml(ctx))?;
     }
-    if page_numbers {
-        add(&mut zip, "word/footer1.xml", &footer_xml())?;
+    if page_numbers || footer_text.is_some() {
+        add(
+            &mut zip,
+            "word/footer1.xml",
+            &footer_xml(footer_text, page_numbers),
+        )?;
     }
     if !ctx.comments.is_empty() {
         add(&mut zip, "word/comments.xml", &comments_xml(ctx))?;
@@ -1520,7 +1544,7 @@ fn write_docx_zip(
         "word/_rels/document.xml.rels",
         &document_rels(
             ctx,
-            page_numbers,
+            page_numbers || footer_text.is_some(),
             header_title.is_some(),
             !ctx.comments.is_empty(),
         ),
@@ -1928,6 +1952,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -1982,6 +2007,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -2029,6 +2055,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -2084,6 +2111,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 2,
+                footer_text: None,
             },
             &out,
         )
@@ -2101,6 +2129,65 @@ mod tests {
             s
         };
         assert!(doc.contains(r#"<w:cols w:num="2" w:space="425"/>"#));
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn footer_text_lands_in_footer_xml() {
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let out = tmp("footertxt");
+        export_docx(
+            "# 제목\n\n본문",
+            &DocxExportOptions {
+                math: &math,
+                diagrams: &diagrams,
+                images: &images,
+                style: None,
+                page_numbers: false,
+                table_widths: &HashMap::new(),
+                title: None,
+                author: None,
+                toc: false,
+                lof: false,
+                lot: false,
+                header_title: None,
+                highlight: None,
+                comments: &[],
+                front_lang: "ko",
+                columns: 1,
+                footer_text: Some("기밀 <내부용>"),
+            },
+            &out,
+        )
+        .unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let cursor = std::io::Cursor::new(&bytes);
+        let mut zip = zip::ZipArchive::new(cursor).unwrap();
+        let ftr = {
+            let mut s = String::new();
+            use std::io::Read;
+            zip.by_name("word/footer1.xml")
+                .unwrap()
+                .read_to_string(&mut s)
+                .unwrap();
+            s
+        };
+        // 쪽번호 꺼짐 → 텍스트만, < >는 이스케이프.
+        assert!(ftr.contains("기밀 &lt;내부용&gt;"));
+        assert!(!ftr.contains("NUMPAGES"));
+        // 문서도 바닥글 참조를 얻는다(page_numbers 없이도).
+        let doc = {
+            let mut s = String::new();
+            use std::io::Read;
+            zip.by_name("word/document.xml")
+                .unwrap()
+                .read_to_string(&mut s)
+                .unwrap();
+            s
+        };
+        assert!(doc.contains("rIdFooter"));
         let _ = std::fs::remove_file(&out);
     }
 
@@ -2165,6 +2252,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -2214,6 +2302,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -2271,6 +2360,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -2324,6 +2414,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -2376,6 +2467,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -2439,6 +2531,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -2501,6 +2594,7 @@ mod tests {
                     comments: &[],
                     front_lang: "ko",
                     columns: 1,
+                    footer_text: None,
                 },
                 &out,
             )
@@ -2568,6 +2662,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -2606,6 +2701,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out2,
         )
@@ -2648,6 +2744,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -2703,6 +2800,7 @@ mod tests {
                 comments: &comments,
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -2751,6 +2849,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out2,
         )
@@ -2791,6 +2890,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -2838,6 +2938,7 @@ mod tests {
                     comments: &[],
                     front_lang: "ko",
                     columns: 1,
+                    footer_text: None,
                 },
                 &out,
             )
@@ -2885,6 +2986,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -2940,6 +3042,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -2993,6 +3096,7 @@ mod tests {
                     comments: &[],
                     front_lang: "ko",
                     columns: 1,
+                    footer_text: None,
                     header_title: header,
                 },
                 &out,
@@ -3065,6 +3169,7 @@ mod tests {
                     comments: &[],
                     front_lang: "ko",
                     columns: 1,
+                    footer_text: None,
                 },
                 &out,
             )
@@ -3134,6 +3239,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -3169,6 +3275,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out2,
         )
@@ -3211,6 +3318,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out,
         )
@@ -3269,6 +3377,7 @@ mod tests {
                 comments: &[],
                 front_lang: "ko",
                 columns: 1,
+                footer_text: None,
             },
             &out2,
         )

@@ -58,6 +58,7 @@ $$x^2 + \frac{1}{2}$$
             comments: &[(2, "예제 메모".into())],
             front_lang: "ko",
             columns: 1,
+            footer_text: None,
         },
         std::path::Path::new("/tmp/iyagi-e2e.docx"),
     )

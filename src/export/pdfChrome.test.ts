@@ -24,6 +24,18 @@ describe("pdfPageChrome", () => {
     expect(c.body).not.toContain("pdf-head");
   });
 
+  it("바닥글 텍스트: 리터럴이 스크립트에 있고 쪽번호와 결합한다", () => {
+    const c = pdfPageChrome(true, null, "기밀 문서");
+    expect(c.script).toContain('"기밀 문서"');
+    expect(c.script).toContain("FOOTER + ' · ' + core");
+  });
+
+  it("바닥글만(번호 없음): 번호 스캔이 비활성화된다", () => {
+    const c = pdfPageChrome(false, null, "초안");
+    expect(c.body).toContain('class="pdf-pagenum"');
+    expect(c.script).toContain("var core = false");
+  });
+
   it("머리글만: 번호 요소가 없다", () => {
     const c = pdfPageChrome(false, "제목");
     expect(c.script).not.toContain("pdf-pagenum-data");

@@ -44,6 +44,8 @@ export interface ExportHtmlOptions {
   pageNumbers?: boolean;
   /** PDF 머리글(문서 제목, 매 페이지 상단 — Word 실행 머리글). 값이 있으면 켬. */
   pdfHeader?: string | null;
+  /** PDF 바닥글 자유 텍스트(프런트매터 footer:) — 쪽번호와 함께. */
+  pdfFooter?: string | null;
   /** 사이드카 이미지 폭(%) — 마크다운 src 키. 인라인化 전 <img>에 style로. */
   imageWidths?: Record<string, number>;
   /** 사이드카 표 열 폭(px) — 헤더 내용 키. <colgroup> 비율로. */
@@ -310,10 +312,12 @@ export function buildFrontLists(
 export function pdfPageChrome(
   pageNumbers: boolean,
   headerTitle: string | null,
+  footerText: string | null = null,
 ): { css: string; body: string; script: string } {
   const showNum = pageNumbers;
   const showHead = !!headerTitle;
-  if (!showNum && !showHead) return { css: "", body: "", script: "" };
+  const showFoot = !!footerText;
+  if (!showNum && !showHead && !showFoot) return { css: "", body: "", script: "" };
   const css = `.pdf-pagenum {
         position: fixed;
         bottom: 8mm;
@@ -325,7 +329,7 @@ export function pdfPageChrome(
         font-family: -apple-system, sans-serif;
       }
       .pdf-pagenum-data, .pdf-head-data { position: absolute; top: 0; left: 0; right: 0; }`;
-  const body = `${showNum ? `<div class="pdf-pagenum" aria-hidden="true"></div>` : ""}${showHead ? `<div class="pdf-head" aria-hidden="true"></div>` : ""}`;
+  const body = `${showNum || showFoot ? `<div class="pdf-pagenum" aria-hidden="true"></div>` : ""}${showHead ? `<div class="pdf-head" aria-hidden="true"></div>` : ""}`;
   const titleLit = showHead
     ? JSON.stringify(headerTitle).replace(/<\//g, "<\\/")
     : "null";
@@ -347,16 +351,18 @@ export function pdfPageChrome(
   var padTop = parseFloat(cs.paddingTop) || 0;
   var headTop = Math.max(6, Math.round(padTop * 0.3));
   var TITLE = ${titleLit};
+  var FOOTER = ${showFoot ? JSON.stringify(footerText).replace(/<\//g, "<\\/") : "null"};
   for (var i = 1; i <= total; i++) {
     var left = ((i - 1) * (colW + gap)) + 'px';
     var width = colW + 'px';
-    ${showNum ? `if (numHost) {
+    ${showNum || showFoot ? `if (numHost) {
       var n = document.createElement('div');
       n.className = 'pdf-pagenum-data';
       n.style.left = left; n.style.width = width;
       n.style.top = (wrap.offsetHeight - 24) + 'px';
       n.style.textAlign = 'center'; n.style.fontSize = '9px'; n.style.color = '#888';
-      n.textContent = i + suffix;
+      var core = ${showNum} ? (i + suffix) : '';
+      n.textContent = FOOTER ? (core ? FOOTER + ' \u00b7 ' + core : FOOTER) : core;
       wrap.appendChild(n);
     }` : ""}
     ${showHead ? `if (headHost && i > 1) { // 표지(1쪽)엔 본문 H1이 있어 머리글 생략
@@ -607,7 +613,7 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
   // 페이지 장식(머리글·바닥글) — 고정 위치 요소가 WebKit createPDF에서 매
   // "페이지"(=컬럼)에 반복 나타나지는 않으므로 JS가 컬럼마다 absolute로 심는다.
   const chrome = opts.forPdf
-    ? pdfPageChrome(!!opts.pageNumbers, opts.pdfHeader ?? null)
+    ? pdfPageChrome(!!opts.pageNumbers, opts.pdfHeader ?? null, opts.pdfFooter ?? null)
     : { css: "", body: "", script: "" };
   // 문서별 스타일 — 라이브 프리뷰의 문서 스타일 패널과 같은 값.
   const st = opts.style;
@@ -771,6 +777,8 @@ export async function buildDocxManifest(
   lot?: boolean;
   /** 머리글 문서 제목. */
   headerTitle?: string;
+  /** 바닥글 자유 텍스트(프런트매터 footer:) — 쪽번호와 함께. */
+  footerText?: string;
   /** 문서 메모(본문 기준 줄 번호) — Word 원생 메모로. [줄, 텍스트] 튜플. */
   comments?: Array<[number, string]>;
   /** 목차 라벨 언어. */
