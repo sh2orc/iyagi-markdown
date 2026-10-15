@@ -121,6 +121,8 @@ pub struct DocxExportOptions<'a> {
     pub comments: &'a [(u32, String)],
     /// 목차 라벨 언어("ko"/"en") — 필드 제목 현지화.
     pub front_lang: &'a str,
+    /// 다단(1~3, 0·1=1단) — sectPr w:cols.
+    pub columns: u32,
 }
 
 /// 진입점: 마크다운 → .docx 파일.
@@ -143,6 +145,7 @@ pub fn export_docx(
         highlight,
         comments,
         front_lang,
+        columns,
         ..
     } = opts;
     let mut options = Options::default();
@@ -212,7 +215,7 @@ pub fn export_docx(
     for child in root.children() {
         block(child, &mut ctx, &mut body, 0, false)?;
     }
-    body.push_str(&sect_pr(*page_numbers, header_title.is_some()));
+    body.push_str(&sect_pr(*page_numbers, header_title.is_some(), *columns));
 
     // 각주 참조 자리표시자(\\u{E000}라벨\\u{E000}) → footnoteReference 런.
     let body = resolve_footnote_refs(&body, &ctx);
@@ -278,7 +281,7 @@ fn toc_placeholder(lang: &str) -> &'static str {
 }
 
 /// 섹션 속성 — A4·25mm 여백. 페이지 번호면 바닥글 참조가 먼저 온다(규격 순서).
-fn sect_pr(page_numbers: bool, has_header: bool) -> String {
+fn sect_pr(page_numbers: bool, has_header: bool, columns: u32) -> String {
     let footer = if page_numbers {
         "<w:footerReference w:type=\"default\" r:id=\"rIdFooter\"/>"
     } else {
@@ -291,8 +294,14 @@ fn sect_pr(page_numbers: bool, has_header: bool) -> String {
     } else {
         ""
     };
+    // 다단(Word Layout > Columns) — 1단이면 w:cols 생략(기본).
+    let cols = if columns > 1 {
+        format!("<w:cols w:num=\"{columns}\" w:space=\"425\"/>")
+    } else {
+        String::new()
+    };
     format!(
-        "<w:sectPr>{header}{footer}<w:pgSz w:w=\"11906\" w:h=\"16838\"/>\
+        "<w:sectPr>{header}{footer}<w:pgSz w:w=\"11906\" w:h=\"16838\"/>{cols}\
 <w:pgMar w:top=\"1418\" w:right=\"1418\" w:bottom=\"1418\" w:left=\"1418\"/></w:sectPr>"
     )
 }
@@ -1918,6 +1927,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -1971,6 +1981,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -2017,6 +2028,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -2044,6 +2056,51 @@ mod tests {
         assert!(doc.contains("[2] Lee (2021)."));
         // 정의 없는 인용 — 원문 보존.
         assert!(doc.contains("[@ghost]"));
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn columns_become_sect_pr_cols() {
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let out = tmp("cols");
+        export_docx(
+            "# 제목\n\n본문",
+            &DocxExportOptions {
+                math: &math,
+                diagrams: &diagrams,
+                images: &images,
+                style: None,
+                page_numbers: false,
+                table_widths: &HashMap::new(),
+                title: None,
+                author: None,
+                toc: false,
+                lof: false,
+                lot: false,
+                header_title: None,
+                highlight: None,
+                comments: &[],
+                front_lang: "ko",
+                columns: 2,
+            },
+            &out,
+        )
+        .unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let cursor = std::io::Cursor::new(&bytes);
+        let mut zip = zip::ZipArchive::new(cursor).unwrap();
+        let doc = {
+            let mut s = String::new();
+            use std::io::Read;
+            zip.by_name("word/document.xml")
+                .unwrap()
+                .read_to_string(&mut s)
+                .unwrap();
+            s
+        };
+        assert!(doc.contains(r#"<w:cols w:num="2" w:space="425"/>"#));
         let _ = std::fs::remove_file(&out);
     }
 
@@ -2107,6 +2164,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -2155,6 +2213,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -2211,6 +2270,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -2263,6 +2323,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -2314,6 +2375,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -2376,6 +2438,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -2437,6 +2500,7 @@ mod tests {
                     highlight: None,
                     comments: &[],
                     front_lang: "ko",
+                    columns: 1,
                 },
                 &out,
             )
@@ -2503,6 +2567,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -2540,6 +2605,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out2,
         )
@@ -2581,6 +2647,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -2635,6 +2702,7 @@ mod tests {
                 highlight: None,
                 comments: &comments,
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -2682,6 +2750,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out2,
         )
@@ -2721,6 +2790,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -2767,6 +2837,7 @@ mod tests {
                     highlight: hl,
                     comments: &[],
                     front_lang: "ko",
+                    columns: 1,
                 },
                 &out,
             )
@@ -2813,6 +2884,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -2867,6 +2939,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -2919,6 +2992,7 @@ mod tests {
                     highlight: None,
                     comments: &[],
                     front_lang: "ko",
+                    columns: 1,
                     header_title: header,
                 },
                 &out,
@@ -2990,6 +3064,7 @@ mod tests {
                     highlight: None,
                     comments: &[],
                     front_lang: "ko",
+                    columns: 1,
                 },
                 &out,
             )
@@ -3058,6 +3133,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -3092,6 +3168,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out2,
         )
@@ -3133,6 +3210,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out,
         )
@@ -3190,6 +3268,7 @@ mod tests {
                 highlight: None,
                 comments: &[],
                 front_lang: "ko",
+                columns: 1,
             },
             &out2,
         )

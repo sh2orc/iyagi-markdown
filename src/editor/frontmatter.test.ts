@@ -134,6 +134,17 @@ describe("frontMatterMeta lof/lot", () => {
   });
 });
 
+describe("frontMatterMeta columns(다단)", () => {
+  it("1~3만 받고 그 밖은 무시", () => {
+    expect(frontMatterMeta("---\ncolumns: 2\n---\n")?.columns).toBe(2);
+    expect(frontMatterMeta("---\ncolumns: 3\n---\n")?.columns).toBe(3);
+    expect(frontMatterMeta("---\ncolumns: 1\n---\n")?.columns).toBe(1);
+    expect(frontMatterMeta("---\ncolumns: 4\n---\n")?.columns).toBeUndefined();
+    expect(frontMatterMeta("---\ncolumns: 0\n---\n")?.columns).toBeUndefined();
+    expect(frontMatterMeta("본문")?.columns).toBeUndefined();
+  });
+});
+
 describe("upsertFrontMatter", () => {
   it("키 갱신 — 다른 줄·순서 보존", () => {
     const doc = "---\ntitle: 옛제목\nauthor: 홍길동\n# 주석 아님 일반 줄\ntoc: false\n---\n\n본문";

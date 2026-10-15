@@ -36,6 +36,8 @@ export interface FrontMatterMeta {
   lot: boolean;
   /** EPUB 표지(false면 첫 이미지도 표지 안 씀). */
   cover: boolean;
+  /** 다단(1~3) — Word Layout > Columns. */
+  columns: number;
 }
 
 /** 프론트매터에서 title/author/date 추출(대소문자 무시). 없으면 null. */
@@ -54,6 +56,10 @@ export function frontMatterMeta(text: string): Partial<FrontMatterMeta> | null {
     else if (key === "lof") out.lof = /^(true|yes|1)$/i.test(v);
     else if (key === "lot") out.lot = /^(true|yes|1)$/i.test(v);
     else if (key === "cover") out.cover = /^(false|no|0)$/i.test(v);
+    else if (key === "columns") {
+      const n = parseInt(v, 10);
+      if (n >= 1 && n <= 3) out.columns = n;
+    }
   }
   if (!out.toc) delete out.toc;
   if (!out.lof) delete out.lof;

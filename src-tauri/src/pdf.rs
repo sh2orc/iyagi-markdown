@@ -154,11 +154,17 @@ fn run_on_main(
   wrap.id = 'iyagi-page-wrap';
   while (body.firstChild) wrap.appendChild(body.firstChild);
   body.appendChild(wrap);
+  // 다단(프런트매터 columns:) — 문서 컬럼이 곧 타일 안 컬럼이 된다(중첩 회피).
+  var n = Math.min(3, Math.max(1, parseInt(
+    (document.querySelector('.markdown-body') && document.querySelector('.markdown-body').dataset.columns) || '1', 10) || 1));
+  var cw = n > 1 ? (W - 2 * M - (n - 1) * 2 * M) / n : (W - 2 * M);
   var st = document.createElement('style');
   st.textContent = 'html,body{{margin:0!important;padding:0!important;}}' +
     // 컬럼 간격을 여백의 2배로 둬야 W 폭 창이 페이지 경계에 정확히 타일링된다.
     '#iyagi-page-wrap{{box-sizing:border-box;padding:' + M + 'px;height:' + H + 'px;width:' + W + 'px;' +
-    'column-width:' + (W - 2 * M) + 'px;column-gap:' + (2 * M) + 'px;column-fill:auto;background:' + bg + ';}}' +
+    'column-width:' + cw + 'px;column-gap:' + (2 * M) + 'px;column-fill:auto;background:' + bg + ';}}' +
+    (n > 1 ? '.markdown-body{{column-count:auto!important;column-gap:normal!important;}}' +
+      '.markdown-body h1,.markdown-body h2{{column-span:none!important;}}' : '') +
     '#iyagi-page-wrap pre,#iyagi-page-wrap table,#iyagi-page-wrap .diagram,' +
     '#iyagi-page-wrap .katex-display{{break-inside:avoid;}}' +
     // 페이지 나눔(`\newpage`) — 타일링에서 다음 컬럼=다음 페이지.

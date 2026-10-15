@@ -156,6 +156,8 @@ export interface DocxManifest {
   comments?: Array<[number, string]>;
   /** 목차 라벨 언어. */
   frontLang?: string;
+  /** 다단(1~3) — sectPr w:cols. */
+  columns?: number;
 }
 
 /** 문서별 스타일(SQLite 사이드카 — .md 원문은 불변). */

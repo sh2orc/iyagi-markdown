@@ -599,6 +599,7 @@ export function App(): JSX.Element {
           if (metaTitle) manifest.title = metaTitle;
           if (metaAuthor) manifest.author = metaAuthor;
           manifest.frontLang = lang;
+          if (fm?.columns && fm.columns > 1) manifest.columns = fm.columns;
           if (fm?.toc) manifest.toc = true;
           if (fm?.lof) manifest.lof = true;
           if (fm?.lot) manifest.lot = true;

@@ -88,6 +88,7 @@
 - PDF: 벡터·용지·여백·배율·페이지 번호(N / M)
 - DOCX: Word 기본 스타일 + 문서별 스타일 + OMML 수식 + DrawingML 도형 + 표 + 페이지 번호(옵션) + 페이지 나눔(`\newpage` → 쪽 나눔)
 - HTML/PDF: `\newpage` 문단이 페이지 나눔으로(인쇄·PDF는 물론 화면에서도 점선 표시)
+- 다단 레이아웃 — 프런트매터 `columns: 2`(·3): HTML·인쇄 CSS 다단(h1·h2는 단 관통), PDF 타일링이 단 폭 재계산, DOCX sectPr w:cols(Word Layout > Columns와 동일)
 - EPUB: EPUB 3 전자책(목차·챕터·표지·본문 이미지 임베딩)
 
 ### 보기·창

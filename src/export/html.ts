@@ -16,7 +16,7 @@ import footnote from "markdown-it-footnote";
 import { ensureHighlight, escapeHtml, highlightHtml } from "../plugins/highlight";
 import { ensureKatex, renderMathMl } from "../plugins/katex";
 import { renderMermaidForExport } from "../plugins/mermaid";
-import { stripFrontMatter } from "../editor/frontmatter";
+import { frontMatterMeta, stripFrontMatter } from "../editor/frontmatter";
 import { isPageBreakLine } from "../editor/pagebreak";
 import { citeDefsToHtml, citeDisplay, citeNumbering } from "../editor/citations";
 import { wikiLinksToMarkdown } from "../editor/wiki";
@@ -587,6 +587,9 @@ export async function renderExportBody(markdown: string, opts: ExportHtmlOptions
 
 export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions): Promise<string> {
   const sanitized = opts.preRendered ?? (await renderExportBody(markdown, opts));
+  // 다단(프런트매터 columns: 1~3) — Word Layout > Columns. PDF 타일링은
+  // pdf.rs가 data-columns로 컬럼 폭을 재계산한다.
+  const columns = frontMatterMeta(markdown)?.columns ?? 1;
   const katexCss = await inlineKatexCss();
   // 문서 앞 목차(정적) — DOCX의 TOC/lof/lot 필드와 같은 자리.
   const front = opts.frontLists
@@ -596,6 +599,11 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
     ? `body{margin:${opts.marginMm ?? 14}mm !important;}` +
       `html{font-size:${(16 * (opts.scale ?? 1)).toFixed(1)}px;}`
     : "";
+  const columnCss =
+    columns > 1
+      ? `.markdown-body{column-count:${columns};column-gap:2.4em;}` +
+        `.markdown-body h1,.markdown-body h2{column-span:all;}`
+      : "";
   // 페이지 장식(머리글·바닥글) — 고정 위치 요소가 WebKit createPDF에서 매
   // "페이지"(=컬럼)에 반복 나타나지는 않으므로 JS가 컬럼마다 absolute로 심는다.
   const chrome = opts.forPdf
@@ -637,12 +645,13 @@ ${styleCss}
 ${chrome.css}
 ${katexCss}
 ${marginCss}
+${columnCss}
 </style>
 </head>
 <body>
 ${chrome.body}
 ${opts.forPdf ? "" : `<header class="doc-header"><h1>${escapeHtml(opts.title)}</h1></header>`}
-${front}<article class="markdown-body">
+${front}<article class="markdown-body" data-columns="${columns}">
 ${sanitized}
 </article>
 ${chrome.script ? `<script id="iyagi-pdf-chrome" type="text/plain">
@@ -766,6 +775,8 @@ export async function buildDocxManifest(
   comments?: Array<[number, string]>;
   /** 목차 라벨 언어. */
   frontLang?: "ko" | "en";
+  /** 다단(1~3) — sectPr w:cols. */
+  columns?: number;
 }> {
   const math: Record<string, string> = {};
   const diagrams: Record<string, string> = {};
