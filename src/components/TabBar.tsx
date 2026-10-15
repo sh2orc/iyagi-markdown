@@ -1,6 +1,6 @@
 // 탭 막대 — 열기·닫기·드래그 순서 변경·dirty 점(M06).
 
-import { useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { api, isInApp } from "../api";
 import type { AppStore, Tab } from "../app/store";
@@ -23,19 +23,29 @@ export function TabBar({ store, t, onClose, onCloseOthers, onCloseRight, onPin, 
   const state = store.getSnapshot();
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [ctx, setCtx] = useState<{ x: number; y: number; tab: Tab } | null>(null);
-  const barRef = useRef<HTMLDivElement | null>(null);
 
-  // 바깥 클릭·Esc로 탭 메뉴 닫기.
+  // 메뉴가 열려 있을 때만 리스너 — 바깥 포인터 다운·Esc로 닫는다(사이드바 파일
+  // 메뉴와 같은 규약. 메뉴 안의 클릭은 항목이 처리하므로 제외).
+  useEffect(() => {
+    if (!ctx) return;
+    const close = (e: PointerEvent) => {
+      if (!(e.target as HTMLElement).closest?.(".tab-ctx")) setCtx(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setCtx(null);
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [ctx]);
+
   const closeCtx = () => setCtx(null);
 
   return (
-    <div
-      className="tabbar"
-      ref={barRef}
-      onPointerDown={(e) => {
-        if (ctx && !(e.target as HTMLElement).closest(".tab-ctx")) closeCtx();
-      }}
-    >
+    <div className="tabbar">
       <div
         onWheel={(e) => {
           // 탭 바에서 휠 — 탭 순회(브라우저 관례).
@@ -116,7 +126,11 @@ export function TabBar({ store, t, onClose, onCloseOthers, onCloseRight, onPin, 
       {ctx && (
         <div
           className="ctx-menu tab-ctx"
-          style={{ left: ctx.x, top: ctx.y }}
+          // 화면 오른쪽/아래로 넘치지 않게(에디터 우클릭 메뉴와 같은 클램프).
+          style={{
+            left: Math.min(ctx.x, window.innerWidth - 230),
+            top: Math.min(ctx.y, window.innerHeight - 230),
+          }}
           onContextMenu={(e) => e.preventDefault()}
         >
           <button className="ctx-item" onClick={() => { onClose(ctx.tab); closeCtx(); }}>

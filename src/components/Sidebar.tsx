@@ -63,14 +63,21 @@ export function Sidebar({ store, tree, workspace, activePath, t, open }: Props):
     });
   };
 
-  // 메뉴 바깥 포인터 다운이면 닫기(메뉴 자체는 제외).
+  // 메뉴 바깥 포인터 다운·Esc면 닫기(메뉴 자체는 제외 — 탭 메뉴와 같은 규약).
   useEffect(() => {
     if (!fileCtx) return;
     const close = (e: PointerEvent) => {
       if (!(e.target as HTMLElement).closest(".file-ctx")) setFileCtx(null);
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFileCtx(null);
+    };
     window.addEventListener("pointerdown", close);
-    return () => window.removeEventListener("pointerdown", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", onKey);
+    };
   }, [fileCtx]);
 
   const doRename = async (next: string) => {
@@ -245,11 +252,12 @@ export function Sidebar({ store, tree, workspace, activePath, t, open }: Props):
       {fileCtx && (
         <div
           className="ctx-menu file-ctx"
-          style={{ left: fileCtx.x, top: fileCtx.y }}
-          onContextMenu={(e) => e.preventDefault()}
-          onPointerDown={(e) => {
-            if (!(e.target as HTMLElement).closest(".file-ctx")) setFileCtx(null);
+          // 화면 오른쪽/아래로 넘치지 않게(에디터 우클릭 메뉴와 같은 클램프).
+          style={{
+            left: Math.min(fileCtx.x, window.innerWidth - 230),
+            top: Math.min(fileCtx.y, window.innerHeight - 170),
           }}
+          onContextMenu={(e) => e.preventDefault()}
         >
           {fileCtx.isDir && (
             <button className="ctx-item" onClick={() => runFileOp("new")}>
