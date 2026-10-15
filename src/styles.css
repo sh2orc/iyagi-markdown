@@ -2661,3 +2661,13 @@ body.resizing .toc {
   cursor: text;
 }
 .md-table td { cursor: text; }
+
+/* 들여쓰기 가이드 — 선행 공백 범위에 세로선(2공백당 1개, 실측 공백 폭).
+   범위 너비=실제 들여쓰기 폭이라 비례 폰트에서도 위치가 정확하다. */
+.cm-content .md-indent-guide {
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--indent-guide-color, rgba(128, 128, 128, 0.3)) 0 1px,
+    transparent 1px calc(var(--md-space-px, 0.5ch) * 2)
+  );
+}

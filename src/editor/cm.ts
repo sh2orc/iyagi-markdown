@@ -153,6 +153,7 @@ import * as fmt from "./format";
 import { resetSearch, searchHighlight } from "../search/searchCm";
 import { writingComp, writingConf, writingExtension } from "./writing";
 import { smartPunctComp, smartPunctExtension } from "./smartPunct";
+import { indentGuidePlugin } from "./indentGuide";
 
 export type ViewMode = "edit" | "read" | "source";
 
@@ -300,6 +301,7 @@ function baseExtensions(): Extension[] {
     // ⇧⌘[·] 는 탭 전환 — 폴드 키맵에서 뺀다(거터 클릭으로 접기).
     keymap.of(foldKeymap.filter((b) => b.key !== "Mod-Shift-[" && b.key !== "Mod-Shift-]")),
     livePreviewExtension(),
+    indentGuidePlugin,
     searchHighlight(),
     occurrenceHighlight(),
     trackChanges(),
