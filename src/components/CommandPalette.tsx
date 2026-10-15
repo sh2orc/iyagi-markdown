@@ -385,12 +385,20 @@ export function CommandPalette({
     }
   };
 
+  // 콤보박스 a11y — 포커스는 입력창에 둔 채 가상 선택을 스크린 리더가 읽게.
+  const activeId =
+    rows.length > 0 && rows[sel] && rows[sel].kind !== "header" ? `palette-opt-${sel}` : undefined;
+
   return (
     <div className="overlay palette-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="palette">
         <input
           ref={inputRef}
           className="palette-input"
+          role="combobox"
+          aria-expanded={rows.length > 0}
+          aria-controls="palette-listbox"
+          aria-activedescendant={activeId}
           placeholder={t.palettePlaceholder}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -410,7 +418,7 @@ export function CommandPalette({
             }
           }}
         />
-        <div className="palette-list" ref={listRef}>
+        <div className="palette-list" ref={listRef} role="listbox" id="palette-listbox" aria-label={t.palettePlaceholder}>
           {rows.length === 0 && (
             <div className="palette-empty">
               {query.trimStart().startsWith("@") ? t.paletteNoHeadings : t.paletteNoMatch}
@@ -419,7 +427,7 @@ export function CommandPalette({
           {rows.map((r, i) => {
             if (r.kind === "header") {
               return (
-                <div key={`h-${r.label}`} className="palette-section">
+                <div key={`h-${r.label}`} className="palette-section" role="presentation">
                   {r.label}
                 </div>
               );
@@ -442,7 +450,15 @@ export function CommandPalette({
                     )
                   : text;
               return (
-                <button key={r.c.id} className={cls} onMouseEnter={() => setSel(i)} onClick={() => runIdx(i)}>
+                <button
+                  key={r.c.id}
+                  id={`palette-opt-${i}`}
+                  role="option"
+                  aria-selected={i === sel}
+                  className={cls}
+                  onMouseEnter={() => setSel(i)}
+                  onClick={() => runIdx(i)}
+                >
                   <span className="palette-cmd-text">{body}</span>
                   {kbd && <kbd className="palette-kbd">{kbd}</kbd>}
                 </button>
@@ -450,7 +466,15 @@ export function CommandPalette({
             }
             const openTab = store.state.tabs.some((t) => t.path === r.f.path);
             return (
-              <button key={`f-${r.f.path}`} className={`${cls} palette-file`} onMouseEnter={() => setSel(i)} onClick={() => runIdx(i)}>
+              <button
+                key={`f-${r.f.path}`}
+                id={`palette-opt-${i}`}
+                role="option"
+                aria-selected={i === sel}
+                className={`${cls} palette-file`}
+                onMouseEnter={() => setSel(i)}
+                onClick={() => runIdx(i)}
+              >
                 <span className="palette-file-name">{r.f.name}</span>
                 {openTab && <span className="palette-open-dot" title={t.alreadyOpen}>●</span>}
                 {r.f.rel && <span className="palette-file-path">{r.f.rel}</span>}
