@@ -26,11 +26,12 @@ export interface PdfOptions {
   scale: number;
 }
 
-export function ExportSheet({ kind, t, onRun, onCancel, pageNumbers = true, onTogglePageNumbers, pdfHeader = true, onTogglePdfHeader }: Props): JSX.Element {
-  const [paper, setPaper] = useState<"a4" | "letter" | "a5">("a4");
-  const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
-  const [margin, setMargin] = useState(14);
-  const [scale, setScale] = useState(1);
+export function ExportSheet({ kind, t, onRun, onCancel, pageNumbers = true, onTogglePageNumbers, pdfHeader = true, onTogglePdfHeader, saved }: Props): JSX.Element {
+  // 마지막 내보내기 옵션 복원 — App이 실행 시 설정에 저장해 전달한다.
+  const [paper, setPaper] = useState<"a4" | "letter" | "a5">(saved?.paper ?? "a4");
+  const [orientation, setOrientation] = useState<"portrait" | "landscape">(saved?.landscape ? "landscape" : "portrait");
+  const [margin, setMargin] = useState(saved?.margin ?? 14);
+  const [scale, setScale] = useState(saved?.scale ?? 1);
 
   const label =
     kind === "html"
