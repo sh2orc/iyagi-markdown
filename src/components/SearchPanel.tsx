@@ -150,6 +150,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
         </span>
         <button
           className={`search-toggle ${caseSensitive ? "is-on" : ""}`}
+          aria-label={t.findCaseSensitive}
           title={t.findCaseSensitive}
           onClick={() => {
             setCaseSensitive(!caseSensitive);
@@ -161,6 +162,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
         </button>
         <button
           className={`search-toggle ${wholeWord ? "is-on" : ""}`}
+          aria-label={t.findWholeWord}
           title={t.findWholeWord}
           onClick={() => {
             setWholeWord(!wholeWord);
@@ -172,6 +174,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
         </button>
         <button
           className={`search-toggle ${regexp ? "is-on" : ""}`}
+          aria-label={t.findRegex}
           title={t.findRegex}
           onClick={() => {
             setRegexp(!regexp);
@@ -203,10 +206,10 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
         >
           ↓
         </button>
-        <button className="search-toggle" title={t.replacePlaceholder} onClick={() => setReplaceOpen(!replaceOpen)}>
+        <button className="search-toggle" aria-label={t.replacePlaceholder} title={t.replacePlaceholder} onClick={() => setReplaceOpen(!replaceOpen)}>
           ⇄
         </button>
-        <button className="search-toggle" title={t.close} onClick={close}>
+        <button className="search-toggle" aria-label={t.close} title={t.close} onClick={close}>
           ✕
         </button>
       </div>

@@ -193,13 +193,14 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
         <span className="ref-pane-title">📖 {t.refPaneTitle} · {tab.path ? tab.title : t.untitled}</span>
         <button
           className="ref-pane-edit"
+          aria-label={tab.id === store.state.activeId ? t.refEditBlocked : editMode ? t.refReadMode : t.refEditMode}
           title={tab.id === store.state.activeId ? t.refEditBlocked : editMode ? t.refReadMode : t.refEditMode}
           disabled={tab.id === store.state.activeId}
           onClick={() => setEditMode((e) => !e)}
         >
           {editMode ? "📖" : "✎"}
         </button>
-        <button className="ref-pane-close" title={t.closeTab} onClick={onClose}>
+        <button className="ref-pane-close" title={t.closeTab} aria-label={t.closeTab} onClick={onClose}>
           ✕
         </button>
       </div>

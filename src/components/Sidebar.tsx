@@ -183,17 +183,18 @@ export function Sidebar({ store, tree, workspace, activePath, t, open }: Props):
           <span className="sidebar-title">{t.sidebarTitle}</span>
           <div className="sidebar-actions">
             {workspace && activePath && (
-              <button title={t.sidebarRevealActive} onClick={revealActive}>
+              <button title={t.sidebarRevealActive} aria-label={t.sidebarRevealActive} onClick={revealActive}>
                 ⇱
               </button>
             )}
             {workspace && (
-              <button title={t.closeFolder} onClick={() => store.closeWorkspace()}>
+              <button title={t.closeFolder} aria-label={t.closeFolder} onClick={() => store.closeWorkspace()}>
                 ✕
               </button>
             )}
             {isInApp() && (
               <button
+                aria-label={t.openFolder}
                 title={t.openFolder}
                 onClick={() => void pickOpenFolder().then((d) => { if (d) void store.openWorkspace(d); })}
               >
