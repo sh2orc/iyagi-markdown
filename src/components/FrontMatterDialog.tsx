@@ -74,6 +74,15 @@ export function FrontMatterDialog({ store, t, onClose }: Props): JSX.Element | n
     </label>
   );
 
+  const ko = store.state.settings.language === "ko";
+  // 텍스트 입력에서 Enter=저장(다른 대화상자와 같은 규약), Esc는 App 글로벌.
+  const onFieldKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      save();
+    }
+  };
+
   return (
     <div
       className="overlay modal-overlay"
@@ -85,15 +94,31 @@ export function FrontMatterDialog({ store, t, onClose }: Props): JSX.Element | n
         <div className="modal-title">{t.fmTitle}</div>
         <label className="settings-label">
           {t.fmDocTitle}
-          <input ref={titleRef} value={title} placeholder="3분기 보고서" onChange={(e) => setTitle(e.target.value)} />
+          <input
+            ref={titleRef}
+            value={title}
+            placeholder={ko ? "3분기 보고서" : "Q3 report"}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={onFieldKey}
+          />
         </label>
         <label className="settings-label">
           {t.fmAuthor}
-          <input value={author} placeholder="홍길동" onChange={(e) => setAuthor(e.target.value)} />
+          <input
+            value={author}
+            placeholder={ko ? "홍길동" : "Jane Doe"}
+            onChange={(e) => setAuthor(e.target.value)}
+            onKeyDown={onFieldKey}
+          />
         </label>
         <label className="settings-label">
           {t.fmDate}
-          <input value={date} placeholder="2026-10-13" onChange={(e) => setDate(e.target.value)} />
+          <input
+            value={date}
+            placeholder="2026-10-13"
+            onChange={(e) => setDate(e.target.value)}
+            onKeyDown={onFieldKey}
+          />
         </label>
         <div className="fm-toggles">
           {check(t.fmNoCover, noCover, setNoCover, t.fmNoCoverHint)}
