@@ -60,6 +60,10 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
           left: pos.left,
         };
       }
+      // 좌우 가장자리 — 툴바(폭 ~370px)가 호스트 밖으로 나가 버튼이 잘리지 않게.
+      // 링크 미리보기·우클릭 메뉴와 같은 클램프 관례(좁은 호스트는 중앙으로).
+      const half = Math.min(190, rect.width / 2 - 4);
+      pos = { ...pos, left: Math.max(half, Math.min(pos.left, rect.width - half)) };
     }
   } catch {
     pos = null;
