@@ -62,6 +62,10 @@ export function SymbolPanel({ t, onInsert, onClose }: Props): JSX.Element {
         <input
           ref={inputRef}
           className="palette-input symbol-search"
+          role="combobox"
+          aria-expanded={list.length > 0}
+          aria-controls="symbol-listbox"
+          aria-activedescendant={list[sel] ? `symbol-opt-${sel}` : undefined}
           placeholder={t.symbolSearch}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -111,10 +115,13 @@ export function SymbolPanel({ t, onInsert, onClose }: Props): JSX.Element {
             </button>
           ))}
         </div>
-        <div className="symbol-grid" ref={gridRef}>
+        <div className="symbol-grid" ref={gridRef} role="listbox" id="symbol-listbox" aria-label={t.symbolSearch}>
           {list.map((s, i) => (
             <button
               key={`${s.ch}-${s.name}`}
+              id={`symbol-opt-${i}`}
+              role="option"
+              aria-selected={i === sel}
               ref={(el) => {
                 cellEls.current[i] = el;
               }}

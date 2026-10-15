@@ -151,6 +151,10 @@ export function WorkspaceSearch({ store, t, onClose, onOpenHit, initialQuery }: 
         <input
           ref={inputRef}
           className="palette-input"
+          role="combobox"
+          aria-expanded={rows.some((r) => r.kind !== "header")}
+          aria-controls="wssearch-listbox"
+          aria-activedescendant={rows[sel] && rows[sel].kind !== "header" ? `wssearch-opt-${sel}` : undefined}
           placeholder={noWorkspace ? t.wsSearchNoFolder : t.wsSearchPlaceholder}
           value={query}
           disabled={noWorkspace}
@@ -173,6 +177,7 @@ export function WorkspaceSearch({ store, t, onClose, onOpenHit, initialQuery }: 
         />
         <button
           className="search-toggle wssearch-replace-toggle"
+          aria-label={t.replacePlaceholder}
           title={t.replacePlaceholder}
           onClick={() => setReplaceOpen(!replaceOpen)}
         >
@@ -197,6 +202,7 @@ export function WorkspaceSearch({ store, t, onClose, onOpenHit, initialQuery }: 
             />
             <button
               className={`search-toggle ${caseSensitive ? "is-on" : ""}`}
+              aria-label={t.findCaseSensitive}
               title={t.findCaseSensitive}
               onClick={() => setCaseSensitive(!caseSensitive)}
             >
@@ -212,7 +218,13 @@ export function WorkspaceSearch({ store, t, onClose, onOpenHit, initialQuery }: 
             </button>
           </div>
         )}
-        <div className="palette-list" ref={listRef}>
+        <div
+          className="palette-list"
+          ref={listRef}
+          role="listbox"
+          id="wssearch-listbox"
+          aria-label={noWorkspace ? t.wsSearchNoFolder : t.wsSearchPlaceholder}
+        >
           {results === null && <div className="palette-empty">{t.wsSearchHint}</div>}
           {results !== null && results.groups.length === 0 && query.trim() && (
             <div className="palette-empty">{t.wsSearchNoMatch}</div>
@@ -220,7 +232,7 @@ export function WorkspaceSearch({ store, t, onClose, onOpenHit, initialQuery }: 
           {rows.map((r, i) => {
             if (r.kind === "header") {
               return (
-                <div key={`h-${r.g.path}`} className="palette-section wssearch-file">
+                <div key={`h-${r.g.path}`} className="palette-section wssearch-file" role="presentation">
                   <span className="wssearch-name">{r.g.name}</span>
                   <span className="palette-file-path">{r.g.rel || r.g.path}</span>
                   <span className="wssearch-count">{r.g.hits.length}</span>
@@ -231,6 +243,9 @@ export function WorkspaceSearch({ store, t, onClose, onOpenHit, initialQuery }: 
             return (
               <button
                 key={`m-${r.g.path}-${r.h.lineNo}`}
+                id={`wssearch-opt-${i}`}
+                role="option"
+                aria-selected={selected}
                 className={`palette-item wssearch-hit ${selected ? "is-sel" : ""}`}
                 onMouseEnter={() => setSel(i)}
                 onClick={() => runIdx(i)}
