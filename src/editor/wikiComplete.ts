@@ -8,6 +8,8 @@ import {
   type CompletionResult,
 } from "@codemirror/autocomplete";
 
+import { emojiCompletions } from "./emojiComplete";
+
 /** 문서 목록 공급자 — App이 위키 인덱스에서 만들어 넣는다(경로|표시). */
 export interface WikiDoc {
   /** 인덱스 키(표시·삽입에 쓰는 이름 — stem 또는 상대경로). */
@@ -73,11 +75,13 @@ export function wikiAutocompletion() {
   });
 }
 
-/** "[[" wikilink + "#" tag in one matcher (wikilink first). */
+/** "[[" wikilink + "#" tag + ":이모지" in one matcher (wikilink first). */
 function combinedMatcher(context: CompletionContext): CompletionResult | null {
   const wiki = wikiCompletions(context);
   if (wiki) return wiki;
-  return tagCompletions(context);
+  const tag = tagCompletions(context);
+  if (tag) return tag;
+  return emojiCompletions(context);
 }
 
 /** "#pos" - workspace tag candidates (heading "#" excluded). */
