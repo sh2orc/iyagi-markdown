@@ -1,7 +1,8 @@
 // 변경 내용 패널(Word 검토 창) — 베이스라인 대비 바뀐 덩어리 목록:
 // 클릭 이동·추가/삭제 구분·모두 수락. 표시는 장식(118차)이 이미 담당.
+// 키보드: ↑↓ 선택·Enter 이동·Esc 닫기(메모·백링크 패널과 같은 규약).
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { AppStore } from "../app/store";
 import { hunksOf, type TrackHunk } from "../editor/trackChanges";
@@ -44,10 +45,24 @@ export function revertChange(h: TrackHunk, lineText: (n: number) => { from: numb
 
 export function TrackPanel({ store, t, onClose }: Props): JSX.Element | null {
   const tab = store.active;
+  const [sel, setSel] = useState(0);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const rowEls = useRef<(HTMLDivElement | null)[]>([]);
   const hunks = useMemo(
     () => (tab?.baselineText != null ? hunksOf(tab.baselineText, tab.state.doc.toString()) : []),
     [tab?.baselineText, tab?.state.doc],
   );
+
+  // 오버레이 자체에 포커스를 둬 키보드 탐색이 가능하게(입력창이 없으므로).
+  useEffect(() => {
+    overlayRef.current?.focus();
+  }, []);
+
+  // 목록이 줄면 선택 클램프 + 선택 행이 보이게.
+  const cur = Math.min(sel, Math.max(0, hunks.length - 1));
+  useEffect(() => {
+    rowEls.current[cur]?.scrollIntoView({ block: "nearest" });
+  }, [cur]);
 
   if (!tab) return null;
 
@@ -73,9 +88,29 @@ export function TrackPanel({ store, t, onClose }: Props): JSX.Element | null {
 
   return (
     <div
+      ref={overlayRef}
+      tabIndex={-1}
       className="overlay modal-overlay"
       role="dialog"
       aria-modal="true"
+      onKeyDown={(e) => {
+        // 되돌리기·액션 버튼에 포커스가 있을 때는 그쪽 키 처리에 맡긴다.
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSel((v) => Math.min(v + 1, hunks.length - 1));
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSel((v) => Math.max(v - 1, 0));
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          const h = hunks[cur];
+          if (h) goto(h.line);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        }
+      }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="modal track-modal">
@@ -92,7 +127,14 @@ export function TrackPanel({ store, t, onClose }: Props): JSX.Element | null {
         ) : (
           <div className="track-list">
             {hunks.map((h, i) => (
-              <div key={i} className={`track-item track-${h.kind}`}>
+              <div
+                key={i}
+                ref={(el) => {
+                  rowEls.current[i] = el;
+                }}
+                className={`track-item track-${h.kind} ${i === cur ? "is-sel" : ""}`}
+                onMouseEnter={() => setSel(i)}
+              >
                 <button className="track-goto" onClick={() => goto(h.line)}>
                   <span className="track-badge">{h.kind === "add" ? `+${h.lines}` : `−${h.lines}`}</span>
                   <span className="track-line">{h.line}줄</span>

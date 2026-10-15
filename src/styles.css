@@ -2578,7 +2578,9 @@ body.resizing .toc {
 }
 .track-item { display: flex; align-items: baseline; gap: 2px; padding: 0 2px; border-radius: 7px; }
 .track-item:hover { background: var(--md-accent-soft); }
-.track-goto { display: flex; align-items: baseline; gap: 8px; flex: 1; min-width: 0; border: none; background: none; text-align: left; cursor: pointer; color: inherit; font-size: inherit; padding: 6px 6px; }
+.track-goto { display: flex; align-items: baseline; gap: 8px; flex: 1; min-width: 0; border: none; background: none; text-align: left; cursor: pointer; color: inherit; font-size: inherit; padding: 6px 6px; border-radius: 8px; }
+.track-goto:hover,
+.track-item.is-sel .track-goto { background: var(--md-accent-soft); }
 .track-revert {
   flex: none; border: none; background: none; cursor: pointer;
   color: var(--md-fg-dim); font-size: 14px; padding: 4px 8px; border-radius: 6px;
