@@ -7,6 +7,7 @@ import {
   type CompletionContext,
   type CompletionResult,
 } from "@codemirror/autocomplete";
+import { languages } from "@codemirror/language-data";
 
 import { emojiCompletions } from "./emojiComplete";
 
@@ -76,12 +77,49 @@ export function wikiAutocompletion() {
 }
 
 /** "[[" wikilink + "#" tag + ":이모지" in one matcher (wikilink first). */
-function combinedMatcher(context: CompletionContext): CompletionResult | null {
+export function combinedMatcher(context: CompletionContext): CompletionResult | null {
   const wiki = wikiCompletions(context);
   if (wiki) return wiki;
   const tag = tagCompletions(context);
   if (tag) return tag;
+  const fence = fenceLanguageCompletions(context);
+  if (fence) return fence;
+  const code = languageDataCompletions(context);
+  if (code) return code;
   return emojiCompletions(context);
+}
+
+/** 펜스 첫 줄 언어 완성 — "```py" 에서 python 등. @codemirror/language-data
+ *  이름·별칭 기반(override가 기본 완성을 대체하므로 직접 제공). */
+function fenceLanguageCompletions(context: CompletionContext): CompletionResult | null {
+  const line = context.state.doc.lineAt(context.pos);
+  const m = /^(?:```|~~~)([\w#+.-]*)$/.exec(line.text.slice(0, context.pos - line.from));
+  if (!m) return null;
+  const q = m[1]!.toLowerCase();
+  if (q === "") return null;
+  const options = languages
+    .filter((d) => d.name.toLowerCase().startsWith(q) || d.alias.some((a) => a.toLowerCase().startsWith(q)))
+    .slice(0, 30)
+    .map((d) => ({ label: d.name, apply: d.name, detail: d.alias.slice(0, 4).join(", "), type: "text" }));
+  if (options.length === 0) return null;
+  return { from: context.pos - q.length, options, validFor: /^[\w#+.-]*$/ };
+}
+
+/** 중첩 코드 언어 완성(js 키워드 등) — override가 기본 소스를 대체하므로
+ *  언어 데이터 소스를 직접 상의한다(없으면 펜스 안 완성이 전부 죽는다). */
+function languageDataCompletions(context: CompletionContext): CompletionResult | null {
+  const sources = context.state.languageDataAt<
+    (ctx: CompletionContext) => CompletionResult | null
+  >("autocomplete", context.pos);
+  for (const source of sources) {
+    try {
+      const result = source(context);
+      if (result) return result;
+    } catch {
+      /* 개별 소스 실패는 건너뛴다 */
+    }
+  }
+  return null;
 }
 
 /** "#pos" - workspace tag candidates (heading "#" excluded). */
