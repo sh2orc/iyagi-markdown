@@ -55,6 +55,9 @@ struct Ctx<'a> {
     footnote_ids: std::collections::HashMap<String, usize>,
     /// 북마크 슬러그 중복 카운터(GitHub식 -1 접미 — 프런트 tocMarkdown과 같은 규칙).
     slug_seen: std::collections::HashMap<String, usize>,
+    /// 서지 정의 줄 → 키(문단 북마크)·키 → 번호(인용 하이퍼링크).
+    cite_lines: std::collections::HashMap<u32, String>,
+    cite_nums: std::collections::HashMap<String, usize>,
 }
 
 impl<'a> Ctx<'a> {
@@ -151,6 +154,9 @@ pub fn export_docx(
 
     // 각주는 comrak가 [\^라벨]: 를 링크 참조 정의로 소비하므로 파싱 전에 추출.
     let (body_md, footnote_defs) = extract_footnotes(markdown);
+    // 인용·서지도 같은 이유로 사전 처리(정의 줄 → [N] 항목 문단, 인라인 → 센티넬).
+    let cites = crate::citations::Citations::extract(&body_md);
+    let body_md = cites.md.clone();
 
     let arena = Arena::new();
     let root = parse_document(&arena, &body_md, &options);
@@ -166,6 +172,8 @@ pub fn export_docx(
         table_widths: (*table_widths).clone(),
         footnote_ids: std::collections::HashMap::new(),
         slug_seen: std::collections::HashMap::new(),
+        cite_lines: cites.lines.clone(),
+        cite_nums: cites.nums.clone(),
         figures: 0,
         tables: 0,
         comments: comments
@@ -208,6 +216,8 @@ pub fn export_docx(
 
     // 각주 참조 자리표시자(\\u{E000}라벨\\u{E000}) → footnoteReference 런.
     let body = resolve_footnote_refs(&body, &ctx);
+    // 인용 센티넬 → 서지 앵커 하이퍼링크.
+    let body = resolve_cite_refs(&body, &ctx);
 
     write_docx_zip(out, &body, &ctx, opts, style.clone())?;
     Ok(())
@@ -498,8 +508,16 @@ fn block<'a>(
             } else {
                 ""
             };
-            // 문단 시작 줄에 메모가 있으면 Word 원생 메모로(범위+참조).
+            // 서지 정의 문단 — 북마크로 감싼다(인용 하이퍼링크의 도착점).
             let line = node.data.borrow().sourcepos.start.line as u32;
+            if let Some(key) = ctx.cite_lines.get(&line).cloned() {
+                let runs = inline_children(node, ctx, list_level)?;
+                let _ = writeln!(
+                    out,
+                    "<w:p><w:pPr><w:pStyle/></w:pPr><w:bookmarkStart w:id=\"Bref-{key}\" w:name=\"ref-{key}\"/><w:bookmarkEnd w:id=\"Bref-{key}\"/>{runs}</w:p>"
+                );
+                return Ok(());
+            }
             let cmt = ctx.comments.get(&line).cloned();
             let _ = match cmt {
                 Some((id, _)) => writeln!(
@@ -992,6 +1010,57 @@ fn resolve_footnote_refs(body: &str, ctx: &Ctx) -> String {
             }
             None => {
                 out.push(SEP);
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// 본문 인용 센티넬(\u{E001}키\u{E003}접미사\u{E001}) → 서지 앵커 하이퍼링크.
+/// 정의 없는 키는 원문 [@키, 접미사]로 복원(데이터 무손실).
+fn resolve_cite_refs(body: &str, ctx: &Ctx) -> String {
+    const OPEN: char = '\u{E001}';
+    const SEP: char = '\u{E003}';
+    let sep_len = OPEN.len_utf8();
+    let mut out = String::with_capacity(body.len());
+    let mut rest = body;
+    while let Some(i) = rest.find(OPEN) {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + sep_len..];
+        match after.find(OPEN) {
+            Some(j) => {
+                let inner = &after[..j];
+                let (key, suffix) = match inner.find(SEP) {
+                    Some(k) => (&inner[..k], &inner[k + SEP.len_utf8()..]),
+                    None => (inner, ""),
+                };
+                match ctx.cite_nums.get(key) {
+                    Some(n) => {
+                        let display = if suffix.is_empty() {
+                            format!("[{n}]")
+                        } else {
+                            format!("[{n}, {suffix}]")
+                        };
+                        out.push_str(&format!(
+                            "<w:hyperlink w:anchor=\"ref-{key}\" w:history=\"1\"><w:r><w:rPr><w:rStyle w:val=\"Hyperlink\"/><w:vertAlign w:val=\"superscript\"/></w:rPr><w:t>{}</w:t></w:r></w:hyperlink>",
+                            crate::xml::esc(&display)
+                        ));
+                    }
+                    None => {
+                        let orig = if suffix.is_empty() {
+                            format!("[@{key}]")
+                        } else {
+                            format!("[@{key}, {suffix}]")
+                        };
+                        out.push_str(&crate::xml::esc(&orig));
+                    }
+                }
+                rest = &after[j + sep_len..];
+            }
+            None => {
+                out.push(OPEN);
                 rest = after;
             }
         }
@@ -1924,6 +1993,61 @@ mod tests {
     }
 
     #[test]
+    fn citations_become_anchors_and_bibliography() {
+        let md = "연구 [@kim2020]와 [@lee2021, p. 12].\n\n[@kim2020]: Kim (2020).\n[@lee2021]: Lee (2021).\n\n끊긴 [@ghost] 인용.";
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let out = tmp("cites");
+        export_docx(
+            md,
+            &DocxExportOptions {
+                math: &math,
+                diagrams: &diagrams,
+                images: &images,
+                style: None,
+                page_numbers: false,
+                table_widths: &HashMap::new(),
+                title: None,
+                author: None,
+                toc: false,
+                lof: false,
+                lot: false,
+                header_title: None,
+                highlight: None,
+                comments: &[],
+                front_lang: "ko",
+            },
+            &out,
+        )
+        .unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let cursor = std::io::Cursor::new(&bytes);
+        let mut zip = zip::ZipArchive::new(cursor).unwrap();
+        let doc = {
+            let mut s = String::new();
+            use std::io::Read;
+            zip.by_name("word/document.xml")
+                .unwrap()
+                .read_to_string(&mut s)
+                .unwrap();
+            s
+        };
+        // 인용 → 서지 앵커 위첨자 하이퍼링크(첫 등장 순 번호).
+        assert!(doc.contains(
+            "<w:hyperlink w:anchor=\"ref-kim2020\" w:history=\"1\"><w:r><w:rPr><w:rStyle w:val=\"Hyperlink\"/><w:vertAlign w:val=\"superscript\"/></w:rPr><w:t>[1]</w:t></w:r></w:hyperlink>"
+        ));
+        assert!(doc.contains(&"<w:t>[2, p. 12]</w:t>".to_string()));
+        // 서지 문단 — 북마크 + 번호.
+        assert!(doc.contains("<w:bookmarkStart w:id=\"Bref-kim2020\" w:name=\"ref-kim2020\"/>"));
+        assert!(doc.contains("[1] Kim (2020)."));
+        assert!(doc.contains("[2] Lee (2021)."));
+        // 정의 없는 인용 — 원문 보존.
+        assert!(doc.contains("[@ghost]"));
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
     fn is_page_break_variants() {
         assert!(is_page_break("\\newpage"));
         assert!(is_page_break(" \\pagebreak "));
@@ -1945,6 +2069,8 @@ mod tests {
             footnotes: vec!["DEF".into()],
             footnote_ids: [("a".to_string(), 1usize)].into_iter().collect(),
             slug_seen: std::collections::HashMap::new(),
+            cite_lines: std::collections::HashMap::new(),
+            cite_nums: std::collections::HashMap::new(),
             table_widths: HashMap::new(),
             figures: 0,
             tables: 0,

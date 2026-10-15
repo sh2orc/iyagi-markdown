@@ -1,6 +1,7 @@
 //! IYAGI Markdown 내보내기 크레이트 — DOCX(comrak AST → 직접 OOXML 작성)와
 //! SVG→DrawingML·MathML→OMML 변환기(§4-3: 래스터화 금지, 편집 가능 객체 유지).
 
+pub mod citations;
 pub mod docx;
 pub mod epub;
 pub mod mathml2omml;
