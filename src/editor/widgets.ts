@@ -878,10 +878,16 @@ export class ParaMarkWidget extends WidgetType {
 
 /** 인용 표시 [N] — 서지 항목 툴팁, 서지 정의로의 클릭은 이후 단계. */
 export class CiteWidget extends WidgetType {
-  constructor(readonly display: string, readonly entry: string) {
+  constructor(
+    readonly display: string,
+    readonly entry: string,
+    /** 서지 정의 줄로 이동(정의가 있을 때만 — Word Ctrl+클릭 이동). */
+    readonly onJump: (() => void) | null = null,
+  ) {
     super();
   }
   eq(other: CiteWidget) {
+    // onJump(클로저)는 비교하지 않는다 — display·entry가 같으면 이동처도 같다.
     return other.display === this.display && other.entry === this.entry;
   }
   toDOM() {
@@ -889,10 +895,19 @@ export class CiteWidget extends WidgetType {
     el.className = "md-cite";
     el.textContent = this.display;
     if (this.entry) el.title = this.entry;
+    if (this.onJump) {
+      el.classList.add("md-cite-link");
+      el.title = this.entry;
+      el.addEventListener("mousedown", (e: Event) => {
+        e.preventDefault(); // 커서 점프 대신 이동
+        e.stopPropagation(); // CM의 클릭-투-커서 처리 차단
+        this.onJump!();
+      });
+    }
     return el;
   }
   ignoreEvent() {
-    return true;
+    return false;
   }
 }
 

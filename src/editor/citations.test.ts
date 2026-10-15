@@ -70,3 +70,19 @@ describe("citeDefsToHtml (내보내기 전처리)", () => {
     expect(html).not.toContain("ref-num");
   });
 });
+
+describe("인용 위젯 클릭 → 서지 이동(통합)", { retry: 2 }, () => {
+  it("클릭하면 정의 줄로 커서가 옮겨진다", async () => {
+    const { EditorView } = await import("@codemirror/view");
+    const { createDocState } = await import("./cm");
+    const view = new EditorView({ state: createDocState(DOC, "read"), parent: document.body });
+    await new Promise((r) => setTimeout(r, 120));
+    const cite = document.querySelector(".md-cite-link");
+    expect(cite).not.toBeNull();
+    cite!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 30));
+    // kim2020 정의는 DOC의 7번 줄.
+    expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(7);
+    view.destroy();
+  });
+});

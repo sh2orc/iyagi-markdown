@@ -243,6 +243,12 @@ export const editorTheme = EditorView.theme({
     fontSize: "0.75em",
     cursor: "default",
   },
+  ".md-cite-link": {
+    cursor: "pointer",
+  },
+  ".md-cite-link:hover": {
+    textDecoration: "underline",
+  },
   ".md-cite-broken": {
     color: "#d29922",
     opacity: 0.75,

@@ -467,7 +467,15 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
           }
           if (coversMarks(from, to)) continue;
           const def = numbering.defs.get(m[1]);
-          ranges.push(replace({ widget: new CiteWidget(display, def?.entry ?? "") }).range(from, to));
+          // 클릭 → 서지 정의 줄로 이동(Word Ctrl+클릭과 같은 어감).
+          const defLine = def?.line ?? null;
+          const jump = defLine === null ? null : () => {
+            const line = view.state.doc.line(Math.min(defLine, view.state.doc.lines));
+            view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
+          };
+          ranges.push(
+            replace({ widget: new CiteWidget(display, def?.entry ?? "", jump) }).range(from, to),
+          );
         }
       }
     }
