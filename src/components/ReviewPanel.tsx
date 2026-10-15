@@ -1,7 +1,7 @@
 // 문서 검수 허브 — 흩어진 검사를 한 곳에서: 끊긴 링크·긴 문장·고아 이미지.
 // 고아 이미지(assets/에서 참조 없는 파일)는 여기서 처음으로 UI를 가진다.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api, isInApp } from "../api";
 import type { AppStore } from "../app/store";
@@ -30,6 +30,14 @@ export function ReviewPanel({ store, t, onClose, onOpenBrokenLinks, onOpenStats,
   const [orphans, setOrphans] = useState<Orphan[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [removed, setRemoved] = useState(0);
+  // 삭제는 되돌릴 수 없다 — 한 번 더 누르는 2단계 확인(4초 후 해제).
+  const [armed, setArmed] = useState(false);
+  const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (armTimer.current) clearTimeout(armTimer.current);
+    };
+  }, []);
 
   // 긴 문장 수 — 통계 모듈 재사용(본문만).
   const body = tab ? stripFrontMatter(tab.state.doc.toString()) : "";
@@ -67,6 +75,14 @@ export function ReviewPanel({ store, t, onClose, onOpenBrokenLinks, onOpenStats,
 
   const deleteAll = async () => {
     if (!orphans || orphans.length === 0 || busy) return;
+    if (!armed) {
+      setArmed(true);
+      if (armTimer.current) clearTimeout(armTimer.current);
+      armTimer.current = setTimeout(() => setArmed(false), 4000);
+      return;
+    }
+    if (armTimer.current) clearTimeout(armTimer.current);
+    setArmed(false);
     setBusy(true);
     try {
       const n = await api.deleteOrphanImages(orphans.map((o) => o.path));
@@ -140,8 +156,13 @@ export function ReviewPanel({ store, t, onClose, onOpenBrokenLinks, onOpenStats,
                     <li className="review-orphan-more">{t.f.reviewMoreCount(orphans.length - 12)}</li>
                   )}
                 </ul>
-                <button className="btn btn-danger review-del" disabled={busy} onClick={() => void deleteAll()}>
-                  {t.f.reviewOrphanDelete(orphans.length)}
+                <button
+                  className={`btn btn-danger review-del ${armed ? "is-armed" : ""}`}
+                  disabled={busy}
+                  title={armed ? t.f.reviewOrphanConfirm() : undefined}
+                  onClick={() => void deleteAll()}
+                >
+                  {armed ? `⚠ ${t.f.reviewOrphanConfirm()}` : t.f.reviewOrphanDelete(orphans.length)}
                 </button>
               </>
             )}

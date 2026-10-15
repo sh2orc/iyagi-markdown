@@ -2520,6 +2520,12 @@ body.resizing .toc {
 .review-del { margin-top: 8px; }
 .review-spin { width: 18px; height: 18px; border-width: 2px; }
 .btn-danger { background: var(--md-error, #c53030); color: #fff; }
+/* 2단계 확인 무장 상태 — 진동으로 "한 번 더"임을 알린다. */
+.btn-danger.is-armed { animation: danger-arm 0.9s ease infinite; }
+@keyframes danger-arm {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(197, 48, 48, 0.45); }
+  50% { box-shadow: 0 0 0 5px rgba(197, 48, 48, 0); }
+}
 
 /* — 사이드바 파일 메뉴·이름 변경 — */
 .rename-dialog { min-width: 340px; }
