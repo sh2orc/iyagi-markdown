@@ -11,7 +11,7 @@ import { trackChanges } from "./trackChanges";
 import { occurrenceHighlight } from "./occurrences";
 import { copyFormat, pasteFormat } from "./formatPainter";
 import { Compartment, EditorState, Extension } from "@codemirror/state";
-import { EditorView, keymap, type ViewUpdate } from "@codemirror/view";
+import { crosshairCursor, EditorView, keymap, rectangularSelection, type ViewUpdate } from "@codemirror/view";
 import { defaultKeymap, history, historyField, historyKeymap } from "@codemirror/commands";
 import { GFM } from "@lezer/markdown";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
@@ -308,6 +308,9 @@ function baseExtensions(): Extension[] {
     // ⌘클릭은 링크 열기 그대로.
     EditorState.allowMultipleSelections.of(true),
     EditorView.clickAddsSelectionRange.of((event) => event.altKey),
+    // ⌥드래그 사각(열) 선택 — 코어 @codemirror/view 내장(크로스헤어 커서 표시).
+    rectangularSelection(),
+    crosshairCursor(),
     previewConfigField,
     EditorView.updateListener.of((u) => {
       if (u.docChanged || u.selectionSet) listener?.(u);

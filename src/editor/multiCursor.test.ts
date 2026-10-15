@@ -7,6 +7,19 @@ import { EditorView } from "@codemirror/view";
 
 import { addCursorAbove, addCursorBelow, extendedCursors } from "./multiCursor";
 import { continueListOnEnter, duplicateLine, typePair } from "./format";
+import { createDocState } from "./cm";
+
+describe("에디터 상태 배선(회귀 핀)", { retry: 1 }, () => {
+  it("allowMultipleSelections facet이 켜져 있다(꺼지면 멀티커서 전체 무효)", () => {
+    const state = createDocState("본문\n", "edit");
+    expect(state.facet(EditorState.allowMultipleSelections)).toBe(true);
+  });
+
+  it("mouseSelectionStyle에 사각 선택 스타일이 등록돼 있다(⌥드래그)", () => {
+    const state = createDocState("본문\n", "edit");
+    expect(state.facet(EditorView.mouseSelectionStyle).length).toBeGreaterThan(0);
+  });
+});
 
 const makeView = (doc: string, cursors: number[]): EditorView =>
   new EditorView({

@@ -50,6 +50,7 @@ const GROUPS = (t: Translate): Array<{ title: string; items: [string, string][] 
       ["⌘D", t.scDuplicateLine],
       ["⌥클릭 / ⌥⌘↑ / ⌥⌘↓", t.scMultiCursor],
       ["⌥⌘D", t.scNextOccurrence],
+      ["⌥드래그", t.scRectSelect],
       ["⇧F3", t.scCaseCycle],
       ["⌘J", t.scJoinLines],
       ["⌘⇧K", t.scDeleteLines],
