@@ -137,7 +137,7 @@ export function TrackPanel({ store, t, onClose }: Props): JSX.Element | null {
               >
                 <button className="track-goto" onClick={() => goto(h.line)}>
                   <span className="track-badge">{h.kind === "add" ? `+${h.lines}` : `−${h.lines}`}</span>
-                  <span className="track-line">{h.line}줄</span>
+                  <span className="track-line">{t.f.lineAt(h.line)}</span>
                   <span className="track-text">{h.preview}</span>
                 </button>
                 <button className="track-revert" title={t.trackRevert} onClick={() => revertTrackHunk(h)}>
