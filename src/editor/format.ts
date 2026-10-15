@@ -615,7 +615,8 @@ function columnAtForAlign(view: EditorView, lineNo: number): number {
 export function continueListOnEnter(view: EditorView): boolean {
   const state = view.state;
   const sel = state.selection.main;
-  if (!sel.empty) return false;
+  // 멀티커서·선택에는 방해하지 않는다(기본 Enter).
+  if (!sel.empty || state.selection.ranges.length > 1) return false;
   const line = state.doc.lineAt(sel.head);
   // 커서가 줄 끝(또는 내용 뒤)에 있을 때만 — 중간 편집 중엔 방해하지 않는다.
   if (sel.head !== line.to) return false;
@@ -650,6 +651,8 @@ export function continueListOnEnter(view: EditorView): boolean {
 export function indentListItem(view: EditorView, outdent: boolean): boolean {
   const state = view.state;
   const sel = state.selection.main;
+  // 멀티커서 Tab은 폴스루 — 기본 indentMore가 각 커서에 든다.
+  if (state.selection.ranges.length > 1) return false;
   const line = state.doc.lineAt(sel.head);
   const m = /^(\s*)([-*+]|\d+[.)])\s+/.exec(line.text);
   if (!m) return false;
@@ -675,6 +678,9 @@ export function indentListItem(view: EditorView, outdent: boolean): boolean {
  *  모두 커서/선택에 대한 텍스트 삽입이며 원문 보존 원칙(§4-2)과 무관하게
  *  사용자가 되돌릴 수 있는 일반 편집이다. */
 export function typePair(view: EditorView, ch: string): boolean {
+  // 멀티커서에서는 폴스루 — 기본 입력이 각 커서에 글자를 넣게 한다(첫 커서만
+  // 쌍이 되는 반쪽짜리 적용 방지).
+  if (view.state.selection.ranges.length > 1) return false;
   const sel = view.state.selection.main;
   // ① 쌍 문자: 빈 커서면 닫는 쪽을 함께, 선택이 있으면 감싼다.
   const pairs: Record<string, string> = { "(": ")", "[": "]", "{": "}", "\"": "\"", "'": "'" };
@@ -753,17 +759,20 @@ export function moveLines(view: EditorView, up: boolean): boolean {
   return true;
 }
 
-/** 커서 줄 복제 — ⌘D(아래에 사본). 원문은 같은 줄이 반복될 뿐이다. */
+/** 커서 줄 복제 — ⌘D(아래에 사본). 원문은 같은 줄이 반복될 뿐이다.
+ *  멀티커서: 각 커서 줄을 복제(같은 줄에 커서 여럿이면 한 번만). */
 export function duplicateLine(view: EditorView): boolean {
-  const doc = view.state.doc;
-  const sel = view.state.selection.main;
-  const line = doc.lineAt(sel.head);
-  view.dispatch({
-    changes: { from: line.to, insert: `\n${line.text}` },
-    selection: { anchor: sel.head + line.text.length + 1 },
-    userEvent: "input.duplicateLine",
-    scrollIntoView: true,
+  const seen = new Set<number>();
+  const changes = view.state.changeByRange((range) => {
+    const line = view.state.doc.lineAt(range.head);
+    if (seen.has(line.number)) return { changes: [], range };
+    seen.add(line.number);
+    return {
+      changes: { from: line.to, insert: `\n${line.text}` },
+      range: EditorSelection.cursor(range.head + line.text.length + 1),
+    };
   });
+  view.dispatch(changes, { userEvent: "input.duplicateLine", scrollIntoView: true });
   return true;
 }
 

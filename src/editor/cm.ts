@@ -4,7 +4,8 @@
 // 모드(읽기/편집/소스)는 Compartment로 재구성한다: 같은 버퍼를 보는 세 가지
 // "보기"일 뿐이므로 전환에 변환이 없다(§0 D4/D5).
 
-import { searchKeymap } from "@codemirror/search";
+import { searchKeymap, selectNextOccurrence } from "@codemirror/search";
+import { addCursorAbove, addCursorBelow } from "./multiCursor";
 import { looksLikeTsv, tsvToTable } from "./tsvTable";
 import { trackChanges } from "./trackChanges";
 import { occurrenceHighlight } from "./occurrences";
@@ -243,6 +244,12 @@ function baseExtensions(): Extension[] {
       { key: "Alt-ArrowDown", run: (v) => fmt.moveLines(v, false) },
       { key: "Mod-d", run: (v) => fmt.duplicateLine(v), preventDefault: true },
       { key: "Mod-Shift-k", run: (v) => fmt.deleteLines(v), preventDefault: true },
+      // 멀티커서 — ⌥⌘↑/↓ 위·아래 커서 추가, ⌥⌘D 다음 같은 단어 선택(VS Code
+      // 표준. ⌘D는 복제와 겹쳐 ⌥를 얹었다). ⌥클릭 커서 추가는 아래 facet,
+      // Esc 단일 복귀는 기본 키맵(simplifySelection).
+      { key: "Mod-Alt-ArrowUp", run: addCursorAbove, preventDefault: true },
+      { key: "Mod-Alt-ArrowDown", run: addCursorBelow, preventDefault: true },
+      { key: "Mod-Alt-d", run: selectNextOccurrence, preventDefault: true },
       // 서식 복사/붙여넣기(Format Painter) — ⌘⇧C는 인라인 코드라 ⌥⌘C/⌥⌘V.
       { key: "Mod-Alt-c", run: (v) => copyFormat(v), preventDefault: true },
       { key: "Mod-Alt-v", run: (v) => pasteFormat(v), preventDefault: true },
@@ -294,6 +301,11 @@ function baseExtensions(): Extension[] {
     trackChanges(),
     editorTheme,
     EditorView.lineWrapping,
+    // 멀티커서 — 이 facet이 없으면 상태가 강제로 단일 선택으로 붕괴된다
+    // (⌥클릭·⌥⌘D·⌥⌘↑↓ 모두 무효). ⌥클릭 커서 추가(VS Code 표준),
+    // ⌘클릭은 링크 열기 그대로.
+    EditorState.allowMultipleSelections.of(true),
+    EditorView.clickAddsSelectionRange.of((event) => event.altKey),
     previewConfigField,
     EditorView.updateListener.of((u) => {
       if (u.docChanged || u.selectionSet) listener?.(u);
@@ -520,6 +532,8 @@ function baseExtensions(): Extension[] {
         return false;
       },
       mousedown(event, view) {
+        // ⌥클릭은 커서 추가 전용 — 링크·태그·각주 클릭 처리에서 제외.
+        if (event.altKey) return false;
         const target = event.target as HTMLElement | null;
         // 해시태그 클릭 → 워크스페이스 태그 검색으로.
         const tagEl = target?.closest?.(".md-tag");
