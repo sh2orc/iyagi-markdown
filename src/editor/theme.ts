@@ -199,6 +199,19 @@ export const editorTheme = EditorView.theme({
     paddingTop: "0.35em",
   },
 
+  // — 페이지 나눔(`\newpage`): Word 쪽나눔의 점선 두 줄 —
+  ".md-pagebreak": {
+    fontSize: "0.78em",
+    letterSpacing: "0.04em",
+    color: "var(--md-fg-dim)",
+    borderTop: "1px dashed var(--md-border-strong)",
+    borderBottom: "1px dashed var(--md-border-strong)",
+    marginTop: "0.4em",
+    marginBottom: "0.4em",
+    paddingTop: "0.15em",
+    paddingBottom: "0.15em",
+  },
+
   // — 코드 블록: 하나의 붙는 카드(줄마다 배경이 이어지고 끝만 둥글게) —
   ".md-codeblock": {
     fontFamily: "var(--md-code-font)",

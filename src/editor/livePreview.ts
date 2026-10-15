@@ -35,6 +35,7 @@ import {
 } from "@codemirror/view";
 
 import { lexicallyClean, percentDecode, resolveLink } from "../links";
+import { isPageBreakLine } from "./pagebreak";
 import { parseWikiLink, resolveWikiLink } from "./wiki";
 import { mdTableKey } from "./tableKey";
 import { sentenceSpans } from "./writing";
@@ -409,8 +410,13 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
     for (; n <= doc.lines; n++) {
       const line = doc.line(n);
       if (line.from >= chunkTo) break;
-      if (line.length !== 0) continue;
       if (codeRanges.some(([cf, ct]) => line.from >= cf && line.from <= ct)) continue;
+      // 페이지 나눔(`\newpage`) — Word 쪽나눔 점선과 같은 어감의 줄 장식.
+      if (isPageBreakLine(line.text)) {
+        ranges.push(Decoration.line({ class: "md-pagebreak" }).range(line.from));
+        continue;
+      }
+      if (line.length !== 0) continue;
       ranges.push(Decoration.line({ class: "md-blank" }).range(line.from));
     }
     function enterNode(node: SyntaxNode): boolean | undefined {

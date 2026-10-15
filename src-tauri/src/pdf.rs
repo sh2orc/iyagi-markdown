@@ -160,7 +160,9 @@ fn run_on_main(
     '#iyagi-page-wrap{{box-sizing:border-box;padding:' + M + 'px;height:' + H + 'px;width:' + W + 'px;' +
     'column-width:' + (W - 2 * M) + 'px;column-gap:' + (2 * M) + 'px;column-fill:auto;background:' + bg + ';}}' +
     '#iyagi-page-wrap pre,#iyagi-page-wrap table,#iyagi-page-wrap .diagram,' +
-    '#iyagi-page-wrap .katex-display{{break-inside:avoid;}}';
+    '#iyagi-page-wrap .katex-display{{break-inside:avoid;}}' +
+    // 페이지 나눔(`\newpage`) — 타일링에서 다음 컬럼=다음 페이지.
+    '#iyagi-page-wrap .page-break{{break-before:column;border-top:none;margin:0;}}';
   document.head.appendChild(st);
 }})();"#,
             W = page_w,

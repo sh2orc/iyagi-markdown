@@ -241,6 +241,7 @@ export function CommandPalette({
         { id: "table", label: `${t.tbTable}`, run: go(() => fmt.insertTable(view)) },
         ...(onOpenTableDialog ? [{ id: "table-dialog", label: `${t.tbTable}: ${t.tableInsertTitle}…`, run: onOpenTableDialog }] : []),
         { id: "toc-insert", label: `${t.tbInsertToc}`, run: go(() => fmt.insertToc(view)) },
+        { id: "pagebreak-insert", label: `${t.tbPageBreak}`, run: go(() => fmt.insertPageBreak(view)) },
         { id: "bookmark-next", label: `${t.bookmarksSection}: ${t.bmNext}`, run: () => store.cycleBookmark(true) },
         { id: "bookmark-prev", label: `${t.bookmarksSection}: ${t.bmPrev}`, run: () => store.cycleBookmark(false) },
         { id: "hr", label: `${t.tbRule}`, run: go(() => fmt.insertBlock(view, "---")) },

@@ -481,6 +481,17 @@ fn block<'a>(
 ) -> Result<(), DocxError> {
     match &node.data.borrow().value {
         NodeValue::Paragraph => {
+            // 페이지 나눔 매크로 문단(`\newpage` 등) — Word의 쪽 나눔으로.
+            let mut ptext = String::new();
+            for c in node.children().collect::<Vec<_>>() {
+                if let NodeValue::Text(t) = &c.data.borrow().value {
+                    ptext.push_str(t);
+                }
+            }
+            if is_page_break(&ptext) {
+                let _ = writeln!(out, "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>");
+                return Ok(());
+            }
             let runs = inline_children(node, ctx, list_level)?;
             let quote = if in_quote {
                 " w:val=\"IYAGIQuote\""
@@ -1098,6 +1109,12 @@ fn highlight_text_run(text: &str, style: &RunStyle) -> String {
     }
     out.push_str(&plain_run(rest, style));
     out
+}
+
+/// 문단 전체가 페이지 나눔 매크로인지(pandoc 규약 `\newpage` 등 — 프런트와 동일 판정).
+fn is_page_break(s: &str) -> bool {
+    let t = s.trim();
+    t == "\\newpage" || t == "\\pagebreak" || t == "\\page"
 }
 
 fn inline_children<'a>(
@@ -1858,6 +1875,62 @@ mod tests {
         assert!(doc.contains("w:tbl"));
         assert!(doc.contains("Menlo"));
         let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn page_break_macro_becomes_word_page_break() {
+        let md = "앞\n\n\\newpage\n\n뒤";
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let out = tmp("pagebreak");
+        export_docx(
+            md,
+            &DocxExportOptions {
+                math: &math,
+                diagrams: &diagrams,
+                images: &images,
+                style: None,
+                page_numbers: false,
+                table_widths: &HashMap::new(),
+                title: None,
+                author: None,
+                toc: false,
+                lof: false,
+                lot: false,
+                header_title: None,
+                highlight: None,
+                comments: &[],
+                front_lang: "ko",
+            },
+            &out,
+        )
+        .unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let cursor = std::io::Cursor::new(&bytes);
+        let mut zip = zip::ZipArchive::new(cursor).unwrap();
+        let doc = {
+            let mut s = String::new();
+            use std::io::Read;
+            zip.by_name("word/document.xml")
+                .unwrap()
+                .read_to_string(&mut s)
+                .unwrap();
+            s
+        };
+        assert!(doc.contains("<w:br w:type=\"page\"/>"));
+        assert!(!doc.contains("newpage"));
+        let _ = std::fs::remove_file(&out);
+    }
+
+    #[test]
+    fn is_page_break_variants() {
+        assert!(is_page_break("\\newpage"));
+        assert!(is_page_break(" \\pagebreak "));
+        assert!(is_page_break("\\page"));
+        assert!(!is_page_break("\\newpage 주석"));
+        assert!(!is_page_break("newpage"));
+        assert!(!is_page_break(""));
     }
 
     #[test]

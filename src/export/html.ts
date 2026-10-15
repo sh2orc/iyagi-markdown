@@ -17,6 +17,7 @@ import { ensureHighlight, escapeHtml, highlightHtml } from "../plugins/highlight
 import { ensureKatex, renderMathMl } from "../plugins/katex";
 import { renderMermaidForExport } from "../plugins/mermaid";
 import { stripFrontMatter } from "../editor/frontmatter";
+import { isPageBreakLine } from "../editor/pagebreak";
 import { wikiLinksToMarkdown } from "../editor/wiki";
 
 export interface ExportHtmlOptions {
@@ -68,6 +69,18 @@ export interface ExportHtmlOptions {
 function makeMd(): MarkdownItType {
   const md = new MarkdownIt({ html: true, linkify: true, breaks: false, typographer: false });
   md.use(footnote);
+  // `\newpage` 문단 → 페이지 나눔 div(인쇄·PDF에서 break-before). pandoc 규약.
+  md.core.ruler.push("iyagi_pagebreak", (state) => {
+    const tokens = state.tokens;
+    for (let i = 0; i + 2 < tokens.length; i++) {
+      if (tokens[i].type !== "paragraph_open") continue;
+      if (tokens[i + 1]?.type !== "inline" || tokens[i + 2]?.type !== "paragraph_close") continue;
+      if (!isPageBreakLine(tokens[i + 1].content)) continue;
+      const br = new state.Token("html_block", "", 0);
+      br.content = '<div class="page-break"></div>';
+      tokens.splice(i, 3, br);
+    }
+  });
   // $…$ · $$…$$ 수식 규칙(§4-4: KaTeX로 렌더).
   // ==하이라이트== → <mark>(Obsidian 호환).
   md.inline.ruler.before("escape", "iyagi_highlight", (state: StateInline, silent: boolean) => {
@@ -679,6 +692,8 @@ body{margin:0 auto;padding:24px 16px;max-width:820px;font-family:-apple-system,B
   .markdown-body pre,.markdown-body table,.markdown-body .diagram,.katex-display{page-break-inside:avoid;}
   .markdown-body h1,.markdown-body h2,.markdown-body h3{page-break-after:avoid;}
 }
+.markdown-body .page-break{break-before:page;border-top:1px dashed #c0c4cc;margin:1.6em 0;}
+@media print{.markdown-body .page-break{border-top:none;margin:0;}}
 `.trim();
 }
 

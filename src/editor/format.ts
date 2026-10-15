@@ -6,6 +6,7 @@ import { EditorView } from "@codemirror/view";
 import { formatTableText } from "./tableFormat";
 import { collectHeadings, tocMarkdown } from "../links";
 import { stripFrontMatter } from "./frontmatter";
+import { pageBreakMarkdown } from "./pagebreak";
 import { syntaxTree } from "@codemirror/language";
 
 /** 선택 각 줄의 앞뒤에 마커를 넣는다(굵게/기울임/취소선/코드). */
@@ -295,6 +296,24 @@ export function insertBlock(view: EditorView, block: string): boolean {
     { changes: { from: line.from, to: line.to, insert }, selection: { anchor: Math.min(cursor, line.from + insert.length) } },
     { userEvent: "input.format" },
   );
+  return true;
+}
+
+/**
+ * 페이지 나눔 삽입(Word Ctrl+Enter). 커서 위치에서 문단을 나누고
+ * `\newpage`를 자체 문단으로 둔다 — 뒤 내용이 다음 페이지로 흐른다.
+ */
+export function insertPageBreak(view: EditorView): boolean {
+  const sel = view.state.selection.main;
+  const before = view.state.sliceDoc(0, sel.from);
+  // 자체 문단이 되게 앞쪽 빈 줄 확보 — 문서 첫머리/빈 줄 직후엔 덧붙이지 않는다.
+  const lead = before.length === 0 || /\n[ \t]*\n$/.test(before) ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+  const insert = `${lead}${pageBreakMarkdown()}\n\n`;
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert },
+    selection: { anchor: sel.from + insert.length },
+    userEvent: "input.pagebreak",
+  });
   return true;
 }
 

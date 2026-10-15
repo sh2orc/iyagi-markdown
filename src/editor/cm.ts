@@ -244,6 +244,8 @@ function baseExtensions(): Extension[] {
       { key: "Alt-ArrowDown", run: (v) => fmt.moveLines(v, false) },
       { key: "Mod-d", run: (v) => fmt.duplicateLine(v), preventDefault: true },
       { key: "Mod-Shift-k", run: (v) => fmt.deleteLines(v), preventDefault: true },
+      // 페이지 나눔 — Word Mac의 ⇧⌘Enter와 동일.
+      { key: "Shift-Mod-Enter", run: (v) => fmt.insertPageBreak(v), preventDefault: true },
       // 멀티커서 — ⌥⌘↑/↓ 위·아래 커서 추가, ⌥⌘D 다음 같은 단어 선택(VS Code
       // 표준. ⌘D는 복제와 겹쳐 ⌥를 얹었다). ⌥클릭 커서 추가는 아래 facet,
       // Esc 단일 복귀는 기본 키맵(simplifySelection).
