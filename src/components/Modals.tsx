@@ -1,5 +1,7 @@
 // 모달 — 미저장 확인(창/탭 닫기)과 외부 변경 충돌 안내.
 
+import { useEffect, useRef } from "react";
+
 import type { AppStore, Tab } from "../app/store";
 import type { Translate } from "../i18n";
 
@@ -12,10 +14,29 @@ export function CloseConfirm({
   t: Translate;
   onDone: (proceed: boolean) => void;
 }): JSX.Element {
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const dirtyTabs = store.state.tabs.filter((x) => x.dirty);
   const name = dirtyTabs[0]?.path?.split("/").pop() ?? t.untitled;
+
+  // 오버레이 자체 포커스 — Esc=취소(macOS 알림 관례: 취소 버튼과 동일).
+  useEffect(() => {
+    overlayRef.current?.focus();
+  }, []);
+
   return (
-    <div className="overlay modal-overlay" role="dialog" aria-modal="true">
+    <div
+      ref={overlayRef}
+      tabIndex={-1}
+      className="overlay modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onDone(false);
+        }
+      }}
+    >
       <div className="modal">
         <div className="modal-title">{t.dirtyTitle}</div>
         <p className="modal-text">
@@ -66,10 +87,34 @@ export function ConflictDialog({
   tab: Tab;
   t: Translate;
 }): JSX.Element {
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const removed = tab.conflict === "removed";
   const name = tab.path?.split("/").pop() ?? t.untitled;
+
+  // 오버레이 자체 포커스 — Esc=내 것 유지(최소 파괴). 파일 삭제 충돌은
+  // 선택이 모두 파괴적이라 Esc를 두지 않는다.
+  useEffect(() => {
+    if (!removed) overlayRef.current?.focus();
+  }, [removed]);
+
   return (
-    <div className="overlay modal-overlay" role="dialog" aria-modal="true">
+    <div
+      ref={overlayRef}
+      tabIndex={removed ? undefined : -1}
+      className="overlay modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      onKeyDown={
+        removed
+          ? undefined
+          : (e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                store.keepMine(tab.id);
+              }
+            }
+      }
+    >
       <div className="modal">
         <div className="modal-title">{t.extChangedTitle}</div>
         <p className="modal-text">
