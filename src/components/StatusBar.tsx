@@ -99,8 +99,8 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, 
       <div className="statusbar-right">
         {tab && (
           <>
-            <span className="status-cell">{t.ln} {tab.cursorLine}</span>
-            <span className="status-cell">{t.col} {tab.cursorCol}</span>
+            <span className="status-cell status-pos">{t.ln} {tab.cursorLine}</span>
+            <span className="status-cell status-pos">{t.col} {tab.cursorCol}</span>
             {tab.selChars > 0 ? (
               <span className="status-cell status-sel">
                 {selWords != null ? `${t.f.words(selWords)} · ` : ""}
