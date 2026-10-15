@@ -2516,6 +2516,7 @@ body.resizing .toc {
 .review-orphans li { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; }
 .review-orphan-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-orphan-size { color: var(--md-fg-dim); font-variant-numeric: tabular-nums; }
+.review-orphan-more { color: var(--md-fg-dim); font-size: 11.5px; list-style: none; }
 .review-del { margin-top: 8px; }
 .review-spin { width: 18px; height: 18px; border-width: 2px; }
 .btn-danger { background: var(--md-error, #c53030); color: #fff; }

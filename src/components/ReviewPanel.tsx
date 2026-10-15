@@ -135,6 +135,10 @@ export function ReviewPanel({ store, t, onClose, onOpenBrokenLinks, onOpenStats,
                       <span className="review-orphan-size">{fmtSize(o.size)}</span>
                     </li>
                   ))}
+                  {/* 목록은 12개까지 — 삭제 버튼은 전체 개수를 다루므로 남은 수 표시. */}
+                  {orphans.length > 12 && (
+                    <li className="review-orphan-more">{t.f.reviewMoreCount(orphans.length - 12)}</li>
+                  )}
                 </ul>
                 <button className="btn btn-danger review-del" disabled={busy} onClick={() => void deleteAll()}>
                   {t.f.reviewOrphanDelete(orphans.length)}

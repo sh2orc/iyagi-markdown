@@ -902,11 +902,15 @@ export function App(): JSX.Element {
         setFmOpen(false);
         return;
       }
+      if (reviewOpen) {
+        setReviewOpen(false);
+        return;
+      }
       if (settingsOpen) setSettingsOpen(false);
     };
     window.addEventListener("keydown", onEsc);
     return () => window.removeEventListener("keydown", onEsc);
-  }, [closeAsk, state.exportKind, styleOpen, printOpen, graphOpen, fmOpen, settingsOpen, store]);
+  }, [closeAsk, state.exportKind, styleOpen, printOpen, graphOpen, fmOpen, reviewOpen, settingsOpen, store]);
 
   // 위키링크 자동완성 목록 — 트리 기반(워크스페이스 문서들).
   useEffect(() => {
