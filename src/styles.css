@@ -2385,6 +2385,15 @@ body.resizing .toc {
   transition: border-color 0.12s ease, color 0.12s ease;
 }
 .welcome-tpl:hover { border-color: var(--md-accent); color: var(--md-accent); }
+.welcome-tpl-hint {
+  margin-top: 6px;
+  min-height: 15px;
+  font-size: 11.5px;
+  color: var(--md-fg-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* — 단축키 패널 검색 — */
 .sc-search { margin: 10px 16px 0; width: calc(100% - 32px); }

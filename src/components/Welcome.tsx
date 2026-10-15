@@ -1,7 +1,7 @@
 // 시작 화면(Word 시작 페이지 방향) — 문서가 없을 때: 빠른 동작 3종 +
 // 최근 문서 + 템플릿 바로가기. 첫 사용자의 동작 경로를 한 화면에 둔다.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { api, isInApp, type RecentEntry } from "../api";
 import { DOC_TEMPLATES } from "../app/templates";
@@ -16,8 +16,21 @@ interface Props {
   onOpenFolder: () => void;
 }
 
+/** 템플릿 h2 목차 — 버튼 아래 힌트 줄에 보여 준다(구조만으로 고르게). */
+function tplOutline(content: string): string {
+  return content
+    .split("\n")
+    .filter((l) => /^##\s+/.test(l))
+    .map((l) => l.replace(/^##\s+/, "").trim())
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(" · ");
+}
+
 export function Welcome({ store, t, lang, onOpenFile, onOpenFolder }: Props): JSX.Element {
   const [recent, setRecent] = useState<RecentEntry[] | null>(null);
+  const [tplHint, setTplHint] = useState<string | null>(null);
+  const primaryRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (!isInApp()) {
@@ -36,6 +49,11 @@ export function Welcome({ store, t, lang, onOpenFile, onOpenFolder }: Props): JS
     };
   }, []);
 
+  // 기본 동작(새 문서)에 포커스 — Enter로 바로 시작.
+  useEffect(() => {
+    primaryRef.current?.focus();
+  }, []);
+
   return (
     <div className="welcome">
       <div className="welcome-card">
@@ -44,7 +62,7 @@ export function Welcome({ store, t, lang, onOpenFile, onOpenFolder }: Props): JS
         <div className="app-empty-hint">{t.emptyNoDocHint}</div>
 
         <div className="welcome-actions">
-          <button className="btn btn-primary" onClick={() => store.newTab()}>
+          <button ref={primaryRef} className="btn btn-primary" onClick={() => store.newTab()}>
             {t.newTab} ⌘N
           </button>
           <button className="btn" onClick={onOpenFile}>
@@ -84,11 +102,17 @@ export function Welcome({ store, t, lang, onOpenFile, onOpenFolder }: Props): JS
                 key={tpl.id}
                 className="welcome-tpl"
                 onClick={() => store.newTabWithContent(tpl.content)}
+                onMouseEnter={() => setTplHint(tplOutline(tpl.content) || null)}
+                onFocus={() => setTplHint(tplOutline(tpl.content) || null)}
+                onMouseLeave={() => setTplHint(null)}
+                onBlur={() => setTplHint(null)}
               >
                 {lang === "ko" ? tpl.nameKo : tpl.nameEn}
               </button>
             ))}
           </div>
+          {/* 호버/포커스 중인 템플릿의 목차 — 항상 자리를 차지해 점프 없게. */}
+          <div className="welcome-tpl-hint">{tplHint ?? (lang === "ko" ? "형식 위에 올려 구조를 확인" : "Hover a format to see its structure")}</div>
         </div>
       </div>
     </div>
