@@ -158,6 +158,8 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
       {item(t.ctxSelectAll, () => run(() => view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } })))}
       {editable && menu.hasSelection && item(t.formatPainterCopy, () => run(() => copyFormat(view)))}
       {editable && item(t.formatPainterPaste, () => run(() => pasteFormat(view)))}
+      {editable && menu.hasSelection && item(t.ctxSortLines, () => run(() => fmt.sortLines(view)))}
+      {editable && menu.hasSelection && item(t.ctxDedupeLines, () => run(() => fmt.sortLines(view, { unique: true })))}
       {editable && menu.hasSelection && (
         <>
           <span className="ctx-sep" />

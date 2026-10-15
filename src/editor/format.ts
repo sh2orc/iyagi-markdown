@@ -810,6 +810,44 @@ export function deleteLines(view: EditorView): boolean {
   return true;
 }
 
+// — 줄 정렬·중복 제거(VS Code·Obsidian "Sort Lines") —
+
+/** 자연 숫자 정렬(item2 < item10) + 로캐일 비교용(모듈 단위 인스턴스). */
+const naturalCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+/** 줄 정렬(순수) — 앞뒤 공백 무시 비교, 역순·정확한 문자열 중복 제거 옵션. */
+export function sortedLineTexts(
+  lines: string[],
+  opts: { reverse?: boolean; unique?: boolean } = {},
+): string[] {
+  const out = opts.unique ? [...new Set(lines)] : [...lines];
+  out.sort((a, b) => naturalCollator.compare(a.trim(), b.trim()));
+  if (opts.reverse) out.reverse();
+  return out;
+}
+
+/** 선택 줄 정렬/중복 제거 — 두 줄 이상 선택에서. 이미 원하는 순서면 무변경. */
+export function sortLines(
+  view: EditorView,
+  opts: { reverse?: boolean; unique?: boolean } = {},
+): boolean {
+  const state = view.state;
+  const sel = state.selection.main;
+  const fromLine = state.doc.lineAt(sel.from);
+  const toLine = state.doc.lineAt(sel.to);
+  if (fromLine.number === toLine.number) return false;
+  const lines: string[] = [];
+  for (let n = fromLine.number; n <= toLine.number; n++) lines.push(state.doc.line(n).text);
+  const sorted = sortedLineTexts(lines, opts);
+  if (sorted.join("\n") === lines.join("\n")) return false;
+  const text = sorted.join("\n");
+  view.dispatch({
+    changes: { from: fromLine.from, to: toLine.to, insert: text },
+    selection: { anchor: fromLine.from, head: fromLine.from + text.length },
+    userEvent: "input.sortLines",
+  });
+  return true;
+}
 
 // — 표 자동 정렬(tableFormat) —
 

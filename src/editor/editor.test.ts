@@ -14,6 +14,7 @@ import { mathSyntax } from "./mathSyntax";
 import { parseTable, serializeTable } from "./widgets";
 import { computeMatches, updateMatchesForChanges } from "../search/searchCm";
 import { createDocState, headingFoldOf, listItemFoldOf } from "./cm";
+import { sortLines, sortedLineTexts } from "./format";
 
 const parse = (doc: string) => {
   const state = EditorState.create({
@@ -433,5 +434,49 @@ describe("findImageAt", async () => {
     const doc = "![](x.png) 일반 텍스트";
     expect(findImageAt(stateOf(doc), 2)?.alt).toBe("");
     expect(findImageAt(stateOf(doc), doc.indexOf("일반"))).toBeNull();
+  });
+});
+
+describe("sortLines (줄 정렬·중복 제거)", { retry: 1 }, () => {
+  const sortView = (doc: string, anchor: number, head: number): EditorView =>
+    new EditorView({
+      state: EditorState.create({
+        doc,
+        extensions: [],
+        selection: { anchor, head },
+      }),
+      parent: document.body,
+    });
+
+  it("순수 — 자연 숫자 정렬(b2 < b10)·역순·중복 제거", () => {
+    expect(sortedLineTexts(["b10", "b2", "a"])).toEqual(["a", "b2", "b10"]);
+    expect(sortedLineTexts(["b", "a"], { reverse: true })).toEqual(["b", "a"]);
+    expect(sortedLineTexts(["a", "b", "a"], { unique: true })).toEqual(["a", "b"]);
+    expect(sortedLineTexts(["가을", "바나나", "사과"])).toEqual(["가을", "바나나", "사과"]);
+  });
+
+  it("선택 줄 정렬 — 선택 블록만 재작성", () => {
+    const view = sortView("b\na\nc\na", 0, 7);
+    expect(sortLines(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe("a\na\nb\nc");
+    expect(view.state.selection.main.head).toBe(7);
+    view.destroy();
+  });
+
+  it("중복 제거는 정렬과 함께", () => {
+    const view = sortView("a\na\nb\nc", 0, 7);
+    expect(sortLines(view, { unique: true })).toBe(true);
+    expect(view.state.doc.toString()).toBe("a\nb\nc");
+    view.destroy();
+  });
+
+  it("한 줄 선택·이미 정렬됨 → 무변경", () => {
+    const one = sortView("b\na\nc", 0, 1);
+    expect(sortLines(one)).toBe(false);
+    expect(one.state.doc.toString()).toBe("b\na\nc");
+    one.destroy();
+    const done = sortView("a\nb", 0, 3);
+    expect(sortLines(done)).toBe(false);
+    done.destroy();
   });
 });
