@@ -4,7 +4,7 @@ import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
 import { redo, undo } from "@codemirror/commands";
-import { pickImageFile } from "../api";
+import { api, pickImageFile } from "../api";
 import { relPath } from "../paths";
 
 interface Props {
@@ -108,10 +108,8 @@ export function Toolbar({ store, t, onInsertTable,
                 : store.state.workspace;
               if (!tab || !dir || !store.view) return;
               try {
-                const { api } = await import("../api");
                 const absPath = await api.importImage(picked, dir);
-                const { insertImageRef } = await import("../editor/format");
-                insertImageRef(store.view, relPath(dir, absPath));
+                fmt.insertImageRef(store.view, relPath(dir, absPath));
                 store.view.focus();
               } catch {
                 /* 취소·실패 무시 */

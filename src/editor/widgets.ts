@@ -6,7 +6,7 @@ import { EditorState } from "@codemirror/state";
 import { captionWorthy } from "./caption";
 import { EditorView, WidgetType } from "@codemirror/view";
 
-import { convertFileSrc, isInApp } from "../api";
+import { api, convertFileSrc, isInApp } from "../api";
 import { renderMathInto } from "../plugins/katex";
 import { renderMermaid } from "../plugins/mermaid";
 import { parseFrontMatter } from "./frontmatter";
@@ -360,7 +360,6 @@ export function parseTable(src: string): ParsedTable | null {
 /** 이미지 경로의 폴더를 asset 범위에 추가하고 다시 불러온다(온디맨드 허용). */
 async function grantAndRetry(img: HTMLImageElement, src: string): Promise<void> {
   try {
-    const { api } = await import("../api");
     const dir = src.substring(0, src.lastIndexOf("/"));
     if (dir) await api.setAssetScope(dir, false);
     img.src = convertFileSrc(src);
@@ -396,6 +395,21 @@ const tableCellText = (raw: string): DocumentFragment => {
   return frag;
 };
 
+/** 셀 편집 후 되살릴 포커스(표 재생성 뒤 소비) — 표 시작 줄 번호 기준. */
+let pendingCellFocus: { line: number; row: number; col: number } | null = null;
+
+export function serializeTable(t: ParsedTable): string {
+  const n = Math.max(t.header.length, 1);
+  const esc = (c: string) => c.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ");
+  const fix = (r: string[]) => Array.from({ length: n }, (_, i) => esc(r[i] ?? ""));
+  const line = (r: string[]) => `| ${fix(r).join(" | ")} |`;
+  const sep = Array.from({ length: n }, (_, i) => {
+    const a = t.align[i];
+    return a === "center" ? ":---:" : a === "right" ? "---:" : a === "left" ? ":---" : "---";
+  });
+  return [line(t.header), `| ${sep.join(" | ")} |`, ...t.rows.map(line)].join("\n");
+}
+
 export class TableWidget extends WidgetType {
   #widths: number[] | null;
 
@@ -420,6 +434,102 @@ export class TableWidget extends WidgetType {
     table.className = "md-table";
     table.style.tableLayout = "fixed"; // 열 폭 드래그가 정확히 반영되게.
     const nCols = Math.max(parsed.header.length, 1);
+    const startLine = (): number => view.state.doc.lineAt(view.posAtDOM(wrap)).number;
+    // 변경된 구조를 원문에 반영(표 전체 재직렬화) — 위젯은 이후 재생성된다.
+    const commit = (next: ParsedTable, focus?: { row: number; col: number }): void => {
+      const from = view.posAtDOM(wrap);
+      const to = from + this.src.length;
+      if (view.state.sliceDoc(from, to) !== this.src) return;
+      const text = serializeTable(next);
+      if (focus) pendingCellFocus = { line: view.state.doc.lineAt(from).number, ...focus };
+      if (text === this.src) {
+        if (focus) restoreFocus(wrap);
+        return;
+      }
+      view.dispatch({ changes: { from, to, insert: text }, userEvent: "input.tableCell" });
+    };
+    // 셀을 Word처럼 제자리 편집: 포커스 시 원문(마크다운) 노출, 블러/Enter/Tab 시 반영.
+    const makeEditable = (cell: HTMLElement, row: number, col: number, onDblClick = false): void => {
+      const raw = (row === 0 ? parsed.header[col] : parsed.rows[row - 1]?.[col]) ?? "";
+      let editing = false;
+      let cancelled = false;
+      const begin = () => {
+        if (editing) return;
+        editing = true;
+        cancelled = false;
+        cell.contentEditable = "true";
+        cell.textContent = raw;
+        cell.classList.add("md-cell-editing");
+        cell.focus();
+        const sel = window.getSelection();
+        if (sel) {
+          const r = document.createRange();
+          r.selectNodeContents(cell);
+          r.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(r);
+        }
+      };
+      const finish = (focus?: { row: number; col: number }): void => {
+        if (!editing) return;
+        editing = false;
+        cell.classList.remove("md-cell-editing");
+        const value = cancelled ? raw : (cell.textContent ?? "").replace(/\s*\n\s*/g, " ").trim();
+        const next: ParsedTable = {
+          align: parsed.align,
+          header: [...parsed.header],
+          rows: parsed.rows.map((r) => [...r]),
+        };
+        if (row === 0) next.header[col] = value;
+        else if (next.rows[row - 1]) next.rows[row - 1][col] = value;
+        if (value === raw && !focus) {
+          cell.contentEditable = "false";
+          cell.textContent = "";
+          cell.append(tableCellText(raw));
+          return;
+        }
+        if (focus && focus.row > next.rows.length) {
+          next.rows.push(Array.from({ length: nCols }, () => ""));
+        }
+        commit(next, focus);
+      };
+      if (onDblClick) cell.addEventListener("dblclick", (e) => { e.preventDefault(); begin(); });
+      else cell.addEventListener("mousedown", () => { if (!editing) setTimeout(begin, 0); });
+      cell.addEventListener("keydown", (e) => {
+        if (!editing || e.isComposing) return;
+        if (e.key === "Escape") {
+          e.preventDefault();
+          cancelled = true;
+          cell.blur();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          finish({ row: Math.min(row + 1, parsed.rows.length + 1), col });
+        } else if (e.key === "Tab") {
+          e.preventDefault();
+          let r = row;
+          let c = col + (e.shiftKey ? -1 : 1);
+          if (c < 0) { r -= 1; c = nCols - 1; }
+          else if (c >= nCols) { r += 1; c = 0; }
+          if (r < 0) return;
+          finish({ row: r, col: c });
+        }
+      });
+      cell.addEventListener("blur", () => finish());
+      cell.addEventListener("paste", (e) => {
+        e.preventDefault();
+        document.execCommand("insertText", false, e.clipboardData?.getData("text/plain") ?? "");
+      });
+    };
+    const restoreFocus = (w: HTMLElement) => {
+      const pf = pendingCellFocus;
+      pendingCellFocus = null;
+      if (!pf) return;
+      const cell = w.querySelectorAll("tr")[pf.row]?.children[pf.col];
+      if (cell instanceof HTMLElement) {
+        cell.dispatchEvent(new MouseEvent("dblclick", { bubbles: false }));
+        if (!cell.classList.contains("md-cell-editing")) cell.dispatchEvent(new MouseEvent("mousedown"));
+      }
+    };
     // 열 폭 상태(재생성에도 유지 — 위젯 인스턴스가 살아 있는 동안).
     const colgroup = document.createElement("colgroup");
     for (let i = 0; i < nCols; i++) {
@@ -469,6 +579,7 @@ export class TableWidget extends WidgetType {
         th.append(handle);
       }
       th.append(tableCellText(cell));
+      makeEditable(th, 0, i, true);
       // 정렬 상태 표시(Word 표 도구의 정렬 아이콘에 대응).
       if (a === "left") th.dataset.align = "↤";
       else if (a === "center") th.dataset.align = "↔";
@@ -478,61 +589,26 @@ export class TableWidget extends WidgetType {
     thead.append(hrow);
     table.append(thead);
     const tbody = document.createElement("tbody");
-    for (const row of parsed.rows) {
+    parsed.rows.forEach((row, ri) => {
       const tr = document.createElement("tr");
       row.forEach((cell, i) => {
         const td = document.createElement("td");
         const a = parsed.align[i];
         if (a) td.style.textAlign = a;
         td.append(tableCellText(cell));
+        makeEditable(td, ri + 1, i);
         tr.append(td);
       });
       tbody.append(tr);
-    }
+    });
     table.append(tbody);
     wrap.append(table);
-    // 클릭한 셀의 **원문 위치**로 커서를 옮긴다 — 커서 줄 노출이 그 표를
-    // 원문으로 되돌려 바로 편집할 수 있게 한다(Word 표 클릭 편집).
-    // 바디 셀(td)은 한 번 클릭·더블클릭 모두, 헤더(th)는 클릭=정렬 토글이므로 더블클릭만.
-    const focusCellAt = (e: MouseEvent) => {
-      const cell = (e.target as HTMLElement | null)?.closest?.("td, th");
-      const rowEl = cell?.closest?.("tr");
-      if (!(cell instanceof HTMLElement) || !(rowEl instanceof HTMLElement)) return;
-      e.preventDefault();
-      const tableEl = rowEl.closest("table");
-      const rows = tableEl ? Array.from(tableEl.querySelectorAll("tr")) : [];
-      const domRow = rows.indexOf(rowEl);
-      const domCol = Array.from(rowEl.children).indexOf(cell);
-      const pos = view.posAtDOM(wrap);
-      const doc = view.state.doc;
-      const firstLine = doc.lineAt(pos).number;
-      // DOM 행 0 = 헤더(소스 0번 줄), 이후 = 데이터(구분 줄 하나 건너뜀).
-      const sourceLine = domRow <= 0 ? firstLine : firstLine + domRow + 1;
-      if (sourceLine > doc.lines) return;
-      const line = doc.line(sourceLine);
-      // domCol번째 셀 내용 시작 = (domCol+1)번째 파이프 뒤 공백.
-      let pipes = 0;
-      let content = -1;
-      for (let i = 0; i < line.text.length; i++) {
-        if (line.text[i] === "|" && line.text[i - 1] !== "\\") {
-          if (pipes === domCol + 1) {
-            content = i + 1;
-            break;
-          }
-          pipes += 1;
-        }
-      }
-      if (content === -1) content = line.text.length;
-      const skip = line.text.slice(content).length - line.text.slice(content).trimStart().length;
-      view.dispatch({
-        selection: { anchor: line.from + content + skip },
-        scrollIntoView: true,
-      });
-    };
-    wrap.addEventListener("dblclick", focusCellAt);
-    wrap.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement | null)?.closest?.("td")) focusCellAt(e);
-    });
+    if (pendingCellFocus) {
+      // 위젯이 DOM에 붙은 뒤 포커스 복원.
+      setTimeout(() => {
+        if (pendingCellFocus && pendingCellFocus.line === startLine()) restoreFocus(wrap);
+      }, 0);
+    }
     return wrap;
   }
 

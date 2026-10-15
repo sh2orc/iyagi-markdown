@@ -265,7 +265,7 @@ export function CommandPalette({
       );
       const win = store.active?.path;
       if (win && isInApp()) {
-        cmds.push({ id: "newwin", label: `${t.tbNewWindow} ⤢`, run: () => void import("../api").then((a) => a.api.openInNewWindow(win)) });
+        cmds.push({ id: "newwin", label: `${t.tbNewWindow} ⤢`, run: () => void api.openInNewWindow(win) });
       }
     }
     return cmds;

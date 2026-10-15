@@ -11,7 +11,7 @@ import { GFM } from "@lezer/markdown";
 import { languages } from "@codemirror/language-data";
 
 import { mathSyntax } from "./mathSyntax";
-import { parseTable } from "./widgets";
+import { parseTable, serializeTable } from "./widgets";
 import { computeMatches, updateMatchesForChanges } from "../search/searchCm";
 import { createDocState, headingFoldOf, listItemFoldOf } from "./cm";
 
@@ -89,6 +89,33 @@ describe("parseTable (GFM 표)", { retry: 1 }, () => {
 
   it("구분 줄이 없으면 표가 아니다", () => {
     expect(parseTable("| a | b |\n| 1 | 2 |")).toBeNull();
+  });
+});
+
+describe("serializeTable (표 재직렬화)", { retry: 1 }, () => {
+  it("정렬 마커 왕복", () => {
+    const t = parseTable("| A | B | C | D |\n|:--|:-:|--:|---|\n| 1 | 2 | 3 | 4 |")!;
+    const src = serializeTable(t);
+    expect(src).toBe("| A | B | C | D |\n| :--- | :---: | ---: | --- |\n| 1 | 2 | 3 | 4 |");
+    const back = parseTable(src)!;
+    expect(back.align).toEqual(["left", "center", "right", null]);
+    expect(back.header).toEqual(t.header);
+    expect(back.rows).toEqual(t.rows);
+  });
+
+  it("셀 안 파이프는 이스케이프되어 왕복 보존", () => {
+    const t = parseTable("| a\\|b | c |\n|---|---|\n| x | y |")!;
+    const back = parseTable(serializeTable(t))!;
+    expect(back.header).toEqual(["a|b", "c"]);
+    expect(back.rows).toEqual([["x", "y"]]);
+  });
+
+  it("짧은 행은 헤더 폭으로 패딩, 개행은 공백으로", () => {
+    const t = parseTable("| a | b |\n|---|---|\n| x |")!;
+    const src = serializeTable({ ...t, rows: [["l1\nl2", 'q"r']] });
+    expect(src.split("\n")[2]).toBe("| l1 l2 | q\"r |");
+    const back = parseTable(src)!;
+    expect(back.rows).toEqual([["l1 l2", 'q"r']]);
   });
 });
 

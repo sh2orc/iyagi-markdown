@@ -292,9 +292,11 @@ pub async fn snapshot_list(
     path: String,
 ) -> Result<Vec<md_core::snapshots::SnapshotInfo>, String> {
     let dir = app.path().app_data_dir().map_err(err)?;
-    tauri::async_runtime::spawn_blocking(move || Ok(md_core::snapshots::list_snapshots(&dir, &path)))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(md_core::snapshots::list_snapshots(&dir, &path))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -561,15 +563,15 @@ pub fn write_export_file(path: String, contents: String) -> Result<(), String> {
 /// 활성 문서(또는 지정 경로)를 **새 창**에서 연다(Word "새 창으로 보기").
 /// 새 창은 label이 달라 세션 저장·메뉴 상태는 메인 창이 계속 소유한다.
 #[tauri::command]
-pub fn open_in_new_window(
-    app: AppHandle,
-    path: Option<String>,
-) -> Result<(), String> {
+pub fn open_in_new_window(app: AppHandle, path: Option<String>) -> Result<(), String> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
-    let label = format!("doc-{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0));
+    let label = format!(
+        "doc-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0)
+    );
     let url = match &path {
         Some(p) => WebviewUrl::App(format!("index.html?file={}", urlencode(p)).into()),
         None => WebviewUrl::App("index.html".into()),
@@ -584,9 +586,14 @@ pub fn open_in_new_window(
         .inner_size(900.0, 700.0)
         .min_inner_size(480.0, 360.0);
     // 직전 보조 창 위치·크기가 세션에 있으면 재사용(창 관례 — 같은 자리에).
-    if let Some(session) = app.try_state::<crate::state::AppState>().and_then(|st| st.session.clone()) {
+    if let Some(session) = app
+        .try_state::<crate::state::AppState>()
+        .and_then(|st| st.session.clone())
+    {
         if let Some(rect) = session.aux_window {
-            builder = builder.position(rect.x, rect.y).inner_size(rect.width, rect.height);
+            builder = builder
+                .position(rect.x, rect.y)
+                .inner_size(rect.width, rect.height);
         }
     }
     builder.build().map(|_| ()).map_err(err)
@@ -639,9 +646,7 @@ pub async fn wiki_edges(root: String) -> Result<Vec<md_core::search::WikiEdge>, 
 
 /// 워크스페이스의 고아 이미지(참조 없는 assets/ 파일) 목록.
 #[tauri::command]
-pub async fn find_orphan_images(
-    root: String,
-) -> Result<Vec<md_core::search::OrphanAsset>, String> {
+pub async fn find_orphan_images(root: String) -> Result<Vec<md_core::search::OrphanAsset>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         md_core::search::find_orphan_assets(std::path::Path::new(&root)).map_err(err)
     })
@@ -687,9 +692,8 @@ pub fn save_clipboard_image(dir: String) -> Result<String, String> {
     }
     // PNG 데이터 타입 확인·추출.
     let png_type = NSString::from_str("public.png");
-    let data: *mut objc2_foundation::NSData = unsafe {
-        msg_send![pasteboard, dataForType: &*png_type]
-    };
+    let data: *mut objc2_foundation::NSData =
+        unsafe { msg_send![pasteboard, dataForType: &*png_type] };
     if data.is_null() {
         return Err("클립보드에 이미지가 없습니다".into());
     }
@@ -737,7 +741,12 @@ pub async fn import_image(src: String, dir: String) -> Result<String, String> {
         let stem = std::path::Path::new(&src)
             .file_stem()
             .and_then(|s| s.to_str())
-            .map(|s| s.chars().filter(|c| c.is_alphanumeric() || *c == '-').take(40).collect::<String>())
+            .map(|s| {
+                s.chars()
+                    .filter(|c| c.is_alphanumeric() || *c == '-')
+                    .take(40)
+                    .collect::<String>()
+            })
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "image".into());
         let ts = std::time::SystemTime::now()
@@ -800,19 +809,19 @@ pub async fn file_rename(from: String, to: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn file_duplicate(path: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-    let p = std::path::PathBuf::from(&path);
-    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("untitled");
-    let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("md");
-    let dir = p.parent().unwrap_or(std::path::Path::new("/"));
-    let mut n = 2;
-    loop {
-        let cand = dir.join(format!("{stem} {n}.{ext}"));
-        if !cand.exists() {
-            std::fs::copy(&p, &cand).map_err(|e| e.to_string())?;
-            return Ok(cand.to_string_lossy().into_owned());
+        let p = std::path::PathBuf::from(&path);
+        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("untitled");
+        let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("md");
+        let dir = p.parent().unwrap_or(std::path::Path::new("/"));
+        let mut n = 2;
+        loop {
+            let cand = dir.join(format!("{stem} {n}.{ext}"));
+            if !cand.exists() {
+                std::fs::copy(&p, &cand).map_err(|e| e.to_string())?;
+                return Ok(cand.to_string_lossy().into_owned());
+            }
+            n += 1;
         }
-        n += 1;
-    }
     })
     .await
     .map_err(|e| e.to_string())?
@@ -828,7 +837,11 @@ pub async fn new_file_in(dir: String) -> Result<String, String> {
         }
         let mut n = 1;
         loop {
-            let name = if n == 1 { "제목 없음.md".to_string() } else { format!("제목 없음 {n}.md") };
+            let name = if n == 1 {
+                "제목 없음.md".to_string()
+            } else {
+                format!("제목 없음 {n}.md")
+            };
             let cand = d.join(name);
             if !cand.exists() {
                 std::fs::write(&cand, b"").map_err(|e| e.to_string())?;

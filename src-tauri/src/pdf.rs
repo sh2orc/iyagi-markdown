@@ -93,7 +93,11 @@ pub async fn export_pdf(
 
 /// 메인 스레드에서 실제 WebKit 작업을 수행한다.
 /// config = (페이지폭px, 페이지높이px, 폭pt, 높이pt, 여백px, 페이지번호).
-fn run_on_main(html: &str, config: (i64, i64, f64, f64, i64, bool), out: &Path) -> Result<(), String> {
+fn run_on_main(
+    html: &str,
+    config: (i64, i64, f64, f64, i64, bool),
+    out: &Path,
+) -> Result<(), String> {
     let (page_w, page_h, pt_w, pt_h, margin, page_numbers) = config;
     unsafe {
         let wk_class: &AnyClass = class!(WKWebView);
@@ -251,7 +255,7 @@ fn slice_pdf_pages(
 ) -> Result<(), String> {
     use objc2_core_foundation::{CFRetained, CGPoint, CGRect, CGSize};
     use objc2_core_graphics::{
-        CGDataProvider, CGPDFContextBeginPage, CGPDFContextClose, CGPDFContextEndPage, CGContext,
+        CGContext, CGDataProvider, CGPDFContextBeginPage, CGPDFContextClose, CGPDFContextEndPage,
         CGPDFDocument, CGPDFPage,
     };
 

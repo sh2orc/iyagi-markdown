@@ -2602,3 +2602,12 @@ body.resizing .toc {
 
 /* — 뷰어 위치(N / M) — */
 .imgviewer-index { color: var(--md-fg-dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* 표 셀 제자리 편집(Word식) */
+.md-table td[contenteditable="true"],
+.md-table th[contenteditable="true"] {
+  outline: 2px solid var(--accent, #3b82f6);
+  outline-offset: -2px;
+  cursor: text;
+}
+.md-table td { cursor: text; }

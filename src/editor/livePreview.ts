@@ -690,7 +690,15 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
 
         // — 표(GFM) —
         if (name === "Table") {
-          if (isRevealed(from, to)) return;
+          // 표는 제자리 편집(위젯 셀) — 캐럿만으론 원문 노출하지 않는다.
+          // 표 안에서 범위를 선택한 경우에만 원문 노출(원문 편집 탈출구).
+          if (
+            view.state.selection.ranges.some(
+              (r) => !r.empty && r.from >= from && r.to <= to && !(r.from <= from && r.to >= to),
+            )
+          ) {
+            return;
+          }
           // 표 캡션(Pandoc 규약 ': 텍스트') — 표 다음 줄을 캡션 톤으로
           // 표시(내보내기의 '표 N — …'과 같은 어감). 커서가 닿으면 원문 노출.
           const afterTable = doc.lineAt(Math.min(to + 1, doc.length));

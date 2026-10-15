@@ -177,7 +177,12 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
         t(Msg::View),
         true,
         &[
-            &mi(app, "command-palette", t(Msg::CommandPalette), Some("Shift-CmdOrCtrl-P"))?,
+            &mi(
+                app,
+                "command-palette",
+                t(Msg::CommandPalette),
+                Some("Shift-CmdOrCtrl-P"),
+            )?,
             &mi(app, "backlinks", t(Msg::Backlinks), None)?,
             &mi(app, "broken-links", t(Msg::BrokenLinks), None)?,
             &PredefinedMenuItem::separator(app)?,
@@ -230,7 +235,14 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
 
     let menu = Menu::with_items(
         app,
-        &[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu, &help_menu],
+        &[
+            &app_menu,
+            &file_menu,
+            &edit_menu,
+            &view_menu,
+            &window_menu,
+            &help_menu,
+        ],
     )?;
     app.set_menu(menu).map(|_| ())
 }

@@ -61,13 +61,16 @@ function tableRanges(view: EditorView): { from: number; to: number }[] {
 }
 
 describe("라이브 프리뷰 증분 갱신", { retry: 2 }, () => {
-  it("완전 파싱 후 커서가 표로 이동하면 해당 표가 원문으로 풀린다", async () => {
+  it("커서만으론 표가 위젯으로 유지되고, 표 안 범위 선택 시 원문으로 풀린다", async () => {
     const view = await makeView("edit");
     const tables = tableRanges(view);
     expect(tables.length).toBeGreaterThanOrEqual(1);
     const t = tables[0];
     const pos = t.from + 2;
     view.dispatch({ selection: { anchor: pos } });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(tableRanges(view).filter((r) => r.from <= pos && r.to > pos).length).toBe(1);
+    view.dispatch({ selection: { anchor: pos, head: pos + 3 } });
     await new Promise((r) => setTimeout(r, 80));
     const covering = tableRanges(view).filter((r) => r.from <= pos && r.to > pos);
     expect(covering).toEqual([]);

@@ -45,7 +45,9 @@ impl StyleDb {
              );",
         )
         .ok()?;
-        Some(Arc::new(Self { conn: std::sync::Mutex::new(conn) }))
+        Some(Arc::new(Self {
+            conn: std::sync::Mutex::new(conn),
+        }))
     }
 }
 
@@ -165,7 +167,10 @@ pub async fn bookmark_remove(app: AppHandle, path: String, line_no: i64) -> Resu
             db.conn
                 .lock()
                 .unwrap()
-                .execute("DELETE FROM doc_bookmark WHERE path = ?1 AND line_no = ?2", rusqlite::params![path, line_no])
+                .execute(
+                    "DELETE FROM doc_bookmark WHERE path = ?1 AND line_no = ?2",
+                    rusqlite::params![path, line_no],
+                )
                 .map(|_| ())
                 .map_err(|e| e.to_string())
         })
@@ -174,7 +179,6 @@ pub async fn bookmark_remove(app: AppHandle, path: String, line_no: i64) -> Resu
     }
     Ok(())
 }
-
 
 /// 문서 메모(Word "메모" — 줄 앵커 사이드카, 원문 불변).
 #[derive(Serialize)]
@@ -257,7 +261,10 @@ pub async fn comment_update(app: AppHandle, id: i64, text: String) -> Result<(),
         db.conn
             .lock()
             .unwrap()
-            .execute("UPDATE doc_comment SET text = ?2 WHERE id = ?1", rusqlite::params![id, text])
+            .execute(
+                "UPDATE doc_comment SET text = ?2 WHERE id = ?1",
+                rusqlite::params![id, text],
+            )
             .map(|_| ())
             .map_err(|e| e.to_string())
     })
@@ -298,7 +305,10 @@ pub async fn comment_remove(app: AppHandle, id: i64) -> Result<(), String> {
         db.conn
             .lock()
             .unwrap()
-            .execute("DELETE FROM doc_comment WHERE id = ?1", rusqlite::params![id])
+            .execute(
+                "DELETE FROM doc_comment WHERE id = ?1",
+                rusqlite::params![id],
+            )
             .map(|_| ())
             .map_err(|e| e.to_string())
     })
@@ -306,14 +316,18 @@ pub async fn comment_remove(app: AppHandle, id: i64) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
-
 /// 변경 추적 베이스라인 — 추적 시작 시점의 스냅숏(원문 불변, 사이드카).
 #[tauri::command]
 pub async fn baseline_get(app: AppHandle, path: String) -> Option<String> {
     let db = app.state::<crate::state::AppState>().style_db.clone()?;
     tauri::async_runtime::spawn_blocking(move || {
         let conn = db.conn.lock().ok()?;
-        conn.query_row("SELECT text FROM doc_baseline WHERE path = ?1", [&path], |r| r.get(0)).ok()
+        conn.query_row(
+            "SELECT text FROM doc_baseline WHERE path = ?1",
+            [&path],
+            |r| r.get(0),
+        )
+        .ok()
     })
     .await
     .ok()
@@ -361,7 +375,6 @@ pub async fn baseline_clear(app: AppHandle, path: String) -> Result<(), String> 
     .await
     .map_err(|e| e.to_string())?
 }
-
 
 /// 메모 줄 재앵커 — 저장 시 diff 보정된 (id → 새 줄) 일괄 적용.
 #[tauri::command]

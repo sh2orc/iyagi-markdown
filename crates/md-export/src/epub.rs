@@ -85,7 +85,9 @@ fn embed_body_images(
     let mut rest = body;
     while let Some(at) = rest.find("src=\"") {
         let start = at + 5;
-        let Some(rel) = rest[start..].find('"') else { break };
+        let Some(rel) = rest[start..].find('"') else {
+            break;
+        };
         let end = start + rel;
         out.push_str(&rest[..start]);
         let url = &rest[start..end];
@@ -148,7 +150,12 @@ fn pseudo_uuid(title: &str, seed: u128) -> String {
         h ^= b as u64;
         h = h.wrapping_mul(0x100000001b3);
     }
-    format!("{h:08x}-{:04x}-4{:03x}-a{:03x}-{h:012x}", (h >> 32) & 0xffff, h & 0xfff, (h >> 16) & 0xfff)
+    format!(
+        "{h:08x}-{:04x}-4{:03x}-a{:03x}-{h:012x}",
+        (h >> 32) & 0xffff,
+        h & 0xfff,
+        (h >> 16) & 0xfff
+    )
 }
 
 fn now_iso() -> String {
@@ -195,7 +202,10 @@ fn now_iso() -> String {
         day -= ml;
         month += 1;
     }
-    format!("{year:04}-{month:02}-{:02}T{hh:02}:{mm:02}:{ss:02}.{ms:03}Z", day + 1)
+    format!(
+        "{year:04}-{month:02}-{:02}T{hh:02}:{mm:02}:{ss:02}.{ms:03}Z",
+        day + 1
+    )
 }
 
 fn xhtml_doc(title: &str, lang: &str, body: &str) -> String {
@@ -214,11 +224,13 @@ pub fn export_epub(opts: &EpubOptions, out: &Path) -> Result<(), String> {
     let mut zip = zip::ZipWriter::new(file);
     let stored: zip::write::SimpleFileOptions =
         zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
-    let deflated: zip::write::SimpleFileOptions =
-        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    let deflated: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
 
-    zip.start_file("mimetype", stored).map_err(|e| e.to_string())?;
-    zip.write_all(b"application/epub+zip").map_err(|e| e.to_string())?;
+    zip.start_file("mimetype", stored)
+        .map_err(|e| e.to_string())?;
+    zip.write_all(b"application/epub+zip")
+        .map_err(|e| e.to_string())?;
 
     let add = |zip: &mut zip::ZipWriter<std::fs::File>, name: &str, data: &str| {
         zip.start_file(name, deflated).map_err(|e| e.to_string())?;
@@ -258,7 +270,8 @@ pub fn export_epub(opts: &EpubOptions, out: &Path) -> Result<(), String> {
                 "webp" => "image/webp",
                 _ => "image/png",
             };
-            zip.start_file("OEBPS/cover-image", deflated).map_err(|e| e.to_string())?;
+            zip.start_file("OEBPS/cover-image", deflated)
+                .map_err(|e| e.to_string())?;
             zip.write_all(&bytes).map_err(|e| e.to_string())?;
             cover_manifest = format!(
                 "\n<item id=\"cover-image\" href=\"cover-image\" media-type=\"{media}\" properties=\"cover-image\"/>\
@@ -312,7 +325,10 @@ pub fn export_epub(opts: &EpubOptions, out: &Path) -> Result<(), String> {
     let nav = xhtml_doc(
         &opts.title,
         &opts.language,
-        &format!("<nav epub:type=\"toc\" id=\"toc\"><h1>{}</h1><ol>\n{nav_items}\n</ol></nav>", esc(&opts.title)),
+        &format!(
+            "<nav epub:type=\"toc\" id=\"toc\"><h1>{}</h1><ol>\n{nav_items}\n</ol></nav>",
+            esc(&opts.title)
+        ),
     );
     add(&mut zip, "OEBPS/nav.xhtml", &nav)?;
 
@@ -325,10 +341,15 @@ pub fn export_epub(opts: &EpubOptions, out: &Path) -> Result<(), String> {
         .map(|c| embed_body_images(&c.body, &opts.base_dir, &mut img_seen, &mut img_files))
         .collect();
     for (c, body) in opts.chapters.iter().zip(&bodies) {
-        add(&mut zip, &format!("OEBPS/{}", c.file), &xhtml_doc(&c.title, &opts.language, body))?;
+        add(
+            &mut zip,
+            &format!("OEBPS/{}", c.file),
+            &xhtml_doc(&c.title, &opts.language, body),
+        )?;
     }
     for (href, _media, bytes) in &img_files {
-        zip.start_file(format!("OEBPS/{href}"), deflated).map_err(|e| e.to_string())?;
+        zip.start_file(format!("OEBPS/{href}"), deflated)
+            .map_err(|e| e.to_string())?;
         zip.write_all(bytes).map_err(|e| e.to_string())?;
     }
     add(&mut zip, "OEBPS/style.css", &opts.css)?;
@@ -370,7 +391,8 @@ mod tests {
     use super::*;
 
     fn tmp(tag: &str) -> std::path::PathBuf {
-        let p = std::env::temp_dir().join(format!("md-export-epub-{tag}-{}.epub", std::process::id()));
+        let p =
+            std::env::temp_dir().join(format!("md-export-epub-{tag}-{}.epub", std::process::id()));
         let _ = std::fs::remove_file(&p);
         p
     }
@@ -456,8 +478,8 @@ mod tests {
         let png: Vec<u8> = vec![
             0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 0x49, 0x48, 0x44, 0x52,
             0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1F, 0x15, 0xC4, 0x89, 0, 0, 0, 0x0A, 0x49,
-            0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0, 1, 0, 0, 5, 0, 1, 0x0D, 0x0A, 0x2D, 0xB4, 0,
-            0, 0, 0, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+            0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0, 1, 0, 0, 5, 0, 1, 0x0D, 0x0A, 0x2D, 0xB4, 0, 0,
+            0, 0, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
         ];
         let img = std::env::temp_dir().join(format!("md-export-cover-{}.png", std::process::id()));
         std::fs::write(&img, &png).unwrap();
@@ -499,8 +521,8 @@ mod tests {
         let png: Vec<u8> = vec![
             0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 0x49, 0x48, 0x44, 0x52,
             0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 0x1F, 0x15, 0xC4, 0x89, 0, 0, 0, 0x0A, 0x49,
-            0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0, 1, 0, 0, 5, 0, 1, 0x0D, 0x0A, 0x2D, 0xB4, 0,
-            0, 0, 0, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+            0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0, 1, 0, 0, 5, 0, 1, 0x0D, 0x0A, 0x2D, 0xB4, 0, 0,
+            0, 0, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
         ];
         let jpg = b"\xFF\xD8\xFF\xE0 fake jpg".to_vec();
         let dir = std::env::temp_dir().join(format!("md-export-epub-img-{}", std::process::id()));
@@ -536,8 +558,12 @@ mod tests {
         assert!(ch2.contains("src=\"assets/none.png\""));
         // 매니페스트 등록.
         let opf = read_entry(&out, "OEBPS/content.opf");
-        assert!(opf.contains("<item id=\"img1\" href=\"images/img1.png\" media-type=\"image/png\"/>"));
-        assert!(opf.contains("<item id=\"img2\" href=\"images/img2.jpg\" media-type=\"image/jpeg\"/>"));
+        assert!(
+            opf.contains("<item id=\"img1\" href=\"images/img1.png\" media-type=\"image/png\"/>")
+        );
+        assert!(
+            opf.contains("<item id=\"img2\" href=\"images/img2.jpg\" media-type=\"image/jpeg\"/>")
+        );
 
         let _ = std::fs::remove_file(&out);
         let _ = std::fs::remove_dir_all(&dir);

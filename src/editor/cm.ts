@@ -146,7 +146,7 @@ function clearWikiHoverTimer(): void {
   }
 }
 import { htmlToMarkdown } from "./htmlPaste";
-import { isInApp } from "../api";
+import { api, isInApp } from "../api";
 import { relPath } from "../paths";
 import * as fmt from "./format";
 import { resetSearch, searchHighlight } from "../search/searchCm";
@@ -350,9 +350,9 @@ function baseExtensions(): Extension[] {
               showLinkPreview(x, y, cached.title, cached.body, cached.html);
               return;
             }
-            void import("../api").then(async (a) => {
+            void (async () => {
               try {
-                const doc = await a.api.readDocument(path);
+                const doc = await api.readDocument(path);
                 const p = previewTextOf(doc.text);
                 // v2: 렌더 우선(마크다운-it 지연 공유 청크) — 실패 시 텍스트 폴백.
                 const html = await previewHtmlOf(doc.text);
@@ -361,7 +361,7 @@ function baseExtensions(): Extension[] {
               } catch {
                 /* 열 수 없는 문서 — 조용히 */
               }
-            });
+            })();
           }, 350);
         }
       },
@@ -404,9 +404,9 @@ function baseExtensions(): Extension[] {
           const baseDir = tab?.baseDir ?? "";
           if (baseDir && isInApp()) {
             event.preventDefault();
-            void import("../api").then(async (a) => {
+            void (async () => {
               try {
-                const abs = await a.api.saveClipboardImage(baseDir);
+                const abs = await api.saveClipboardImage(baseDir);
                 // relPath는 이미 assets/를 포함한다 — 다시 붙이면 이중 경로가 된다.
                 const rel = relPath(baseDir, abs);
                 const sel = view.state.selection.main;
@@ -419,7 +419,7 @@ function baseExtensions(): Extension[] {
                 // 이미지 저장 실패 — 텍스트 붙여넣기로 폴백하지 않고 알린다.
                 console.warn("이미지 붙여넣기 실패", e);
               }
-            });
+            })();
             return true;
           }
         }
@@ -432,15 +432,13 @@ function baseExtensions(): Extension[] {
           /^\/(\S+)\.(png|jpe?g|gif|webp|svg|bmp|heic|avif|tiff?)$/i.test(text.trim())
         ) {
           event.preventDefault();
-          void import("../api").then(async (a) => {
+          void (async () => {
             try {
               const tab = view.state.field(previewConfigField, false);
               const dir = tab?.baseDir ?? "";
               if (!dir) return;
-              const abs = await a.api.importImage(text.trim(), dir);
-              const { relPath } = await import("../paths");
-              const { insertImageRef } = await import("./format");
-              insertImageRef(view, relPath(dir, abs));
+              const abs = await api.importImage(text.trim(), dir);
+              fmt.insertImageRef(view, relPath(dir, abs));
               view.focus();
             } catch {
               // 임포트 실패(존재 안 함 등) — 일반 텍스트로 폴백.
@@ -449,7 +447,7 @@ function baseExtensions(): Extension[] {
                 userEvent: "input.pastePlain",
               });
             }
-          });
+          })();
           return true;
         }
         const isUrl = /^https?:\/\/\S+$/i.test(text.trim()) && !/\s/.test(text.trim());

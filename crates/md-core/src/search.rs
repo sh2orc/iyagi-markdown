@@ -238,14 +238,22 @@ mod tests {
         let d = tempdir("basic");
         fs::write(d.join("a.md"), "hello\nWorld MARKER here\n").unwrap();
         fs::create_dir_all(d.join("sub")).unwrap();
-        fs::write(d.join("sub/b.md"), "no match\nmarker line\nanother marker\n").unwrap();
+        fs::write(
+            d.join("sub/b.md"),
+            "no match\nmarker line\nanother marker\n",
+        )
+        .unwrap();
         fs::write(d.join("c.txt"), "marker — not markdown\n").unwrap();
         let hits = search_tree(&d, "Marker", 100).unwrap();
         let summary: Vec<(&str, u32)> = hits.iter().map(|h| (h.path.as_str(), h.line_no)).collect();
         // sub/가 폴더라 먼저 — b.md 2·3줄, 이어서 a.md 2줄.
         assert_eq!(
             summary,
-            vec![(d.join("sub/b.md").to_str().unwrap(), 2), (d.join("sub/b.md").to_str().unwrap(), 3), (d.join("a.md").to_str().unwrap(), 2)]
+            vec![
+                (d.join("sub/b.md").to_str().unwrap(), 2),
+                (d.join("sub/b.md").to_str().unwrap(), 3),
+                (d.join("a.md").to_str().unwrap(), 2)
+            ]
         );
         assert_eq!(hits[0].line, "marker line");
         assert_eq!(hits[2].line, "World MARKER here");
@@ -264,7 +272,9 @@ mod tests {
         }
         let hits = search_tree(&d, "needle", 3).unwrap();
         assert_eq!(hits.len(), 3);
-        assert!(hits.iter().all(|h| !h.path.contains("node_modules") && !h.path.contains("/.h/")));
+        assert!(hits
+            .iter()
+            .all(|h| !h.path.contains("node_modules") && !h.path.contains("/.h/")));
         let _ = fs::remove_dir_all(&d);
     }
 
@@ -277,7 +287,11 @@ mod tests {
             "이전에 [[target]]를 봤다.\n[[target|표시]]도 있다.\n[[other]]는 아님.\n[[folder/target]] 경로 참조.\n",
         )
         .unwrap();
-        fs::write(d.join("self.md"), "[[target]] 자기 참조 아님 — 다른 문서.\n").unwrap();
+        fs::write(
+            d.join("self.md"),
+            "[[target]] 자기 참조 아님 — 다른 문서.\n",
+        )
+        .unwrap();
         let hits = find_backlinks(&d, d.join("target.md").to_str().unwrap(), 100).unwrap();
         // [[folder/target]]은 루트의 target.md가 아닌 folder/target.md를 가리킨다 —
         // 백링크 아닌 것이 올바른 해석(에디터 resolveWikiLink와 같은 규칙).
@@ -288,7 +302,10 @@ mod tests {
             .collect();
         assert_eq!(from_a, vec![1, 2]);
         // self.md는 이름과 달리 다른 문서 — [[target]] 참조는 백링크다.
-        assert_eq!(hits.iter().filter(|h| h.path.ends_with("self.md")).count(), 1);
+        assert_eq!(
+            hits.iter().filter(|h| h.path.ends_with("self.md")).count(),
+            1
+        );
         let _ = fs::remove_dir_all(&d);
     }
 
@@ -341,13 +358,20 @@ pub fn replace_all_tree(
     let mut files = Vec::new();
     collect_files(root, 0, 12, &mut files);
     for path in files {
-        let Ok(original) = std::fs::read(&path) else { continue };
-        let Ok(doc) = crate::io::decode_doc(original, &path) else { continue };
+        let Ok(original) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(doc) = crate::io::decode_doc(original, &path) else {
+            continue;
+        };
         let (hay, matched): (String, bool) = if case_sensitive {
             (doc.text.clone(), doc.text.contains(needle))
         } else {
             // 대소문자 무시 교체 — 소문자 비교 후 원본 슬라이스 재조립.
-            (doc.text.clone(), doc.text.to_lowercase().contains(&needle.to_lowercase()))
+            (
+                doc.text.clone(),
+                doc.text.to_lowercase().contains(&needle.to_lowercase()),
+            )
         };
         if !matched {
             continue;
@@ -358,9 +382,13 @@ pub fn replace_all_tree(
             case_insensitive_replace(&doc.text, needle, replacement)
         };
         if replaced != doc.text {
-            crate::io::write_doc_atomic(&path, &replaced, doc.meta).map_err(std::io::Error::other)?;
+            crate::io::write_doc_atomic(&path, &replaced, doc.meta)
+                .map_err(std::io::Error::other)?;
             let count = count_replacements(&hay, needle, case_sensitive);
-            out.push(ReplaceOutcome { path: path.to_string_lossy().into_owned(), count });
+            out.push(ReplaceOutcome {
+                path: path.to_string_lossy().into_owned(),
+                count,
+            });
         }
     }
     Ok(out)
@@ -418,7 +446,10 @@ mod replace_tests {
         let out = replace_all_tree(&d, "foo", "BAZ", true).unwrap();
         assert_eq!(out.len(), 2); // b.md는 매치 없음
         assert_eq!(fs::read_to_string(d.join("a.md")).unwrap(), "BAZ 와 bar\n");
-        assert_eq!(fs::read_to_string(d.join("c.MARKDOWN")).unwrap(), "BAZ BAZ\n");
+        assert_eq!(
+            fs::read_to_string(d.join("c.MARKDOWN")).unwrap(),
+            "BAZ BAZ\n"
+        );
         assert_eq!(out[0].count, 1);
         assert_eq!(out[1].count, 2);
         let _ = fs::remove_dir_all(&d);
@@ -429,7 +460,10 @@ mod replace_tests {
         let d = tempdir("case");
         fs::write(d.join("a.md"), "Hello hello HELLO\n").unwrap();
         replace_all_tree(&d, "hello", "안녕", false).unwrap();
-        assert_eq!(fs::read_to_string(d.join("a.md")).unwrap(), "안녕 안녕 안녕\n");
+        assert_eq!(
+            fs::read_to_string(d.join("a.md")).unwrap(),
+            "안녕 안녕 안녕\n"
+        );
         let _ = fs::remove_dir_all(&d);
     }
 
@@ -438,7 +472,10 @@ mod replace_tests {
         let d = tempdir("meta");
         fs::write(d.join("a.md"), b"\xEF\xBB\xBFfoo\r\nbar\r\n").unwrap();
         replace_all_tree(&d, "foo", "x", true).unwrap();
-        assert_eq!(fs::read(d.join("a.md")).unwrap(), b"\xEF\xBB\xBFx\r\nbar\r\n");
+        assert_eq!(
+            fs::read(d.join("a.md")).unwrap(),
+            b"\xEF\xBB\xBFx\r\nbar\r\n"
+        );
         let _ = fs::remove_dir_all(&d);
     }
 
@@ -447,7 +484,11 @@ mod replace_tests {
         let dir = std::env::temp_dir().join(format!("md-core-wiki-upd-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("a.md"), "링크 [[b]] 와 [[b|표시]] 와 [[b#앵커]] 와 [[c]]\n").unwrap();
+        std::fs::write(
+            dir.join("a.md"),
+            "링크 [[b]] 와 [[b|표시]] 와 [[b#앵커]] 와 [[c]]\n",
+        )
+        .unwrap();
         std::fs::write(dir.join("b.md"), "자기 참조 아님, [[a]]는 유지\n").unwrap();
         std::fs::write(dir.join("fence.md"), "```\n[[b]]\n```\n[[b]]\n").unwrap();
         let n = update_wiki_links(&dir, "b", "새이름").unwrap();
@@ -503,7 +544,10 @@ pub fn find_orphan_assets(root: &Path) -> std::io::Result<Vec<OrphanAsset>> {
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        if !matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp") {
+        if !matches!(
+            ext.as_str(),
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp"
+        ) {
             continue;
         }
         let name = path
@@ -693,5 +737,4 @@ fn replace_line_wiki_links(line: &str, from: &str, to: &str, changed: &mut u32) 
         i += ch.len_utf8();
     }
     out
-
 }

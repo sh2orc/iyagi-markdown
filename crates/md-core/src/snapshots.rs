@@ -65,7 +65,9 @@ pub fn save_snapshot_at(app_data: &Path, doc_path: &str, text: &str, now: u64) -
         let same_content = fs::metadata(&last_file)
             .map(|m| m.len() as usize == text.len())
             .unwrap_or(false)
-            && fs::read_to_string(&last_file).map(|s| s == text).unwrap_or(false);
+            && fs::read_to_string(&last_file)
+                .map(|s| s == text)
+                .unwrap_or(false);
         if same_content || now.saturating_sub(last.ts) < MIN_INTERVAL_MS {
             return Ok(());
         }

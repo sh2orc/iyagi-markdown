@@ -10,7 +10,7 @@
     "build:frontend": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run",
-    "verify": "npm run typecheck && npm run test:unit && cargo test --workspace && cargo clippy --workspace 2>&1 | grep -E '^warning: |^error' ; test ${PIPESTATUS[0]:-0} -eq 0",
+    "verify": "npm run typecheck && npm run test:unit && cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace",
     "tauri": "node scripts/tauri.mjs"
   },
   "dependencies": {
