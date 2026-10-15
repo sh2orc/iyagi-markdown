@@ -1450,6 +1450,8 @@ export class AppStore {
     this.state.toasts = [...this.state.toasts, t];
     this.emit();
     setTimeout(() => {
+      // 이미 사용자가 닫았으면 건드리지 않는다.
+      if (!this.state.toasts.some((x) => x.id === t.id)) return;
       // 퇴장 애니메이션(0.18s)을 보여준 뒤 치운다 — 깜빡 사라지지 않게.
       this.state.toasts = this.state.toasts.map((x) =>
         x.id === t.id ? { ...x, leaving: true } : x,
@@ -1460,6 +1462,13 @@ export class AppStore {
         this.emit();
       }, 200);
     }, kind === "error" ? 6000 : 2600);
+  }
+
+  /** 토스트 조기 닫기(클릭). */
+  dismissToast(id: number): void {
+    if (!this.state.toasts.some((x) => x.id === id)) return;
+    this.state.toasts = this.state.toasts.filter((x) => x.id !== id);
+    this.emit();
   }
 
   private emitSearchRefresh(): void {

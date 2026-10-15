@@ -1351,6 +1351,12 @@ body.resizing .toc {
   padding: 8px 16px;
   box-shadow: var(--md-shadow);
   animation: toast-in 0.18s ease;
+  cursor: pointer;
+  /* 에러 문구(경로 포함)는 복사할 수 있게. */
+  user-select: text;
+  max-width: min(560px, calc(100vw - 48px));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .toast.error {

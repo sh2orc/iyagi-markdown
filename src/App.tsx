@@ -1345,6 +1345,12 @@ export function App(): JSX.Element {
             key={toast.id}
             className={`toast ${toast.kind} ${toast.leaving ? "is-leaving" : ""}`}
             role={toast.kind === "error" ? "alert" : "status"}
+            title={t.close}
+            onClick={() => {
+              // 문구를 선택해 복사하는 중이면 닫지 않는다.
+              if ((window.getSelection()?.toString() ?? "") !== "") return;
+              store.dismissToast(toast.id);
+            }}
           >
             {toast.text}
           </div>
