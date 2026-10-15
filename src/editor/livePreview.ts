@@ -37,6 +37,7 @@ import {
 import { lexicallyClean, percentDecode, resolveLink } from "../links";
 import { isPageBreakLine } from "./pagebreak";
 import { formattingMarkRanges } from "./fmMarks";
+import { citeDisplay, citeNumbering, citeRegExp, isCiteDefLine, type CitationNumbering } from "./citations";
 import { parseWikiLink, resolveWikiLink } from "./wiki";
 import { mdTableKey } from "./tableKey";
 import { sentenceSpans } from "./writing";
@@ -51,7 +52,7 @@ import {
   MathWidget,
   SpacerWidget,
   TableWidget,
-  TaskItemWidget, CommentCountWidget, ParaMarkWidget,
+  TaskItemWidget, CommentCountWidget, ParaMarkWidget, CiteWidget,
 } from "./widgets";
 
 // — 설정 전달(문서 경로·이미지 정책·테마) —
@@ -251,6 +252,9 @@ const NO_RANGES: readonly { from: number; to: number }[] = [];
 /** 한 청크 [chunkFrom, chunkTo)의 장식을 계산한다.
  *  노드의 장식은 그 노드가 시작하는 청크가 발급한다(경계 규칙 덕에 정확히 한
  *  번). 이전 청크에서 시작해 걸친 노드는 내려만 간다. */
+// 인용 번호부여 캐시 — 문서(Text) 객체별 1회 전체 스캔(편집으로만 미스).
+const citeCache = new WeakMap<object, CitationNumbering>();
+
 function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range<Decoration>[] {
   const ranges: Range<Decoration>[] = [];
   const doc = view.state.doc;
@@ -415,6 +419,11 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
       const line = doc.line(n);
       if (line.from >= chunkTo) break;
       if (codeRanges.some(([cf, ct]) => line.from >= cf && line.from <= ct)) continue;
+      // 서지 정의 줄([@key]: …) — 각주 정의와 같은 어감(흐리게).
+      if (isCiteDefLine(line.text)) {
+        ranges.push(Decoration.line({ class: "md-cite-def" }).range(line.from));
+        continue;
+      }
       // 페이지 나눔(`\newpage`) — Word 쪽나눔 점선과 같은 어감의 줄 장식.
       if (isPageBreakLine(line.text)) {
         ranges.push(Decoration.line({ class: "md-pagebreak" }).range(line.from));
@@ -432,6 +441,33 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
         } else {
           if (codeRanges.some(([cf, ct]) => m.from >= cf && m.from <= ct)) continue;
           ranges.push(Decoration.mark({ class: m.kind === "tab" ? "md-fm-tab" : "md-fm-space" }).range(m.from, m.to));
+        }
+      }
+    }
+    // 인용 [@key] → [N] 위젯(첫 등장 순, 문서 단위). 커서가 닿으면 원문.
+    {
+      const chunkStr0 = doc.sliceString(chunkFrom, chunkTo);
+      if (chunkStr0.includes("[@")) {
+        let numbering = citeCache.get(doc);
+        if (!numbering) {
+          numbering = citeNumbering(doc.sliceString(0));
+          citeCache.set(doc, numbering);
+        }
+        const re = citeRegExp();
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(chunkStr0))) {
+          const from = chunkFrom + m.index;
+          const to = from + m[0].length;
+          if (codeRanges.some(([cf, ct]) => from >= cf && from <= ct)) continue;
+          const display = citeDisplay(m[1], m[2], numbering);
+          if (display === null) {
+            // 정의 없는 인용 — 원문 그대로, 흐린 붉은 표시(끊긴 링크와 같은 규약).
+            ranges.push(Decoration.mark({ class: "md-cite-broken" }).range(from, to));
+            continue;
+          }
+          if (coversMarks(from, to)) continue;
+          const def = numbering.defs.get(m[1]);
+          ranges.push(replace({ widget: new CiteWidget(display, def?.entry ?? "") }).range(from, to));
         }
       }
     }

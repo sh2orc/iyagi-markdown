@@ -876,6 +876,26 @@ export class ParaMarkWidget extends WidgetType {
   }
 }
 
+/** 인용 표시 [N] — 서지 항목 툴팁, 서지 정의로의 클릭은 이후 단계. */
+export class CiteWidget extends WidgetType {
+  constructor(readonly display: string, readonly entry: string) {
+    super();
+  }
+  eq(other: CiteWidget) {
+    return other.display === this.display && other.entry === this.entry;
+  }
+  toDOM() {
+    const el = document.createElement("sup");
+    el.className = "md-cite";
+    el.textContent = this.display;
+    if (this.entry) el.title = this.entry;
+    return el;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
 /** 이미지 설명 추가 칩 → 대화상자 — App이 등록(src와 클릭 위치 전달). */
 export let imageCaptionHandler: ((src: string, pos: number) => void) | null = null;
 export function setImageCaptionHandler(fn: ((src: string, pos: number) => void) | null): void {

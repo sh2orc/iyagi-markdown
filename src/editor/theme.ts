@@ -237,6 +237,22 @@ export const editorTheme = EditorView.theme({
     marginLeft: "2px",
   },
 
+  // — 인용·서지([@key] → [N]) —
+  ".md-cite": {
+    color: "var(--md-accent)",
+    fontSize: "0.75em",
+    cursor: "default",
+  },
+  ".md-cite-broken": {
+    color: "#d29922",
+    opacity: 0.75,
+    textDecoration: "none",
+  },
+  ".md-cite-def": {
+    fontSize: "0.85em",
+    color: "var(--md-fg-dim)",
+  },
+
   // — 코드 블록: 하나의 붙는 카드(줄마다 배경이 이어지고 끝만 둥글게) —
   ".md-codeblock": {
     fontFamily: "var(--md-code-font)",

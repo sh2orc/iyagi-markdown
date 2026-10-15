@@ -18,6 +18,7 @@ import { ensureKatex, renderMathMl } from "../plugins/katex";
 import { renderMermaidForExport } from "../plugins/mermaid";
 import { stripFrontMatter } from "../editor/frontmatter";
 import { isPageBreakLine } from "../editor/pagebreak";
+import { citeDefsToHtml, citeDisplay, citeNumbering } from "../editor/citations";
 import { wikiLinksToMarkdown } from "../editor/wiki";
 
 export interface ExportHtmlOptions {
@@ -187,6 +188,37 @@ export async function renderMarkdownBody(
     } catch {
       return `<code class="math-fallback">${escapeHtml(latex)}</code>`;
     }
+  };
+
+  // 인용·서지 — 정의 줄을 먼저 원시 HTML로(링크 참조 정의 소진 회피),
+  // 본문 [@key]는 [N] 위첨자 링크로(첫 등장 순 번호).
+  const numbering = citeNumbering(markdown);
+  markdown = citeDefsToHtml(markdown, numbering, escapeHtml);
+  md.inline.ruler.before("escape", "iyagi_cite", (state: StateInline, silent: boolean) => {
+    const src = state.src;
+    const pos = state.pos;
+    if (src.charCodeAt(pos) !== 0x5b /* [ */ || src.charCodeAt(pos + 1) !== 0x40 /* @ */) return false;
+    const close = src.indexOf("]", pos + 2);
+    if (close === -1) return false;
+    const inner = src.slice(pos + 2, close);
+    const comma = inner.indexOf(",");
+    const key = (comma === -1 ? inner : inner.slice(0, comma)).trim();
+    const suffix = comma === -1 ? undefined : inner.slice(comma + 1).trim();
+    if (!key || /[\s\[\]]/.test(key)) return false;
+    const display = citeDisplay(key, suffix, numbering);
+    if (display === null) return false; // 정의 없는 인용 — 원문 그대로
+    if (!silent) {
+      const token = state.push("iyagi_cite", "", 0);
+      token.content = display;
+      token.meta = { key };
+    }
+    state.pos = close + 1;
+    return true;
+  });
+  md.renderer.rules.iyagi_cite = (tokens: Token[], idx: number) => {
+    const t = tokens[idx];
+    const key = (t.meta as { key: string }).key;
+    return `<sup class="cite"><a href="#ref-${escapeHtml(key)}">${escapeHtml(t.content)}</a></sup>`;
   };
 
   // 문서 렌더 1차.
@@ -693,6 +725,10 @@ body{margin:0 auto;padding:24px 16px;max-width:820px;font-family:-apple-system,B
   .markdown-body h1,.markdown-body h2,.markdown-body h3{page-break-after:avoid;}
 }
 .markdown-body .page-break{break-before:page;border-top:1px dashed #c0c4cc;margin:1.6em 0;}
+.markdown-body sup.cite{font-size:0.72em;line-height:1;}
+.markdown-body sup.cite a{text-decoration:none;color:inherit;}
+.markdown-body .ref-entry{font-size:0.92em;margin:0.35em 0;padding-left:1.6em;text-indent:-1.6em;}
+.markdown-body .ref-num{font-weight:600;}
 @media print{.markdown-body .page-break{border-top:none;margin:0;}}
 `.trim();
 }
