@@ -97,19 +97,23 @@ export function Welcome({ store, t, lang, onOpenFile, onOpenFolder }: Props): JS
         <div className="welcome-section">
           <div className="sidebar-subtitle">{lang === "ko" ? "템플릿으로 시작" : "Start from template"}</div>
           <div className="welcome-templates">
-            {DOC_TEMPLATES.map((tpl) => (
-              <button
-                key={tpl.id}
-                className="welcome-tpl"
-                onClick={() => store.newTabWithContent(tpl.content)}
-                onMouseEnter={() => setTplHint(tplOutline(tpl.content) || null)}
-                onFocus={() => setTplHint(tplOutline(tpl.content) || null)}
-                onMouseLeave={() => setTplHint(null)}
-                onBlur={() => setTplHint(null)}
-              >
-                {lang === "ko" ? tpl.nameKo : tpl.nameEn}
-              </button>
-            ))}
+            {DOC_TEMPLATES.map((tpl) => {
+              // 언어별 골격 — 영어 변형이 없는 템플릿은 한국어 본문 그대로.
+              const body = lang === "ko" || tpl.contentEn == null ? tpl.content : tpl.contentEn;
+              return (
+                <button
+                  key={tpl.id}
+                  className="welcome-tpl"
+                  onClick={() => store.newTabWithContent(body)}
+                  onMouseEnter={() => setTplHint(tplOutline(body) || null)}
+                  onFocus={() => setTplHint(tplOutline(body) || null)}
+                  onMouseLeave={() => setTplHint(null)}
+                  onBlur={() => setTplHint(null)}
+                >
+                  {lang === "ko" ? tpl.nameKo : tpl.nameEn}
+                </button>
+              );
+            })}
           </div>
           {/* 호버/포커스 중인 템플릿의 목차 — 항상 자리를 차지해 점프 없게. */}
           <div className="welcome-tpl-hint">{tplHint ?? (lang === "ko" ? "형식 위에 올려 구조를 확인" : "Hover a format to see its structure")}</div>
