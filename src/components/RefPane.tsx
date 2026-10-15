@@ -33,7 +33,7 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
     const saved = Number(localStorage.getItem(REF_W_KEY));
     return saved >= 20 && saved <= 60 ? saved : 42;
   });
-  const dragRef = useRef<{ x: number; w: number } | null>(null);
+  const dragRef = useRef<{ x: number; w: number; splitW: number } | null>(null);
   /** 편집 모드 — 읽기 iframe 대신 진짜 에디터(분할 편집). */
   const [editMode, setEditMode] = useState(false);
   const editHost = useRef<HTMLDivElement | null>(null);
@@ -47,7 +47,9 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
     const onMove = (e: PointerEvent) => {
       const d = dragRef.current;
       if (!d) return;
-      const pct = d.w + ((d.x - e.clientX) / window.innerWidth) * 100;
+      // 페인 폭은 .edit-split(사이드바 제외)의 % — 창 폭이 아니라 그 컨테이너
+      // 폭으로 나눠야 커서와 리사이저가 정확히 붙어 따라온다.
+      const pct = d.w + ((d.x - e.clientX) / d.splitW) * 100;
       setRefW(Math.min(60, Math.max(20, pct)));
     };
     const onUp = () => {
@@ -179,7 +181,11 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
       <div
         className="ref-pane-resizer"
         onPointerDown={(e) => {
-          dragRef.current = { x: e.clientX, w: refW };
+          dragRef.current = {
+            x: e.clientX,
+            w: refW,
+            splitW: (e.currentTarget as HTMLElement).closest(".edit-split")?.clientWidth || window.innerWidth,
+          };
           document.body.classList.add("resizing");
         }}
       />
