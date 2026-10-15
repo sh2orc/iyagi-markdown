@@ -14,13 +14,13 @@ interface Props {
   t: Translate;
 }
 
-/** 형광펜 팔레트 — 문서 톤에 맞춰 고른 5색(Word 형광펜 색 상당). */
-const HIGHLIGHT_SWATCHES: Array<[string, string]> = [
-  ["FFD60A", "노랑(기본)"],
-  ["FFB3C1", "분홍"],
-  ["B7F0A8", "연두"],
-  ["A8D8FF", "하늘"],
-  ["E3C8FF", "라일락"],
+/** 형광펜 팔레트 — 문서 톤에 맞춰 고른 5색(Word 형광펜 색 상당). [hex, 이름(ko), 이름(en)] */
+const HIGHLIGHT_SWATCHES: Array<[string, string, string]> = [
+  ["FFD60A", "노랑(기본)", "Yellow (default)"],
+  ["FFB3C1", "분홍", "Pink"],
+  ["B7F0A8", "연두", "Green"],
+  ["A8D8FF", "하늘", "Sky"],
+  ["E3C8FF", "라일락", "Lilac"],
 ];
 
 export function StylePanel({ store, onClose, t }: Props): JSX.Element | null {
@@ -149,11 +149,12 @@ export function StylePanel({ store, onClose, t }: Props): JSX.Element | null {
           <label className="settings-label">
             {t.styleHighlight}
             <div className="style-accent-row">
-              {HIGHLIGHT_SWATCHES.map(([hex, name]) => (
+              {HIGHLIGHT_SWATCHES.map(([hex, nameKo, nameEn]) => (
                 <button
                   key={hex}
                   className={`style-hl-swatch ${style.highlightColor === hex ? "is-on" : ""}`}
-                  title={name}
+                  title={store.state.settings.language === "ko" ? nameKo : nameEn}
+                  aria-label={store.state.settings.language === "ko" ? nameKo : nameEn}
                   style={{ background: `#${hex}` }}
                   onClick={() => update({ highlightColor: hex })}
                 />
