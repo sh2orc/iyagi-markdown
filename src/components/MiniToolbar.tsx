@@ -81,43 +81,43 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
   return (
     <>
     <div ref={hostRef} className="mini-tb" style={{ top: pos.top, left: pos.left }}>
-      <button className="mtb-btn" title={t.tbBold} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleBold)}>
+      <button className="mtb-btn" aria-label={t.tbBold} title={t.tbBold} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleBold)}>
         <b>B</b>
       </button>
-      <button className="mtb-btn" title={t.tbItalic} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleItalic)}>
+      <button className="mtb-btn" aria-label={t.tbItalic} title={t.tbItalic} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleItalic)}>
         <i>I</i>
       </button>
-      <button className="mtb-btn" title={t.tbStrike} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleStrikethrough)}>
+      <button className="mtb-btn" aria-label={t.tbStrike} title={t.tbStrike} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleStrikethrough)}>
         <s>S</s>
       </button>
-      <button className="mtb-btn" title={`${t.tbHighlight} (⇧⌘H)`} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleHighlight)}>
+      <button className="mtb-btn" aria-label={`${t.tbHighlight} (⇧⌘H)`} title={`${t.tbHighlight} (⇧⌘H)`} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleHighlight)}>
         <span className="tb-mark">▤</span>
       </button>
-      <button className="mtb-btn" title={t.tbCode} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleInlineCode)}>
+      <button className="mtb-btn" aria-label={t.tbCode} title={t.tbCode} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleInlineCode)}>
         <span className="tb-mono">{"</>"}</span>
       </button>
-      <button className="mtb-btn" title={t.tbLink} onMouseDown={(e) => e.preventDefault()} onClick={() => run((v) => fmt.insertLink(v))}>
+      <button className="mtb-btn" aria-label={t.tbLink} title={t.tbLink} onMouseDown={(e) => e.preventDefault()} onClick={() => run((v) => fmt.insertLink(v))}>
         🔗
       </button>
       {tab?.marks.link && (
-        <button className="mtb-btn" title={t.ctxEditLink} onClick={() => setLinkEditPos(pos ? view!.state.selection.main.from : null)}>
+        <button className="mtb-btn" aria-label={t.ctxEditLink} title={t.ctxEditLink} onClick={() => setLinkEditPos(pos ? view!.state.selection.main.from : null)}>
           ✎
         </button>
       )}
       <span className="mtb-sep" />
-      <button className="mtb-btn" title={t.tbBullet} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleBulletList)}>
+      <button className="mtb-btn" aria-label={t.tbBullet} title={t.tbBullet} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleBulletList)}>
         •—
       </button>
-      <button className="mtb-btn" title={`${t.tbHeading} 1`} onMouseDown={(e) => e.preventDefault()} onClick={() => run((v) => fmt.toggleHeading(v, 1))}>
+      <button className="mtb-btn" aria-label={`${t.tbHeading} 1`} title={`${t.tbHeading} 1`} onMouseDown={(e) => e.preventDefault()} onClick={() => run((v) => fmt.toggleHeading(v, 1))}>
         <b>H1</b>
       </button>
-      <button className="mtb-btn" title={`${t.tbHeading} 2`} onMouseDown={(e) => e.preventDefault()} onClick={() => run((v) => fmt.toggleHeading(v, 2))}>
+      <button className="mtb-btn" aria-label={`${t.tbHeading} 2`} title={`${t.tbHeading} 2`} onMouseDown={(e) => e.preventDefault()} onClick={() => run((v) => fmt.toggleHeading(v, 2))}>
         <b>H2</b>
       </button>
-      <button className="mtb-btn" title={t.tbQuote} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleQuote)}>
+      <button className="mtb-btn" aria-label={t.tbQuote} title={t.tbQuote} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleQuote)}>
         ❝
       </button>
-      <button className="mtb-btn" title={t.tbMath} onMouseDown={(e) => e.preventDefault()} onClick={() => run((v) => fmt.insertMath(v, false))}>
+      <button className="mtb-btn" aria-label={t.tbMath} title={t.tbMath} onMouseDown={(e) => e.preventDefault()} onClick={() => run((v) => fmt.insertMath(v, false))}>
         ∑
       </button>
     </div>

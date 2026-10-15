@@ -32,6 +32,7 @@ function ToolBtn({
   return (
     <button
       className={`tb-btn ${narrow ? "tb-btn-narrow" : ""} ${active ? "is-active" : ""}`}
+      aria-label={title}
       title={title}
       disabled={disabled}
       onMouseDown={(e) => e.preventDefault()} // 에디터 포커스 유지
