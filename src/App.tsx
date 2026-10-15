@@ -890,11 +890,23 @@ export function App(): JSX.Element {
         setStyleOpen(false);
         return;
       }
+      if (printOpen) {
+        setPrintOpen(false);
+        return;
+      }
+      if (graphOpen) {
+        setGraphOpen(false);
+        return;
+      }
+      if (fmOpen) {
+        setFmOpen(false);
+        return;
+      }
       if (settingsOpen) setSettingsOpen(false);
     };
     window.addEventListener("keydown", onEsc);
     return () => window.removeEventListener("keydown", onEsc);
-  }, [closeAsk, state.exportKind, styleOpen, settingsOpen, store]);
+  }, [closeAsk, state.exportKind, styleOpen, printOpen, graphOpen, fmOpen, settingsOpen, store]);
 
   // 위키링크 자동완성 목록 — 트리 기반(워크스페이스 문서들).
   useEffect(() => {
