@@ -1,7 +1,7 @@
 // 문서 비교 뷰 — 활성 문서 vs 선택한 파일(또는 디스크 저장본). 읽기 전용.
 // Word "문서 비교"에 대응. 원문은 어느 쪽도 수정하지 않는다.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api, pickOpenFile } from "../api";
 import type { AppStore } from "../app/store";
@@ -18,6 +18,12 @@ export function DiffPanel({ store, t, onClose }: Props): JSX.Element | null {
   const tab = store.active;
   const [other, setOther] = useState<{ name: string; text: string } | null>(null);
   const [loading, setLoading] = useState(false);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+
+  // 오버레이 자체에 포커스 — Esc 닫기(모달 규약, 9차 계열).
+  useEffect(() => {
+    overlayRef.current?.focus();
+  }, []);
 
   // 기본 비교 대상: 디스크에 저장된 버전(dirty일 때 유용). 아니면 같은 내용.
   useEffect(() => {
@@ -51,7 +57,20 @@ export function DiffPanel({ store, t, onClose }: Props): JSX.Element | null {
   if (!tab) return null;
 
   return (
-    <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      ref={overlayRef}
+      tabIndex={-1}
+      className="overlay modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        }
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
       <div className="diff-frame">
         <div className="print-head">
           <span className="print-title">
