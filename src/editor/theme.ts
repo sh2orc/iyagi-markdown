@@ -212,6 +212,31 @@ export const editorTheme = EditorView.theme({
     paddingBottom: "0.15em",
   },
 
+  // — 서식 기호 보기(Word ¶): 공백 ·· 탭 →, 줄 끝 ¶ —
+  ".md-fm-space": { position: "relative" },
+  ".md-fm-space::after": {
+    content: '"·"',
+    position: "absolute",
+    left: "0",
+    color: "var(--md-fg-dim)",
+    opacity: 0.55,
+  },
+  ".md-fm-tab": { position: "relative" },
+  ".md-fm-tab::after": {
+    content: '"→"',
+    position: "absolute",
+    left: "0",
+    fontSize: "0.8em",
+    color: "var(--md-fg-dim)",
+    opacity: 0.55,
+  },
+  ".md-fm-para": {
+    color: "var(--md-fg-dim)",
+    opacity: 0.55,
+    fontSize: "0.8em",
+    marginLeft: "2px",
+  },
+
   // — 코드 블록: 하나의 붙는 카드(줄마다 배경이 이어지고 끝만 둥글게) —
   ".md-codeblock": {
     fontFamily: "var(--md-code-font)",

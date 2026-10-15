@@ -51,6 +51,8 @@ export interface Settings {
   longSentenceMarks: boolean;
   /** 긴 문장 임계값(자). */
   longSentenceMin: number;
+  /** 서식 기호 보기(Word ¶) — 공백 ·· 탭 → 줄끝 ¶. */
+  formattingMarks: boolean;
   /** 저장 시 표 서식 자동 정리. */
   autoFormatTables: boolean;
   /** 집필 목표 단어 수(0 = 없음). */

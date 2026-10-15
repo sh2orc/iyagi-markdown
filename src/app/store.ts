@@ -972,6 +972,11 @@ export class AppStore {
     this.patchSettings({ focusMode: !this.state.settings.focusMode });
   }
 
+  /** 서식 기호 보기(Word ¶) — 공백 ·· 탭 → 줄끝 ¶ 토글. */
+  toggleFormattingMarks(): void {
+    this.patchSettings({ formattingMarks: !this.state.settings.formattingMarks });
+  }
+
   /** 소리내어 읽기 — 선택이 있으면 그 텍스트, 아니면 본문 전체(프론트매터
    *  제외). rate는 분당 단어 근사(기본 175 — say 기본값 근처). */
   speakActive(rateOverride?: number): void {
@@ -1057,6 +1062,7 @@ export class AppStore {
       comments: tab?.comments ?? [],
       longSentenceMarks: this.state.settings.longSentenceMarks,
       longSentenceMin: this.state.settings.longSentenceMin,
+      formattingMarks: this.state.settings.formattingMarks,
       tableWidths: tab?.docStyle?.tableWidths ?? {},
       wikiIndex: this.wikiIndex,
     });
@@ -1568,6 +1574,7 @@ export function defaultSettings(): Settings {
     focusMode: false,
     smartPunctuation: true,
     longSentenceMarks: false,
+    formattingMarks: false,
     longSentenceMin: 60,
     autoFormatTables: false,
     writingGoal: 0,

@@ -208,6 +208,7 @@ export function CommandPalette({
       { id: "track-prev", label: `${t.scReview}: ${t.trackPrev}`, run: () => store.nextChange(false) },
       { id: "tw-toggle", label: `${t.scView}: ${t.setTypewriter}`, run: () => store.toggleTypewriter() },
       { id: "focus-toggle", label: `${t.scView}: ${t.setFocusMode}`, run: () => store.toggleFocusMode() },
+      { id: "fm-marks", label: `${t.scView}: ${t.setFormattingMarks}`, run: () => store.toggleFormattingMarks() },
       { id: "sentence-toggle", label: `${t.scView}: ${t.setFocusSentence}`, run: () => store.toggleSentenceFocus() },
       { id: "newtab", label: `${t.newTab} ⌘N`, run: () => store.newTab() },
       { id: "closetab", label: `${t.closeTab} ⌘W`, run: () => {

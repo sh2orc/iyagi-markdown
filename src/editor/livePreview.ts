@@ -36,6 +36,7 @@ import {
 
 import { lexicallyClean, percentDecode, resolveLink } from "../links";
 import { isPageBreakLine } from "./pagebreak";
+import { formattingMarkRanges } from "./fmMarks";
 import { parseWikiLink, resolveWikiLink } from "./wiki";
 import { mdTableKey } from "./tableKey";
 import { sentenceSpans } from "./writing";
@@ -50,7 +51,7 @@ import {
   MathWidget,
   SpacerWidget,
   TableWidget,
-  TaskItemWidget, CommentCountWidget,
+  TaskItemWidget, CommentCountWidget, ParaMarkWidget,
 } from "./widgets";
 
 // — 설정 전달(문서 경로·이미지 정책·테마) —
@@ -70,6 +71,8 @@ export interface PreviewConfig {
   /** 긴 문장 점선 밑줄 — 작가 보조 토글과 임계값(자). */
   longSentenceMarks?: boolean;
   longSentenceMin?: number;
+  /** 서식 기호(¶) 표시 — Word '서식 기호 표시'(공백 ·· 탭 → 줄끝 ¶). */
+  formattingMarks?: boolean;
   /** 표 표시 폭(시작 줄 번호 문자열 → 열 px) — 문서 스타일 사이드카. */
   tableWidths: Record<string, number[]>;
   /** 위키링크 인덱스(소문자 이름 → 경로들) — 워크스페이스 트리에서(store). */
@@ -127,6 +130,7 @@ function previewConfigEquals(a: PreviewConfig | undefined, b: PreviewConfig): bo
   }
   if ((a.longSentenceMarks ?? false) !== (b.longSentenceMarks ?? false)) return false;
   if ((a.longSentenceMin ?? 60) !== (b.longSentenceMin ?? 60)) return false;
+  if ((a.formattingMarks ?? false) !== (b.formattingMarks ?? false)) return false;
   // 위키링크 인덱스 — 참조 비교(트리가 바뀔 때만 store가 새 인스턴스를 만든다).
   if (a.wikiIndex !== b.wikiIndex) return false;
   return true;
@@ -252,7 +256,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
   const doc = view.state.doc;
   const behavior = view.state.facet(previewBehavior);
   const config = view.state.field(previewConfigField);
-  const { baseDir, remoteImages, showImages, theme, imageWidths, bookmarks, tableWidths, commentLines = [], longSentenceMarks = false, longSentenceMin = 60 } = config;
+  const { baseDir, remoteImages, showImages, theme, imageWidths, bookmarks, tableWidths, commentLines = [], longSentenceMarks = false, longSentenceMin = 60, formattingMarks = false } = config;
 
   // 노출할 줄 = 편집 모드에서 커서·선택(·조합)이 걸친 줄.
   const revealed = new Set<number>();
@@ -418,6 +422,18 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
       }
       if (line.length !== 0) continue;
       ranges.push(Decoration.line({ class: "md-blank" }).range(line.from));
+    }
+    // 서식 기호(Word ¶ 보기) — 공백 ·· 탭 →, 줄 끝 ¶. 코드 블록은 제외.
+    if (formattingMarks) {
+      for (const m of formattingMarkRanges(doc.sliceString(chunkFrom, chunkTo), chunkFrom)) {
+        if (m.kind === "para") {
+          if (codeRanges.some(([cf, ct]) => m.from >= cf && m.from <= ct)) continue;
+          ranges.push(Decoration.widget({ widget: new ParaMarkWidget() }).range(m.from));
+        } else {
+          if (codeRanges.some(([cf, ct]) => m.from >= cf && m.from <= ct)) continue;
+          ranges.push(Decoration.mark({ class: m.kind === "tab" ? "md-fm-tab" : "md-fm-space" }).range(m.from, m.to));
+        }
+      }
     }
     function enterNode(node: SyntaxNode): boolean | undefined {
         const name = node.name;

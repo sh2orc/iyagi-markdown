@@ -832,6 +832,23 @@ export class CommentCountWidget extends WidgetType {
   }
 }
 
+/** 문단 기호(¶) — 서식 기호 보기가 켜졌을 때 줄 끝(Word 서식 기호). */
+export class ParaMarkWidget extends WidgetType {
+  eq() {
+    return true;
+  }
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = "md-fm-para";
+    el.textContent = "¶";
+    el.setAttribute("aria-hidden", "true");
+    return el;
+  }
+  ignoreEvent() {
+    return true;
+  }
+}
+
 /** 이미지 설명 추가 칩 → 대화상자 — App이 등록(src와 클릭 위치 전달). */
 export let imageCaptionHandler: ((src: string, pos: number) => void) | null = null;
 export function setImageCaptionHandler(fn: ((src: string, pos: number) => void) | null): void {

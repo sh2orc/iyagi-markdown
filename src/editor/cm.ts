@@ -194,6 +194,8 @@ export interface PreviewConfigParam {
   /** 긴 문장 점선 밑줄 토글·임계값. */
   longSentenceMarks?: boolean;
   longSentenceMin?: number;
+  /** 서식 기호 보기(Word ¶). */
+  formattingMarks?: boolean;
   tableWidths: Record<string, number[]>;
   wikiIndex: Map<string, string[]>;
 }

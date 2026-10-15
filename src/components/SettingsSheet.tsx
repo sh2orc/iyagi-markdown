@@ -197,6 +197,14 @@ export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element |
             />
             {t.setLongSentence}
           </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={s.formattingMarks}
+              onChange={(e) => set({ formattingMarks: e.target.checked })}
+            />
+            {t.setFormattingMarks}
+          </label>
           <label className="settings-label">
             {t.setLongSentenceMin} ({Math.round(s.longSentenceMin)})
             <input
