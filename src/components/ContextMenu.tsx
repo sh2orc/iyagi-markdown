@@ -60,16 +60,22 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
       img: img ? { url: img.url, alt: img.alt, from: img.from, to: img.to } : null,
       });
     };
-    const close = () => setMenu(null);
+    // 메뉴 바깥 포인터 다운·Esc로 닫기. 메뉴 자체는 제외 — 항목 활성화가
+    // 닫는다(탭·파일 메뉴와 같은 규약. 닫기가 항목 제거 시점에 의존하지
+    // 않게 하여 click이 삼켜지는 브라우저별 동작 여지를 원천 차단).
+    const close = (e: PointerEvent) => {
+      if ((e.target as HTMLElement).closest?.(".ctx-menu")) return;
+      setMenu(null);
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setMenu(null);
     };
     window.addEventListener("contextmenu", onContext);
-    window.addEventListener("mousedown", close, true);
+    window.addEventListener("pointerdown", close);
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("contextmenu", onContext);
-      window.removeEventListener("mousedown", close, true);
+      window.removeEventListener("pointerdown", close);
       window.removeEventListener("keydown", onKey);
     };
   }, [store]);
@@ -146,8 +152,18 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
     <div ref={menuRef} className="ctx-menu" style={style} onContextMenu={(e) => e.preventDefault()}>
       {menu.link && item(t.ctxOpenLink, openLink)}
       {menu.link && item(t.ctxCopyLink, copyLink)}
-      {menu.link && item(t.ctxEditLink, () => setLinkEdit({ text: menu.link!.text, url: menu.link!.url, from: menu.link!.from, to: menu.link!.to }))}
-      {menu.img && item(t.ctxEditImage, () => setImgEdit({ text: menu.img!.alt, url: menu.img!.url, from: menu.img!.from, to: menu.img!.to }))}
+      {menu.link &&
+        item(t.ctxEditLink, () => {
+          // 대화상자를 열 때 메뉴는 명시적으로 닫는다(바깥 닫기가 메뉴를
+          // 제외하므로 스스로 끄는 것이 유일한 경로).
+          setMenu(null);
+          setLinkEdit({ text: menu.link!.text, url: menu.link!.url, from: menu.link!.from, to: menu.link!.to });
+        })}
+      {menu.img &&
+        item(t.ctxEditImage, () => {
+          setMenu(null);
+          setImgEdit({ text: menu.img!.alt, url: menu.img!.url, from: menu.img!.from, to: menu.img!.to });
+        })}
       {menu.link && <span className="ctx-sep" />}
       {item(t.ctxUndo, () => run(() => undo(view)), { disabled: !menu.canUndo || !editable })}
       {item(t.ctxRedo, () => run(() => redo(view)), { disabled: !menu.canRedo || !editable })}
@@ -175,7 +191,10 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
             store.active?.bookmarks.includes(menuLine(store)) ? t.ctxRemoveBookmark : t.ctxAddBookmark,
             () => run(() => store.toggleBookmark()),
           )}
-          {item(t.ctxAddComment, () => setCommentLine(menuLine(store)))}
+          {item(t.ctxAddComment, () => {
+            setMenu(null);
+            setCommentLine(menuLine(store));
+          })}
         </>
       )}
       {editable && menu.inTable && (
