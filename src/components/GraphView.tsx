@@ -1,8 +1,9 @@
 // 그래프 뷰 — 문서 노드 + 위키링크 간선을 SVG로 렌더.
 // 간단한 힘 기반 배치(3~4회 반복) — 대규모 그래프는 원형 폴백.
 // 노드 크기 = 연결 수(차수), 활성 문서는 강조.
+// 줌(휠, 커서 고정)·팬(배경 드래그)·더블클릭 리셋 — 노드 밀집 대비.
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
@@ -163,6 +164,10 @@ function layout(nodes: GraphNode[], edges: GraphEdge[], iterations = 4): void {
 
 export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.Element | null {
   const [selected, setSelected] = useState<string | null>(null);
+  // 뷰 상태 — viewBox 안에서 g transform으로 적용(줌·팬).
+  const [view, setView] = useState({ k: 1, tx: 0, ty: 0 });
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const panRef = useRef<{ cx: number; cy: number; tx: number; ty: number } | null>(null);
   const { nodes, edges } = useMemo(() => {
     const g = buildGraph(store, wikiLinks);
     if (g.nodes.length > 2) layout(g.nodes, g.edges);
@@ -175,6 +180,45 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
 
   // 노드 크기: 차수 비례(4~12px).
   const radius = (n: GraphNode): number => 4 + (n.degree / maxDegree) * 8;
+
+  // 클라이언트 좌표 → viewBox 좌표(letterbox 보정 포함, 정확 변환).
+  const toLocal = (cx: number, cy: number): { x: number; y: number } | null => {
+    const svg = svgRef.current;
+    const m = svg?.getScreenCTM();
+    if (!svg || !m) return null;
+    const pt = svg.createSVGPoint();
+    pt.x = cx;
+    pt.y = cy;
+    const p = pt.matrixTransform(m.inverse());
+    return { x: p.x, y: p.y };
+  };
+
+  const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    const c = toLocal(e.clientX, e.clientY);
+    if (!c) return;
+    const k2 = Math.min(6, Math.max(0.4, view.k * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    // 커서 지점 고정 줌: c = t' + k'·(c - t)/1 … t' = c - (c - t)·k'/k.
+    setView({
+      k: k2,
+      tx: c.x - (c.x - view.tx) * (k2 / view.k),
+      ty: c.y - (c.y - view.ty) * (k2 / view.k),
+    });
+  };
+
+  const onPanStart = (e: React.PointerEvent<SVGSVGElement>) => {
+    if ((e.target as Element).closest(".graph-node")) return;
+    panRef.current = { cx: e.clientX, cy: e.clientY, tx: view.tx, ty: view.ty };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onPanMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const p = panRef.current;
+    if (!p) return;
+    const a = toLocal(p.cx, p.cy);
+    const b = toLocal(e.clientX, e.clientY);
+    if (!a || !b) return;
+    setView((v) => ({ ...v, tx: p.tx + (a.x - b.x), ty: p.ty + (a.y - b.y) }));
+  };
 
   return (
     <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -192,7 +236,24 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
           {nodes.length === 0 ? (
             <div className="palette-empty">{t.wsSearchNoFolder}</div>
           ) : (
-            <svg viewBox="0 0 600 400" className="graph-svg" width="100%" height="100%">
+            <svg
+              ref={svgRef}
+              viewBox="0 0 600 400"
+              className="graph-svg"
+              width="100%"
+              height="100%"
+              onWheel={onWheel}
+              onPointerDown={onPanStart}
+              onPointerMove={onPanMove}
+              onPointerUp={() => {
+                panRef.current = null;
+              }}
+              onDoubleClick={(e) => {
+                // 배경 더블클릭 — 줌·팬 리셋(노드는 문서 열기).
+                if (!(e.target as Element).closest(".graph-node")) setView({ k: 1, tx: 0, ty: 0 });
+              }}
+            >
+              <g transform={`translate(${view.tx},${view.ty}) scale(${view.k})`}>
               {/* 간선 */}
               {edges.map((e, i) => {
                 const a = byId.get(e.from);
@@ -219,9 +280,13 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
                     key={n.id}
                     transform={`translate(${n.x},${n.y})`}
                     onClick={() => setSelected(n.id)}
-                    onDoubleClick={() => onOpen(n.id)}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      onOpen(n.id);
+                    }}
                     className={`graph-node ${isActive ? "is-active" : ""} ${isSel ? "is-sel" : ""}`}
                   >
+                    <title>{n.id}</title>
                     <circle r={radius(n)} />
                     {n.degree > 0 && (
                       <text y={radius(n) + 12} textAnchor="middle" className="graph-label">
@@ -231,6 +296,7 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
                   </g>
                 );
               })}
+              </g>
             </svg>
           )}
         </div>

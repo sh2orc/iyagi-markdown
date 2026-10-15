@@ -2175,7 +2175,14 @@ body.resizing .toc {
 }
 
 .graph-svg {
-  cursor: default;
+  cursor: grab;
+  touch-action: none;
+}
+.graph-svg:active {
+  cursor: grabbing;
+}
+.graph-node {
+  cursor: pointer;
 }
 
 .graph-edge {
