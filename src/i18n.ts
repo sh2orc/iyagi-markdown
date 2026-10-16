@@ -30,6 +30,7 @@ const en = {
   nextTab: "Next Tab",
   prevTab: "Previous Tab",
   hardBreak: "Line break (same paragraph)",
+  pageBreakHelp: "Page break (\\newpage)",
 
   cancel: "Cancel",
   close: "Close",
@@ -398,6 +399,7 @@ const ko: Dict = {
   nextTab: "다음 탭",
   prevTab: "이전 탭",
   hardBreak: "줄 바꿈(같은 문단)",
+  pageBreakHelp: "페이지 나누기(\\newpage)",
 
   cancel: "취소",
   close: "닫기",
