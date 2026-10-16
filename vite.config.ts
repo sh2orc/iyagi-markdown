@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -12,6 +13,11 @@ export default defineConfig({
     watch: { ignored: ["**/target/**"] },
   },
   envPrefix: ["VITE_", "TAURI_"],
+  test: {
+    // jsdom 미구현 API 전역 스텁(아래 setup) — 브라우저 API 호출 코드가
+    // 테스트를 TypeError로 무너뜨리는 부류의 원천 방어.
+    setupFiles: ["src/test-setup.ts"],
+  },
   build: {
     target: "es2022",
     minify: "esbuild",
