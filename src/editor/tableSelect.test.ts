@@ -82,3 +82,25 @@ describe("표 셀 다중 선택", { retry: 1 }, () => {
     view.destroy();
   });
 });
+
+describe("빈 셀 행 높이 보존", { retry: 1 }, () => {
+  it("새로 삽입한 빈 행의 셀도 줄 상자(nbsp)를 갖는다", async () => {
+    const view = await tableView();
+    let target: TableMenuTarget | null = null;
+    setTableMenuHandler((tg) => {
+      target = tg;
+    });
+    // (1행1열) 셀에서 '아래에 행 삽입' → 둘째 데이터 행이 빈 행.
+    cells(view)[0]!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 5));
+    target!.run("row-below");
+    await new Promise((r) => setTimeout(r, 20));
+    const rows = view.dom.querySelectorAll(".md-table tbody tr");
+    expect(rows.length).toBe(3);
+    for (const td of Array.from(rows[1]!.children)) {
+      expect(td.textContent).toBe("\u00A0"); // 빈 td가 아니라 줄 상자 있는 셀
+    }
+    setTableMenuHandler(null);
+    view.destroy();
+  });
+});

@@ -432,6 +432,9 @@ const tableCellText = (raw: string): DocumentFragment => {
     last = m.index + tok.length;
   }
   if (last < raw.length) frag.append(raw.slice(last));
+  // 빈 셀(공백만) — 줄 상자를 유지할 nbsp. 없으면 새로 삽입한 빈 행의
+  // 높이가 패딩만으로 꺼진다(Word/Excel은 빈 행도 정상 높이 유지).
+  if (!raw.trim()) frag.append("\u00A0"); // 줄 상자 유지(nbsp)
   return frag;
 };
 
