@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { readFileSync } from "node:fs";
 
-import { createDocState } from "./cm";
+import { createDocState, switchMode } from "./cm";
 import { __testing, setPreviewConfig } from "./livePreview";
 
 const SAMPLE = readFileSync(process.cwd() + "/docs/sample.md", "utf8");
@@ -114,5 +114,40 @@ describe("샘플 문서 라이브 프리뷰", { retry: 2 }, () => {
     expect((field as unknown as { size: number }).size).toBeGreaterThan(0);
     view.destroy();
     document.body.innerHTML = "";
+  });
+});
+
+// 실제 적용된 장식(상태 필드) 기준 — buildDecorations는 빌드 파이프라인 직접
+// 실행이라 소스 모드 게이트를 우회한다.
+function appliedKinds(view: EditorView): Record<string, number> {
+  const decos = view.state.field(__testing.decorationField);
+  const kinds: Record<string, number> = {};
+  const cursor = decos.iter();
+  while (cursor.value) {
+    kinds.dec = (kinds.dec ?? 0) + 1;
+    cursor.next();
+  }
+  return kinds;
+}
+
+describe("소스 모드 — 라이브 프리뷰 장식 없음(원문 그대로)", { retry: 1 }, () => {
+  it("source: 위젯·클래스 장식 0", async () => {
+    const view = new EditorView({ state: createDocState(SAMPLE, "source"), parent: document.body });
+    await new Promise((r) => setTimeout(r, 40));
+    expect(Object.keys(appliedKinds(view)).length).toBe(0);
+    view.destroy();
+  });
+
+  it("edit → source 전환: 기존 장식 해제, 복귀 시 재생성", async () => {
+    const view = new EditorView({ state: createDocState(SAMPLE, "edit"), parent: document.body });
+    await new Promise((r) => setTimeout(r, 40));
+    expect(Object.keys(widgetKinds(view)).length).toBeGreaterThan(0);
+    switchMode(view, "source");
+    await new Promise((r) => setTimeout(r, 40));
+    expect(Object.keys(appliedKinds(view)).length).toBe(0);
+    switchMode(view, "edit");
+    await new Promise((r) => setTimeout(r, 60));
+    expect(Object.keys(appliedKinds(view)).length).toBeGreaterThan(0);
+    view.destroy();
   });
 });

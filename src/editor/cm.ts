@@ -599,8 +599,10 @@ function modeValues(mode: ViewMode): Extension[] {
     mode === "read"
       ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
       : [EditorState.readOnly.of(false), EditorView.editable.of(true)];
-  const behavior = previewBehavior.of(mode === "read" ? "render" : "reveal");
-  const preview = mode === "source" ? [] : livePreviewExtension();
+  const behavior = previewBehavior.of(mode === "read" ? "render" : mode === "source" ? "source" : "reveal");
+  // 라이브 프리뷰 확장은 항상 등록 — 소스 모드는 previewBehavior "source"로
+  // 장식 발행을 끈다(확장을 빼면 설정 필드·재진입 시드가 사라진다).
+  const preview = livePreviewExtension();
   return [
     editableComp.of(editable),
     behaviorComp.of(behavior),
@@ -681,8 +683,8 @@ export function switchMode(view: EditorView, mode: ViewMode): void {
   view.dispatch({
     effects: [
       editableComp.reconfigure(editable),
-      behaviorComp.reconfigure(previewBehavior.of(mode === "read" ? "render" : "reveal")),
-      previewEnabledComp.reconfigure(mode === "source" ? [] : livePreviewExtension()),
+      behaviorComp.reconfigure(previewBehavior.of(mode === "read" ? "render" : mode === "source" ? "source" : "reveal")),
+      previewEnabledComp.reconfigure(livePreviewExtension()),
       // 모드 전환 자체는 doc/선택/뷰포트를 바꾸지 않는다 — 설정 이펙트로 재빌드를
       // 트리거한다(예: 읽기→편집 전환 시 커서 줄 원문 노출이 즉시 반영되게).
       setPreviewConfig.of(currentPreviewConfig(view)),

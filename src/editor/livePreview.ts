@@ -139,7 +139,7 @@ function previewConfigEquals(a: PreviewConfig | undefined, b: PreviewConfig): bo
 
 // — 모드: 읽기(항상 렌더) vs 편집(커서 줄 원문 노출) —
 
-export type PreviewBehavior = "render" | "reveal";
+export type PreviewBehavior = "render" | "reveal" | "source";
 export const previewBehavior = Facet.define<PreviewBehavior, PreviewBehavior>({
   combine: (values) => values[0] ?? "reveal",
 });
@@ -958,6 +958,18 @@ const plugin = ViewPlugin.fromClass(
       const view = this.view;
       // destroy된 뷰는 dom이 떨어져 나간다(destroyed는 private이라 간접 확인).
       if (!view || !view.dom.isConnected) return;
+      // 소스 모드 — 장식 없음(원문 그대로). 커밋된 장식이 남아 있으면 비우고,
+      // 이후 편집·스크롤이 와도 청크 계산을 하지 않는다(빈 dispatch는
+      // 갱신 루프를 만드므로 필드가 비었으면 디스패치하지 않는다).
+      if (view.state.facet(previewBehavior) === "source") {
+        this.ends = [];
+        this.plannedTreeLen = -1;
+        this.chunks.clear();
+        if (view.state.field(decorationField).size > 0) {
+          view.dispatch({ effects: setDecorations.of(Decoration.none) });
+        }
+        return;
+      }
       const docLen = view.state.doc.length;
       const treeLen = syntaxTree(view.state).length;
       if (treeLen !== this.plannedTreeLen) {
