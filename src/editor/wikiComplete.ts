@@ -10,6 +10,7 @@ import {
 import { languages } from "@codemirror/language-data";
 
 import { emojiCompletions } from "./emojiComplete";
+import { parseCiteDefs } from "./citations";
 
 /** 문서 목록 공급자 — App이 위키 인덱스에서 만들어 넣는다(경로|표시). */
 export interface WikiDoc {
@@ -29,6 +30,24 @@ export function setWikiDocsProvider(fn: (() => WikiDoc[]) | null): void {
 /** \ud0dc\uadf8 \ubaa9\ub85d \uacf5\uae09\uc790 \ub4f1\ub85d(App\uc774 \ubb38\uc11c \uc2a4\ucea8 \ud6c4 \uc124\uc815). */
 export function setTagListProvider(fn: (() => string[]) | null): void {
   tagsProvider = fn ?? (() => []);
+}
+
+/** "[@위치" — 문서 내 서지 키 후보(정의된 키만 — 끊긴 인용을 유도하지
+ *  않는다). 닫는 ]까지 적용. 키는 현재 문서에서 직접 스캔(문서 단위 규약). */
+function citeCompletions(context: CompletionContext): CompletionResult | null {
+  const before = context.matchBefore(/\[@[^\][\n]*/);
+  if (!before) return null;
+  if (before.text.includes("]")) return null;
+  const typed = before.text.slice(2);
+  const keys = [...parseCiteDefs(context.state.doc.toString()).keys()];
+  if (keys.length === 0) return null;
+  const q = typed.toLowerCase();
+  const options: Completion[] = keys
+    .filter((k) => !q || k.toLowerCase().includes(q))
+    .slice(0, 20)
+    .map((k) => ({ label: k, apply: `${k}]`, type: "variable" }));
+  if (options.length === 0) return null;
+  return { from: before.from + 2, options, validFor: /^[^\][\n]*$/ };
 }
 
 /** "[[위치" 에서 문서 이름 후보. */
@@ -80,6 +99,8 @@ export function wikiAutocompletion() {
 export function combinedMatcher(context: CompletionContext): CompletionResult | null {
   const wiki = wikiCompletions(context);
   if (wiki) return wiki;
+  const cite = citeCompletions(context);
+  if (cite) return cite;
   const tag = tagCompletions(context);
   if (tag) return tag;
   const fence = fenceLanguageCompletions(context);
