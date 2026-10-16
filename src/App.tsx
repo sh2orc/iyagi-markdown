@@ -180,7 +180,12 @@ export function App(): JSX.Element {
 
   // — 모달이 열려 있으면 에디터로 키보드 포커스가 새지 않게(의도치 않은
   //    입력·Tab 탐색 차단). 검색 바는 에디터 조작이 함께 일어나야 하므로 제외. —
-  const modalOpen = !!(
+  // 오버레이 단일 원천 — modalOpen(에디터 inert·Tab 트랩)과 anyOverlay(닫힘
+  // 포커스 복귀)가 같은 목록을 공유한다. 32차까지 세 목록이 따로 놀아
+  // 그래프·검수 등 10종이 inert·트랩을 빠졌다 — 새 오버레이는 여기만 추가.
+  // 검색 바는 제외 — 열려도 편집(찾으며 고치기 흐름). 기호판 연속 삽입도
+  // 프로그램 삽입이라 inert와 무관하다.
+  const overlayOpen = !!(
     closeAsk ||
     settingsOpen ||
     styleOpen ||
@@ -203,12 +208,10 @@ export function App(): JSX.Element {
     viewer !== null ||
     commentAddLine !== null ||
     imgEditPos !== null ||
-    state.exportKind ||
-    state.busy ||
-    state.tabs.some((x) => x.conflict === "conflict" || x.conflict === "removed")
+    state.exportKind !== null ||
+    state.tabs.some((x) => x.conflict !== null)
   );
-  // 검색 바는 modalOpen에서 의도적으로 제외 — 열려도 편집 가능(10자리 찾기
-  // 흐름). 기호판 연속 삽입도 프로그램 삽입이라 inert와 무관하다.
+  const modalOpen = overlayOpen || state.busy !== null;
   useEffect(() => {
     if (editorHost.current) editorHost.current.inert = modalOpen;
   }, [modalOpen]);
@@ -939,32 +942,7 @@ export function App(): JSX.Element {
   // 복귀 — a11y 규범(대화상자는 이전 위치로)이자 키보드 사용자가 body에서
   // Tab으로 다시 시작하지 않게 하는 조치. 팔레트→시트처럼 한 이벤트에서
   // 교체되면 열림 수가 유지돼 발동하지 않는다(기호판 연속 삽입도 안전).
-  const anyOverlay =
-    settingsOpen ||
-    styleOpen ||
-    printOpen ||
-    shortcutsOpen ||
-    statsOpen ||
-    paletteOpen ||
-    wsSearchOpen ||
-    graphOpen ||
-    versionsOpen ||
-    backlinksOpen ||
-    brokenOpen ||
-    diffOpen ||
-    symbolOpen ||
-    tableDialogOpen ||
-    commentsOpen ||
-    reviewOpen ||
-    fmOpen ||
-    trackOpen ||
-    viewer !== null ||
-    commentAddLine !== null ||
-    imgEditPos !== null ||
-    closeAsk !== null ||
-    state.exportKind !== null ||
-    state.searchOpen ||
-    state.tabs.some((t) => t.conflict);
+  const anyOverlay = overlayOpen || state.searchOpen;
   const hadOverlay = useRef(false);
   useEffect(() => {
     if (hadOverlay.current && !anyOverlay) editorView.current?.focus();
