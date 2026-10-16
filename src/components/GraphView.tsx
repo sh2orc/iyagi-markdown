@@ -112,6 +112,24 @@ function buildGraph(store: AppStore, wikiLinks?: Array<{ from: string; to: strin
   return { nodes, edges };
 }
 
+/** 줌 적용(순수) — 고정점 c 주변으로 배율 k'·t' = c - (c - t)·k'/k.
+ *  휠(커서 고정)·키보드(중앙 고정)가 같은 수식을 쓴다. */
+export function zoomAt(
+  k: number,
+  tx: number,
+  ty: number,
+  cx: number,
+  cy: number,
+  factor: number,
+): { k: number; tx: number; ty: number } {
+  const k2 = Math.min(6, Math.max(0.4, k * factor));
+  return {
+    k: k2,
+    tx: cx - (cx - tx) * (k2 / k),
+    ty: cy - (cy - ty) * (k2 / k),
+  };
+}
+
 /** 화살표 이동 — 방향 축으로 가장 가까운 노드(수직 오프셋 벌점).
  *  순수 함수(로빙 tabindex 키보드 탐색용 — 리스트 규약의 SVG 판). */
 export function nearestNodeInDirection(
@@ -224,13 +242,8 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
     e.preventDefault();
     const c = toLocal(e.clientX, e.clientY);
     if (!c) return;
-    const k2 = Math.min(6, Math.max(0.4, view.k * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
-    // 커서 지점 고정 줌: c = t' + k'·(c - t)/1 … t' = c - (c - t)·k'/k.
-    setView({
-      k: k2,
-      tx: c.x - (c.x - view.tx) * (k2 / view.k),
-      ty: c.y - (c.y - view.ty) * (k2 / view.k),
-    });
+    // 커서 지점 고정 줌 — 수식은 zoomAt(키보드 줌과 공용).
+    setView(zoomAt(view.k, view.tx, view.ty, c.x, c.y, e.deltaY < 0 ? 1.15 : 1 / 1.15));
   };
 
   const onPanStart = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -268,6 +281,20 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
       ArrowUp: [0, -1],
       ArrowDown: [0, 1],
     };
+    // 키보드 줌 — 중앙 고정(+/-는 물리 키, 0은 리셋).
+    if (e.key === "+" || e.key === "=" || e.key === "-" || e.key === "0") {
+      e.preventDefault();
+      if (e.key === "0") {
+        setView({ k: 1, tx: 0, ty: 0 });
+        return;
+      }
+      const svg = svgRef.current;
+      const box = svg?.getBoundingClientRect();
+      const c = box ? toLocal(box.left + box.width / 2, box.top + box.height / 2) : { x: 300, y: 200 };
+      if (!c) return;
+      setView(zoomAt(view.k, view.tx, view.ty, c.x, c.y, e.key === "-" ? 1 / 1.25 : 1.25));
+      return;
+    }
     const dir = dirs[e.key];
     if (!dir) return;
     const cur = focused ?? nodes[0]?.id;

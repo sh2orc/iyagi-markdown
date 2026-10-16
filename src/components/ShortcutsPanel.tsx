@@ -85,6 +85,7 @@ const GROUPS = (t: Translate): Array<{ title: string; items: [string, string][] 
       [t.keyGutter, t.helpFold],
       [t.keyHover, t.helpWikiHover],
       ["←→↑↓", t.helpGraphNav],
+      ["+/−/0", t.helpGraphZoom],
       ["←→", t.helpResizer],
       ["⌘⇧P", `${t.speakStart} · ${t.speakStop}`],
     ],

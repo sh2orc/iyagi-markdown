@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { nearestNodeInDirection } from "./GraphView";
+import { nearestNodeInDirection, zoomAt } from "./GraphView";
 
 const N = [
   { id: "c", x: 0, y: 0 }, // 기준
@@ -29,5 +29,25 @@ describe("nearestNodeInDirection", () => {
 
   it("기준 노드가 목록에 없으면 null", () => {
     expect(nearestNodeInDirection(N, "없음", 1, 0)).toBeNull();
+  });
+});
+
+describe("zoomAt (그래프 줌 — 순수)", () => {
+  it("고정점 보존 — 줌인/아웃 모두 고정점 좌표 불변", () => {
+    const z = zoomAt(1, 0, 0, 300, 200, 1.25);
+    expect(z.k).toBe(1.25);
+    expect(z.tx).toBeCloseTo(300 - 300 * 1.25);
+    // 고정점 역변환: (c - t)/k = 원래 (300 - 0)/1
+    expect((300 - z.tx) / z.k).toBeCloseTo(300);
+    expect((200 - z.ty) / z.k).toBeCloseTo(200);
+    const zo = zoomAt(2, 10, 20, 50, 60, 0.5);
+    expect(zo.k).toBe(1);
+    expect((50 - zo.tx) / zo.k).toBeCloseTo((50 - 10) / 2);
+    expect((60 - zo.ty) / zo.k).toBeCloseTo((60 - 20) / 2);
+  });
+
+  it("클램프 — 0.4~6 범위 밖으로 나가지 않는다", () => {
+    expect(zoomAt(5.5, 0, 0, 0, 0, 2).k).toBe(6);
+    expect(zoomAt(0.5, 0, 0, 0, 0, 0.5).k).toBe(0.4);
   });
 });
