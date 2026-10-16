@@ -109,6 +109,7 @@ export function CommandPalette({
   onOpenVersions,
   onOpenBacklinks,
   onOpenBrokenLinks,
+  onAddComment,
 }: Props): JSX.Element {
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
@@ -187,6 +188,9 @@ export function CommandPalette({
       { id: "versions", label: `${t.scFile}: ${t.versionsTitle}`, run: () => onOpenVersions?.() },
       { id: "backlinks", label: `${t.scView}: ${t.backlinksTitle}`, run: () => onOpenBacklinks?.() },
       ...(onOpenComments ? [{ id: "comments", label: `${t.commentsTitle}…`, run: onOpenComments }] : []),
+      // 커서 줄에 메모 추가 — 우클릭 메뉴와 같은 대화상자(팔레티 진입은 그동안
+      // 죽은 배선이었다: prop만 선언되고 호출처가 없었다).
+      ...(onAddComment ? [{ id: "comment-add", label: `${t.scReview}: ${t.ctxAddComment}`, run: () => onAddComment() }] : []),
       ...(onOpenReview ? [{ id: "review", label: `${t.reviewTitle}…`, run: onOpenReview }] : []),
       ...(onOpenFrontMatter ? [{ id: "frontmatter", label: `${t.fmTitle}…`, run: onOpenFrontMatter }] : []),
       { id: "broken-links", label: `${t.scEdit}: ${t.brokenLinksTitle}`, run: () => onOpenBrokenLinks?.() },
