@@ -12,7 +12,14 @@ import { occurrenceHighlight } from "./occurrences";
 import { copyFormat, pasteFormat } from "./formatPainter";
 import { Compartment, EditorState, Extension } from "@codemirror/state";
 import { crosshairCursor, EditorView, keymap, rectangularSelection, type ViewUpdate } from "@codemirror/view";
-import { defaultKeymap, history, historyField, historyKeymap } from "@codemirror/commands";
+import {
+  cursorLineDown,
+  cursorLineUp,
+  defaultKeymap,
+  history,
+  historyField,
+  historyKeymap,
+} from "@codemirror/commands";
 import { GFM } from "@lezer/markdown";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
@@ -110,6 +117,7 @@ const headingFoldService = foldService.of((state, from, to) => {
 });
 
 import {
+  blockWidgetRangesBetween,
   findLinkAt,
   livePreviewExtension,
   previewBehavior,
@@ -225,6 +233,40 @@ let mdItPromise: Promise<void> | null = null;
  *  plain 선행 삽입 + 비동기 변환 업그레이드로 프레임을 지킨다. */
 const HTML_PASTE_SYNC_MAX = 512_000;
 
+/** 수직 이동 가드 — CM의 시각 기준 이동이 블록 위젯(표·수식 등)을 넘어
+ *  점프하며 사이 일반 줄을 건너뛰는 것을 교정한다. 이동 결과가 2줄 이상
+ *  도약하고 그 사이에 위젯에 덮이지 않은 줄이 있으면 가장 가까운 줄로
+ *  끊는다(열은 보존). */
+export function guardedLineMove(view: EditorView, dir: 1 | -1): boolean {
+  const sel = view.state.selection.main;
+  const startLine = view.state.doc.lineAt(sel.head);
+  const moved = dir === 1 ? cursorLineDown(view) : cursorLineUp(view);
+  if (!moved) return false;
+  const head = view.state.selection.main.head;
+  const endLine = view.state.doc.lineAt(head);
+  const crossed = dir === 1 ? endLine.number - startLine.number : startLine.number - endLine.number;
+  if (sel.empty && crossed > 1) {
+    const covered = blockWidgetRangesBetween(
+      view.state,
+      Math.min(startLine.from, endLine.from),
+      Math.max(startLine.to, endLine.to),
+    );
+    const isCovered = (pos: number): boolean => covered.some((r) => r.from <= pos && pos < r.to);
+    const col = Math.min(sel.head - startLine.from, Math.max(endLine.length, startLine.length));
+    // 이동 방향 쪽(시작 줄 바로 옆)부터 탐색 — 가장 가까운 살아 있는 줄로.
+    const first = dir === 1 ? startLine.number + 1 : startLine.number - 1;
+    const last = dir === 1 ? endLine.number : endLine.number;
+    for (let n = first; dir === 1 ? n <= last : n >= last; n += dir) {
+      const line = view.state.doc.line(n);
+      if (!isCovered(line.from)) {
+        view.dispatch({ selection: { anchor: line.from + Math.min(col, line.length) } });
+        return true;
+      }
+    }
+  }
+  return true;
+}
+
 function baseExtensions(): Extension[] {
   return [
     historyField,
@@ -235,6 +277,9 @@ function baseExtensions(): Extension[] {
       ...historyKeymap,
       // 검색 패널은 앱이 띄운다 — searchKeymap의 openSearchPanel은 CM 기본 UI라 Mod-f/Mod-g는 뺀다.
       ...searchKeymap.filter((b) => b.key !== "Mod-f" && b.key !== "Mod-g"),
+      // 순수 ↑↓ — 위젯 점프 교정 가드(블록 위젯 사이 일반 줄 건너뛰기 방지).
+      { key: "ArrowUp", run: (v) => guardedLineMove(v, -1) },
+      { key: "ArrowDown", run: (v) => guardedLineMove(v, 1) },
       { key: "Mod-b", run: (v) => fmt.toggleBold(v), preventDefault: true },
       { key: "Mod-i", run: (v) => fmt.toggleItalic(v), preventDefault: true },
       { key: "Mod-Shift-x", run: (v) => fmt.toggleStrikethrough(v), preventDefault: true },

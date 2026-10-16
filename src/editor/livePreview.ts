@@ -1134,6 +1134,24 @@ export function setCommentOpenHandler(fn: (() => void) | null): void {
 }
 
 /** 테스트 전용 내부 노출. */
+/** [from,to]와 겹치는 블록 위젯 치환 범위들 — 수직 이동 교정용(커서가
+ *  위젯을 넘어 점프할 때 사이 살아 있는 줄로 끊는다). */
+export function blockWidgetRangesBetween(
+  state: EditorState,
+  from: number,
+  to: number,
+): Array<{ from: number; to: number }> {
+  const out: Array<{ from: number; to: number }> = [];
+  const cursor = state.field(decorationField).iter(from);
+  while (cursor.value) {
+    if (cursor.from > to) break;
+    const spec = (cursor.value as unknown as { spec?: { widget?: unknown; block?: boolean } }).spec;
+    if (spec?.widget && spec.block) out.push({ from: cursor.from, to: cursor.to });
+    cursor.next();
+  }
+  return out;
+}
+
 export const __testing = {
   decorationField: decorationField,
   buildDecorations,

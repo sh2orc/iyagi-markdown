@@ -1,7 +1,7 @@
 // 에디터 조각 단위 테스트 — 수식 문법 노드, 표 파서, 검색 매칭.
 // @vitest-environment jsdom
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
@@ -13,8 +13,9 @@ import { languages } from "@codemirror/language-data";
 import { mathSyntax } from "./mathSyntax";
 import { parseTable, serializeTable } from "./widgets";
 import { computeMatches, updateMatchesForChanges } from "../search/searchCm";
-import { createDocState, headingFoldOf, listItemFoldOf } from "./cm";
+import { createDocState, guardedLineMove, headingFoldOf, listItemFoldOf } from "./cm";
 import { sortLines, sortedLineTexts } from "./format";
+import { blockWidgetRangesBetween } from "./livePreview";
 
 const parse = (doc: string) => {
   const state = EditorState.create({
@@ -478,5 +479,52 @@ describe("sortLines (줄 정렬·중복 제거)", { retry: 1 }, () => {
     const done = sortView("a\nb", 0, 3);
     expect(sortLines(done)).toBe(false);
     done.destroy();
+  });
+});
+
+describe("수직 이동 가드 — 블록 위젯 사이 줄 건너뛰기 방지", { retry: 1 }, () => {
+  // jsdom은 Range.getClientRects가 없어 CM 측정 경로가 죽는다 — 스텁.
+  beforeAll(() => {
+    const proto = Range.prototype as unknown as { getClientRects?: () => DOMRectList };
+    if (!proto.getClientRects) {
+      Object.defineProperty(Range.prototype, "getClientRects", {
+        value: () => [{ top: 0, bottom: 12, left: 0, right: 40, width: 40, height: 12 }],
+      });
+    }
+  });
+  const navDoc = "| a | b |\n|---|---|\n| 1 | 2 |\n\n중간 문장입니다\n\n| c | d |\n|---|---|\n| 3 | 4 |\n";
+  const navView = async (): Promise<EditorView> => {
+    const v = new EditorView({ state: createDocState(navDoc, "edit"), parent: document.body });
+    await new Promise((r) => setTimeout(r, 40));
+    return v;
+  };
+
+  it("표 B 시작에서 ↑ — 중간 문장 줄(5)을 건너뛰지 않는다", async () => {
+    const view = await navView();
+    const line7 = view.state.doc.line(7);
+    view.dispatch({ selection: { anchor: line7.from } });
+    // jsdom(측정 없음)에선 CM ↑가 위젯을 넘어 도약한다 — 가드가 정확히 한 줄씩.
+    for (const want of [6, 5, 4]) {
+      expect(guardedLineMove(view, -1)).toBe(true);
+      const after = view.state.doc.lineAt(view.state.selection.main.head).number;
+      expect(after).toBe(want);
+    }
+    view.destroy();
+  });
+
+  it("문장 줄에서 ↓도 한 줄씩(빈 줄 6로)", async () => {
+    const view = await navView();
+    const line5 = view.state.doc.line(5);
+    view.dispatch({ selection: { anchor: line5.from } });
+    expect(guardedLineMove(view, 1)).toBe(true);
+    expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(6);
+    view.destroy();
+  });
+
+  it("가드 헬퍼 — 블록 위젯 범위만 반환(텍스트 줄 제외)", () => {
+    const state = createDocState(navDoc, "edit");
+    const mid = state.doc.line(5);
+    const covered = blockWidgetRangesBetween(state, mid.from - 10, mid.to + 10);
+    expect(covered.length).toBe(0); // 문장 줄 주변(빈 줄 포함)엔 위젯이 없다
   });
 });
