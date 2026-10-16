@@ -117,6 +117,7 @@ export interface StoreIO {
   getSession?(): Promise<SessionState | null>;
   docStyleGet?(path: string): Promise<string | null>;
   docStyleSet?(path: string, styleJson: string): Promise<void>;
+  getRecent?(): Promise<RecentEntry[]>;
   bookmarkList?(path: string): Promise<number[]>;
   bookmarkAdd?(path: string, lineNo: number): Promise<void>;
   bookmarkRemove?(path: string, lineNo: number): Promise<void>;
@@ -301,6 +302,7 @@ export class AppStore {
       this.toast(`${phrases.saveFailed}: ${e instanceof Error ? e.message : String(e)}`, "error");
       return;
     }
+    void this.loadRecent(); // read_document가 Rust recent를 밀었다 — 사이드바 갱신
     // §7: 임계(1MB) 초과 문서는 장식 비용이 커진다 — 소스 모드로 열고 알린다.
     const LARGE_DOC = 1_000_000;
     const forced = doc.text.length > LARGE_DOC && !mode ? ("source" as const) : null;
@@ -1412,6 +1414,7 @@ export class AppStore {
       const tab = this.state.tabs.find((t) => t.path === session.active);
       if (tab) this.activate(tab.id);
     }
+    void this.loadRecent(); // 사이드바 '최근' — 세션과 무관하게 Rust 목록으로
     this.emit();
   }
 
@@ -1504,6 +1507,17 @@ export class AppStore {
   setRecent(entries: RecentEntry[]): void {
     this.state.recent = entries;
     this.emit();
+  }
+
+  /** Rust 최근 목록을 상태로 — 사이드바 '최근' 섹션의 데이터. 열림·복원 뒤 갱신
+   *  (read_document가 Rust쪽 recent를 밀어준다). */
+  async loadRecent(): Promise<void> {
+    if (!this.io.getRecent) return;
+    try {
+      this.setRecent(await this.io.getRecent());
+    } catch {
+      /* 시작 실패는 최근 없음과 같다 */
+    }
   }
 
   toast(text: string, kind: "info" | "error" = "info"): void {

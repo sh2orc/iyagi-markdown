@@ -462,3 +462,25 @@ describe("TTS 시작 실패 피드백", () => {
     setViewListener(null);
   });
 });
+
+describe("최근 파일 상태 갱신(loadRecent)", () => {
+  it("restoreSession 뒤 Rust 목록으로 state.recent를 채운다 — 사이드바 데이터", async () => {
+    const io = fakeIo();
+    io.getRecent = async () => [{ path: "/tmp/r1.md", name: "r1.md" }];
+    const store = new AppStore(io);
+    expect(store.state.recent).toHaveLength(0); // 그동안 이 값이 영원히 비어 있었다
+    await store.restoreSession({
+      version: 1,
+      tabs: [],
+      active: null,
+      workspace: null,
+      sidebarOpen: true,
+      sidebarWidth: 240,
+      tocOpen: true,
+      window: null,
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(store.state.recent).toHaveLength(1);
+    expect(store.state.recent[0]?.name).toBe("r1.md");
+  });
+});
