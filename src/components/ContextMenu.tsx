@@ -40,28 +40,44 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const onContext = (e: MouseEvent) => {
-      const host = (e.target as HTMLElement | null)?.closest?.(".editor-host");
+    // 메뉴 내용 조립(우클릭·키보드 호출 공용) — 좌표에서 문맥(링크·표) 판정.
+    const openAt = (cx: number, cy: number): void => {
       const view = store.view;
-      if (!host || !view) return;
-      e.preventDefault();
-      const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
+      if (!view) return;
+      const pos = view.posAtCoords({ x: cx, y: cy }) ?? view.state.selection.main.head;
       const sel = view.state.selection.main;
-      const link = pos == null ? null : findLinkAt(view.state, pos);
-      const img = pos == null || link ? null : findImageAt(view.state, pos);
+      const link = findLinkAt(view.state, pos);
+      const img = link ? null : findImageAt(view.state, pos);
       const baseDir = view.state.field(previewConfigField, false)?.baseDir ?? "";
       setMenu({
-        x: e.clientX,
-        y: e.clientY,
+        x: cx,
+        y: cy,
         hasSelection: !sel.empty,
         // undo/redo 깊이는 비공개 API라 항상 활성(실행 시 없으면 무동작).
         canUndo: editableNow(store),
         canRedo: editableNow(store),
-        inTable: pos != null && !!fmt.tableAround(view),
+        inTable: !!fmt.tableAround(view),
         link: link ? { url: link.url, text: link.text, from: link.from, to: link.to, baseDir } : null,
-      img: img ? { url: img.url, alt: img.alt, from: img.from, to: img.to } : null,
-      table: null,
+        img: img ? { url: img.url, alt: img.alt, from: img.from, to: img.to } : null,
+        table: null,
       });
+    };
+    const onContext = (e: MouseEvent) => {
+      const host = (e.target as HTMLElement | null)?.closest?.(".editor-host");
+      if (!host) return;
+      e.preventDefault();
+      // 키보드 호출(메뉴 키)은 좌표가 (0,0)으로 온다 — 커서 위치로.
+      let cx = e.clientX;
+      let cy = e.clientY;
+      if (cx === 0 && cy === 0) {
+        const view = store.view;
+        const c = view ? view.coordsAtPos(view.state.selection.main.head) : null;
+        if (c) {
+          cx = c.left;
+          cy = c.bottom + 4;
+        }
+      }
+      openAt(cx, cy);
     };
     // 메뉴 바깥 포인터 다운·Esc로 닫기. 메뉴 자체는 제외 — 항목 활성화가
     // 닫는다(탭·파일 메뉴와 같은 규약. 닫기가 항목 제거 시점에 의존하지
@@ -72,6 +88,16 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setMenu(null);
+      // ⇧F10 — WebKit은 이 조합을 contextmenu로 발화하지 않아 직접 연다.
+      else if (e.key === "F10" && e.shiftKey) {
+        const host = (e.target as HTMLElement | null)?.closest?.(".editor-host");
+        const view = store.view;
+        if (host && view) {
+          e.preventDefault();
+          const c = view.coordsAtPos(view.state.selection.main.head);
+          if (c) openAt(c.left, c.bottom + 4);
+        }
+      }
     };
     window.addEventListener("contextmenu", onContext);
     window.addEventListener("pointerdown", close);

@@ -676,7 +676,9 @@ export class TableWidget extends WidgetType {
         selActive !== null
       ) {
         // 메뉴 키·⇧F10 — 표 메뉴를 키보드로 호출(14개 오퍼레이션 전부 도달).
+        // window의 일반 메뉴 ⇧F10까지 전파되면 표 메뉴를 덮어쓴다 — 차단.
         e.preventDefault();
+        e.stopPropagation();
         const cell = gridCellAt(Array.from(wrap.querySelectorAll("tr")), selActive.r, selActive.c);
         const box = cell?.getBoundingClientRect();
         if (box) openTableMenu(selActive, box.left, box.bottom + 4);
