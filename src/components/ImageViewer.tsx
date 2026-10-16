@@ -31,6 +31,7 @@ export function ImageViewer({ src, alt, t, onClose, onEditAlt, onNav, index, tot
   const reset = () => {
     setZoom(1);
     setPan({ x: 0, y: 0 });
+    setRot(0); // '원본 보기' — 회전까지 되돌린다(0·1:1·더블클릭 공용)
   };
 
   useEffect(() => {
