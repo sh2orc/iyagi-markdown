@@ -10,7 +10,7 @@ import { looksLikeTsv, tsvToTable } from "./tsvTable";
 import { trackChanges } from "./trackChanges";
 import { occurrenceHighlight } from "./occurrences";
 import { copyFormat, pasteFormat } from "./formatPainter";
-import { Compartment, EditorState, Extension } from "@codemirror/state";
+import { Compartment, EditorState, Extension, Prec } from "@codemirror/state";
 import { crosshairCursor, EditorView, keymap, rectangularSelection, type ViewUpdate } from "@codemirror/view";
 import {
   cursorLineDown,
@@ -277,9 +277,6 @@ function baseExtensions(): Extension[] {
       ...historyKeymap,
       // 검색 패널은 앱이 띄운다 — searchKeymap의 openSearchPanel은 CM 기본 UI라 Mod-f/Mod-g는 뺀다.
       ...searchKeymap.filter((b) => b.key !== "Mod-f" && b.key !== "Mod-g"),
-      // 순수 ↑↓ — 위젯 점프 교정 가드(블록 위젯 사이 일반 줄 건너뛰기 방지).
-      { key: "ArrowUp", run: (v) => guardedLineMove(v, -1) },
-      { key: "ArrowDown", run: (v) => guardedLineMove(v, 1) },
       { key: "Mod-b", run: (v) => fmt.toggleBold(v), preventDefault: true },
       { key: "Mod-i", run: (v) => fmt.toggleItalic(v), preventDefault: true },
       { key: "Mod-Shift-x", run: (v) => fmt.toggleStrikethrough(v), preventDefault: true },
@@ -352,6 +349,14 @@ function baseExtensions(): Extension[] {
     trackChanges(),
     editorTheme,
     EditorView.lineWrapping,
+    // 순수 ↑↓ — 위젯 점프 교정 가드. defaultKeymap의 화살표보다 먼저
+    // 타야 한다(Prec.highest — 같은 배열 뒤에 넣는 것만으로는 이기지 못함).
+    Prec.highest(
+      keymap.of([
+        { key: "ArrowUp", run: (v) => guardedLineMove(v, -1) },
+        { key: "ArrowDown", run: (v) => guardedLineMove(v, 1) },
+      ]),
+    ),
     // 멀티커서 — 이 facet이 없으면 상태가 강제로 단일 선택으로 붕괴된다
     // (⌥클릭·⌥⌘D·⌥⌘↑↓ 모두 무효). ⌥클릭 커서 추가(VS Code 표준),
     // ⌘클릭은 링크 열기 그대로.

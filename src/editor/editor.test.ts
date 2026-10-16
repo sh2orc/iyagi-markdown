@@ -521,6 +521,18 @@ describe("수직 이동 가드 — 블록 위젯 사이 줄 건너뛰기 방지"
     view.destroy();
   });
 
+  it("키 이벤트 경로 — 가드가 defaultKeymap 화살표보다 우선한다", async () => {
+    const view = await navView();
+    const line7 = view.state.doc.line(7);
+    view.dispatch({ selection: { anchor: line7.from } });
+    view.contentDOM.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(6);
+    view.destroy();
+  });
+
   it("가드 헬퍼 — 블록 위젯 범위만 반환(텍스트 줄 제외)", () => {
     const state = createDocState(navDoc, "edit");
     const mid = state.doc.line(5);
