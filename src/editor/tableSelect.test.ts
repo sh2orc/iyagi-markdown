@@ -279,3 +279,44 @@ describe("표 선택 재시작 — Esc 뒤 화살표", { retry: 1 }, () => {
     view.destroy();
   });
 });
+
+describe("표 선택 스크롤 추종·⇧Enter 위 이동", { retry: 1 }, () => {
+  it("화살표 이동마다 활성 셀 scrollIntoView(nearest) 호출", async () => {
+    const calls: string[] = [];
+    const proto = Element.prototype as unknown as { scrollIntoView?: (o?: unknown) => void };
+    const orig = proto.scrollIntoView;
+    proto.scrollIntoView = (o) => {
+      calls.push(JSON.stringify(o ?? {}));
+    };
+    try {
+      const view = await tableView();
+      const cs = cells(view);
+      cs[0]!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      cs[1]!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      window.dispatchEvent(new MouseEvent("mouseup"));
+      await new Promise((r) => setTimeout(r, 15)); // 선택 완성(클릭만으론 편집 시작)
+      const wrap = view.dom.querySelector(".md-table-wrap")!;
+      wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+      await new Promise((r) => setTimeout(r, 5));
+      expect(calls.length).toBeGreaterThan(0);
+      expect(calls[calls.length - 1]).toContain('"block":"nearest"');
+      view.destroy();
+    } finally {
+      proto.scrollIntoView = orig;
+    }
+  });
+
+  it("셀 편집 ⇧Enter — 위 셀로 이동(Enter는 아래)", async () => {
+    const view = await tableView();
+    const cs = cells(view);
+    cs[0]!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); // (1행1열) 편집 예약
+    await new Promise((r) => setTimeout(r, 30));
+    let editing = view.dom.querySelector(".md-cell-editing");
+    expect(editing?.textContent).toBe("1");
+    editing!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 30));
+    editing = view.dom.querySelector(".md-cell-editing");
+    expect(editing?.textContent).toBe("a"); // 헤더(위) 셀로
+    view.destroy();
+  });
+});

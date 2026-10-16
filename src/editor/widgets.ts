@@ -549,6 +549,12 @@ export class TableWidget extends WidgetType {
     const paintSelection = (): void => {
       wrap.querySelectorAll("td,th").forEach((cell) => cell.classList.remove("md-cell-selected"));
       if (!selRect) return;
+      // 활성 셀이 시야를 벗어나면 따라감(키보드 이동·드래그 경계 자동 스크롤).
+      const act = selActive ?? { r: selRect.r2, c: selRect.c2 };
+      gridCellAt(Array.from(wrap.querySelectorAll("tr")), act.r, act.c)?.scrollIntoView?.({
+        block: "nearest",
+        inline: "nearest",
+      }); // 메서드 옵셔널 — jsdom은 scrollIntoView 미구현
       const rows = Array.from(wrap.querySelectorAll("tr"));
       for (let r = selRect.r1; r <= selRect.r2; r++) {
         for (let c = selRect.c1; c <= selRect.c2; c++) {
@@ -887,6 +893,9 @@ export class TableWidget extends WidgetType {
           e.preventDefault();
           cancelled = true;
           cell.blur();
+        } else if (e.key === "Enter" && e.shiftKey) {
+          e.preventDefault();
+          finish({ row: Math.max(row - 1, 0), col }); // ⇧Enter — 위 셀로(Enter는 아래)
         } else if (e.key === "Enter") {
           e.preventDefault();
           finish({ row: Math.min(row + 1, parsed.rows.length + 1), col });
