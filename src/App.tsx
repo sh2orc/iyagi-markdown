@@ -20,6 +20,7 @@ import {
 import { AppStore, resolveTheme, type ExportKind, type Tab } from "./app/store";
 import { replaceDoc, setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
 import { phrases, setPhrases } from "./app/phrases";
+import { findNext, searchStateOf } from "./search/searchCm";
 import { invalidateLinkPreviews } from "./editor/linkPreview";
 import { frontMatterLen, frontMatterMeta, stripFrontMatter } from "./editor/frontmatter";
 import { EPUB_CSS, epubChapterInputs, splitEpubChapters } from "./export/epub";
@@ -736,6 +737,22 @@ export function App(): JSX.Element {
           break;
         }
         case "find":
+          store.setSearchOpen(true);
+          break;
+        case "find-next":
+        case "find-prev": {
+          // ⌘G/⇧⌘G — 메뉴 가속기가 webview보다 먼저 소모하므로 여기서 실행
+          // (그동안 케이스가 없어 메뉴·단축키가 무반응이었다).
+          const v = editorView.current;
+          const q = v ? searchStateOf(v.state).query : null;
+          if (v && q?.text) {
+            findNext(v, id === "find-next");
+          } else {
+            store.setSearchOpen(true); // 쿼리 없음 — 패널부터
+          }
+          break;
+        }
+        case "replace":
           store.setSearchOpen(true);
           break;
         case "versions":
