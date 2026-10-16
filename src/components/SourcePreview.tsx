@@ -2,6 +2,7 @@
 // 내보내기 파이프라인(renderExportBody·buildExportHtml)을 그대로 타서
 // "미리보기=내보내기 결과"가 보장된다(인쇄 미리보기와 캐시 공유). 렌더는
 // 300ms 디바운스, 왼쪽 스크롤을 오른쪽에 비례 동기(rAF 스로틀).
+// 폭 드래그는 RefPane 규약(컨테이너 % · localStorage 저장 · 클램프).
 
 import { useEffect, useRef, useState } from "react";
 
@@ -10,6 +11,13 @@ import { previewBodyCache } from "./PrintPreview";
 import { frontMatterMeta } from "../editor/frontmatter";
 import { resolveWikiLink } from "../editor/wiki";
 import type { AppStore, Tab } from "../app/store";
+
+const SRC_W_KEY = "iyagi.sourcePreviewWidth";
+
+/** 폭 퍼센트 클램프(순수) — 편집기 최소 20% 확보·미리보기 최대 80%. */
+export function clampPreviewWidth(w: number): number {
+  return Math.min(80, Math.max(20, w));
+}
 
 /** 스크롤 비례 매핑(순수) — 왼쪽 위치를 오른쪽 창 높이에 적용할 값으로. */
 export function syncedScrollTop(
@@ -22,9 +30,49 @@ export function syncedScrollTop(
   return ratio * toDenom;
 }
 
-export function SourcePreview({ store, tab }: { store: AppStore; tab: Tab }): JSX.Element {
+export function SourcePreview({
+  store,
+  tab,
+  t,
+}: {
+  store: AppStore;
+  tab: Tab;
+  t: { previewPaneTitle: string };
+}): JSX.Element {
   const [html, setHtml] = useState("");
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const [w, setW] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(SRC_W_KEY));
+    return saved >= 20 && saved <= 80 ? saved : 50;
+  });
+  const dragRef = useRef<{ x: number; w: number; splitW: number } | null>(null);
+
+  // 폭 드래그 — 커서 이동에 따라 퍼센트 갱신(놓으면 저장).
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      // 미리보기 폭은 .source-split(사이드바·참조 페인 제외)의 % — 창 폭이
+      // 아니라 그 컨테이너 폭으로 나눠야 커서와 리사이저가 붙어 따라온다.
+      setW(clampPreviewWidth(d.w + ((d.x - e.clientX) / d.splitW) * 100));
+    };
+    const onUp = () => {
+      if (dragRef.current) {
+        dragRef.current = null;
+        document.body.classList.remove("resizing");
+        setW((cur) => {
+          localStorage.setItem(SRC_W_KEY, String(Math.round(cur)));
+          return cur;
+        });
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, []);
   const baseDir = tab.path
     ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/"
     : store.state.workspace ?? "";
@@ -115,17 +163,31 @@ export function SourcePreview({ store, tab }: { store: AppStore; tab: Tab }): JS
   }, [store, html]);
 
   return (
-    <div className="src-preview">
+    <div className="src-preview" style={{ flexBasis: `${w}%` }}>
+      <div
+        className="src-preview-resizer"
+        aria-hidden="true"
+        onPointerDown={(e) => {
+          dragRef.current = {
+            x: e.clientX,
+            w,
+            splitW: (e.currentTarget as HTMLElement).closest(".source-split")?.clientWidth || window.innerWidth,
+          };
+          document.body.classList.add("resizing");
+        }}
+      />
       {html ? (
         <iframe
           ref={frameRef}
-          title="preview"
+          title={t.previewPaneTitle}
           srcDoc={html}
           sandbox="allow-same-origin"
           onLoad={onScroll0(store, frameRef)}
         />
       ) : (
-        <div className="src-preview-loading" />
+        <div className="src-preview-loading">
+          <div className="spinner" />
+        </div>
       )}
     </div>
   );

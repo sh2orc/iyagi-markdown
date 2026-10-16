@@ -43,6 +43,8 @@ export interface Settings {
   focusMode: boolean;
   /** 문장 단위 포커스(iA Writer) — focusMode가 켜일 때만. */
   focusSentence: boolean;
+  /** 소스 모드 오른쪽 읽기 미리보기 분할. */
+  sourcePreview: boolean;
   /** TTS 읽기 속도(기준 175). */
   ttsRate: number;
   /** 스마트 문장부호 — 입력 시 문맥 변환(Word 자동 교정). */

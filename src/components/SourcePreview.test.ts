@@ -1,8 +1,16 @@
-// 소스 모드 분할 미리보기 — 스크롤 비례 매핑(순수).
+// 소스 모드 분할 미리보기 — 스크롤 비례 매핑·폭 클램프(순수).
 
 import { describe, expect, it } from "vitest";
 
-import { syncedScrollTop } from "./SourcePreview";
+import { clampPreviewWidth, syncedScrollTop } from "./SourcePreview";
+
+describe("clampPreviewWidth", () => {
+  it("하한 20·상한 80 클램프 — 편집기 최소 폭 보장", () => {
+    expect(clampPreviewWidth(5)).toBe(20);
+    expect(clampPreviewWidth(95)).toBe(80);
+    expect(clampPreviewWidth(42.5)).toBe(42.5);
+  });
+});
 
 describe("syncedScrollTop", () => {
   it("비례 매핑 — 절반 스크롤은 절반", () => {

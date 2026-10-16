@@ -398,4 +398,19 @@ describe("외부 변경(수동 QA 항목 자동화)", () => {
     view.destroy();
     setViewListener(null);
   });
+
+  it("소스 미리보기 토글 — 설정 반영·디스크 지속(팔레트 진입)", async () => {
+    const io = fakeIo();
+    const persisted: unknown[] = [];
+    io.setSettings = async (s) => {
+      persisted.push(s);
+    };
+    const store = new AppStore(io);
+    expect(store.state.settings.sourcePreview).toBe(true); // 기본 켬
+    store.toggleSourcePreview();
+    expect(store.state.settings.sourcePreview).toBe(false);
+    store.toggleSourcePreview();
+    expect(store.state.settings.sourcePreview).toBe(true);
+    expect(persisted.length).toBe(2);
+  });
 });

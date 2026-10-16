@@ -1015,6 +1015,11 @@ export class AppStore {
     this.patchSettings({ focusMode: !this.state.settings.focusMode });
   }
 
+  /** 소스 모드 분할 미리보기 전환(왼쪽 소스·오른쪽 읽기 — 끄면 순수 소스). */
+  toggleSourcePreview(): void {
+    this.patchSettings({ sourcePreview: !this.state.settings.sourcePreview });
+  }
+
   /** 서식 기호 보기(Word ¶) — 공백 ·· 탭 → 줄끝 ¶ 토글. */
   toggleFormattingMarks(): void {
     this.patchSettings({ formattingMarks: !this.state.settings.formattingMarks });
@@ -1624,6 +1629,7 @@ export function defaultSettings(): Settings {
     autosave: true,
     typewriter: false,
     focusMode: false,
+    sourcePreview: true,
     smartPunctuation: true,
     longSentenceMarks: false,
     formattingMarks: false,

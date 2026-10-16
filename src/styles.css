@@ -2713,15 +2713,22 @@ body.resizing .toc {
 }
 .md-table-wrap:focus { outline: none; }
 
-/* 소스 모드 분할 미리보기 — 왼쪽 소스·오른쪽 읽기(Typora 이중 보기). */
+/* 소스 모드 분할 미리보기 — 왼쪽 소스·오른쪽 읽기(Typora 이중 보기).
+   폭은 인라인 flex-basis %(드래그·localStorage), 리사이저는 RefPane 규약. */
 .source-split { flex: 1; display: flex; min-width: 0; min-height: 0; }
 .source-split .editor-host { flex: 1; min-width: 0; }
 .src-preview {
-  flex: 1;
-  min-width: 0;
+  flex: 0 0 50%;
+  min-width: 240px;
+  max-width: 80%;
+  position: relative;
   border-left: 1px solid var(--md-border);
   display: flex;
   background: var(--md-bg, #fff);
 }
 .src-preview iframe { flex: 1; border: 0; background: transparent; }
-.src-preview-loading { flex: 1; }
+.src-preview-resizer {
+  position: absolute; left: -3px; top: 0; bottom: 0; width: 6px;
+  cursor: col-resize; z-index: 5;
+}
+.src-preview-loading { flex: 1; display: flex; align-items: center; justify-content: center; }

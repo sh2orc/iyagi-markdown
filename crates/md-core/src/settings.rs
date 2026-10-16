@@ -65,6 +65,9 @@ pub struct Settings {
     /// 문장 단위 포커스(iA Writer) — 포커스 모드가 켜질 때만 의미.
     #[serde(default)]
     pub focus_sentence: bool,
+    /// 소스 모드 오른쪽 읽기 미리보기 분할(Typora 이중 보기) — 기본 켬.
+    #[serde(default = "default_true")]
+    pub source_preview: bool,
     /// 소리내어 읽기 속도(say -r, 분당 단어 근사).
     #[serde(default = "default_tts_rate")]
     pub tts_rate: u32,

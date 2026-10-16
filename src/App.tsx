@@ -1030,6 +1030,12 @@ export function App(): JSX.Element {
   }, [store, scrollToAnchor]);
 
   const activeTab = state.tabs.find((x) => x.id === state.activeId) ?? null;
+
+  // 소스 미리보기 토글·모드 전환으로 에디터 폭이 변해도 CM 측정을 맞춘다
+  // (깊은 스크롤 위치 점프 방지 — 글꼴 효과와 같은 규칙).
+  useEffect(() => {
+    editorView.current?.requestMeasure();
+  }, [state.settings.sourcePreview, activeTab?.mode]);
   const conflictTab = state.tabs.find(
     (x) => x.conflict === "conflict" || x.conflict === "removed",
   );
@@ -1073,7 +1079,9 @@ export function App(): JSX.Element {
             <MiniToolbar store={store} t={t} />
             <div className="source-split">
               <div className="editor-host" ref={editorHost} />
-              {activeTab?.mode === "source" && <SourcePreview store={store} tab={activeTab} />}
+              {activeTab?.mode === "source" && state.settings.sourcePreview && (
+                <SourcePreview store={store} tab={activeTab} t={t} />
+              )}
             </div>
             {!state.ready && <div className="app-splash">{t.loading}</div>}
             {state.ready && state.tabs.length === 0 && (

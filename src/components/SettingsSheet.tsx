@@ -240,6 +240,14 @@ export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element |
             />
             {t.setFocusSentence}
           </label>
+          <label className="settings-check">
+            <input
+              type="checkbox"
+              checked={s.sourcePreview}
+              onChange={(e) => set({ sourcePreview: e.target.checked })}
+            />
+            {t.setSourcePreview}
+          </label>
 
         </div>
         <div className="modal-actions">

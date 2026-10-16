@@ -163,6 +163,7 @@ export function CommandPalette({
     const cmds: Cmd[] = [
       { id: "mode-read", label: `${t.scView}: ${t.modeRead} ⌘E`, run: () => store.toggleReadEdit() },
       { id: "mode-source", label: `${t.scView}: ${t.modeSource} ⌘/`, run: () => store.setMode(store.active?.mode === "source" ? "edit" : "source") },
+      { id: "source-preview", label: `${t.scView}: ${t.toggleSourcePreview}`, run: () => store.toggleSourcePreview() },
       { id: "sidebar", label: `${t.scView}: ${t.toggleSidebar} ⇧⌘B`, run: () => store.setSidebar(!store.state.sidebarOpen) },
       { id: "toc", label: `${t.scView}: ${t.tocTitle} ⇧⌘T`, run: () => store.setToc(!store.state.tocOpen) },
       { id: "save", label: `${t.scFile}: ${t.save} ⌘S`, run: () => void store.saveActive() },
