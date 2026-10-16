@@ -140,13 +140,14 @@ comrak AST → OOXML 직접 작성. Word 기본 스타일(제목·번호·표·�
 | 커서 이동 재계산 | — | 청크 1~2개(상수 비용) |
 | KaTeX·mermaid·highlight | 지연 로딩 | 별도 청크 — 문서에 있을 때만 |
 
-## 테스트(2026-10-14 기준, 175차)
+## 테스트(2026-10-16 기준)
 
-- **프런트 323개**(vitest): 원문 보존 3종·렌더링 회귀·링크/슬러그·i18n 무결성·
+- **프런트 386개**(vitest): 원문 보존 3종·렌더링 회귀·링크/슬러그·i18n 무결성·
   math/wiki/tags/highlight 구문·표 편집(셀 Tab 이동·새 행)·정렬·들여쓰기·
   diff·HTML 붙여넣기·검색 증분 갱신·스크롤 성능·입력 지연 프로파일·스토어·
   빠른 열기·문장 길이 통계·스마트 문장부호·서식 복사·단어 단위 찾기·
-  캡션(그림·표)·정적 목차·목차 트리·CodeMirror 클래스 충돌 가드.
+  캡션(그림·표)·정적 목차·목차 트리·CodeMirror 클래스 충돌 가드·
+  멀티커서·펜스 언어 완성·인용 완성.
 - **Rust 85개**(cargo test): md-core(IO 왕복·링크·트리·세션·설정·검색·
   바꾸기·스냅숏) + md-export(DOCX 생성·SVG 변환·MathML 변환·이미지 포함·
   페이지 번호·머리글·하이퍼링크 스타일·캡션 SEQ·원생 메모·TOC/lof/lot).
@@ -158,3 +159,38 @@ comrak AST → OOXML 직접 작성. Word 기본 스타일(제목·번호·표·�
 - raw HTML: 원문 그대로 두고 회색으로만 표시. 내보내기 시에만 DOMPurify.
 - mermaid `securityLevel:'strict'`, KaTeX `trust:false`.
 - 링크는 항상 가로채 처리(내부 `.md` → 앱 내, 외부 → opener).
+
+## UI 규약(2026-10-16, UX 루프 확립)
+
+새 오버레이·메뉴·패널을 만들 때 따르는 규약. 기존 구현의 규칙이지
+취향이 아니다 — 어기면 실제로 닫히지 않는 메뉴·읽히지 않는 선택·밀리는
+버튼이 생겼다(각 규약은 회귀에서 유래).
+
+- **오버레이 닫기 3계층**: 입력창 없는 패널은 오버레이 자체 포커스
+  (`tabIndex={-1}`+마운트 시 focus)에서 ↑↓·Enter·Esc. 모달류는 App 글로벌
+  Esc 체인(내보내기→스타일→인쇄→그래프→문서정보→검수→설정 순, 상호 배타).
+  `closeAsk`(미저장 확인)가 열려 있으면 글로벌 Esc는 무동작.
+- **팝업·메뉴**: 창 전역 `pointerdown` 닫기에 **메뉴 자체는 제외**
+  (`closest(".ctx-menu")` 등) — 항목 클릭이 언마운트 시점에 의존하면 click이
+  삼켜진다(React 공식 함정). 대화상자를 여는 항목은 `setMenu(null)` 명시.
+  고정 좌표는 `Math.min(x, window.innerWidth - 폭)` 클램프.
+- **리스트 패널 키보드**: ↑↓ 선택·Enter 주요 동작·Esc 닫기, `is-sel`
+  하이라이트+`scrollIntoView({block:"nearest"})`, `onMouseEnter` 동기.
+  중첩 다이얼로그가 있으면 `e.target !== e.currentTarget` 가드.
+- **입력창+가상 선택(팔레트 계열)**: 포커스는 입력창에 유지하고
+  `role="combobox"`+`aria-activedescendant`(항목 id)·`listbox/option`·
+  `aria-selected`로 스크린 리더에 선택 전달. 섹션 머리행은
+  `role="presentation"`.
+- **아이콘 전용 버튼**: `title`과 함께 `aria-label` 미러링.
+- **좁은 공간**: 오버레이가 아니라 실제 컨테이너 폭 기준 — `container-type:
+  inline-size`+`@container` 등급 숨김(정보성부터 숨김, 창 밖으로 밀림 방지).
+- **시스템 설정 존중**: `prefers-reduced-motion`(전역 블록이 애니메이션
+  억제), `prefers-contrast: more`(보조 텍스트 AAA·테두리·포커스 링 강화).
+  색 대비는 WCAG 상대휘도 공식으로 실측 — 눈짐작 금지.
+- **파괴적 동작**(되돌릴 수 없는 삭제): 한 번 더 누르는 2단계 무장
+  (⚠ 문구·4초 자동 해제).
+- **i18n**: 평문 dict와 포맷터 dict(`f`)가 별개 — 항상 en/ko **쌍**으로
+  추가(ko 누락은 타입이 못 잡고 런타임 크래시). 무인자 문구도 `f`에 넣으면
+  `t.f.key()` 호출 필수.
+- **검증→커밋**: 커맨드 체인에 파이프를 끼우면 게이트가 우회된다 —
+  종료코드가 체인을 게이트할 것.
