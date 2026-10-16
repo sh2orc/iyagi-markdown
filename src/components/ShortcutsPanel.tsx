@@ -73,6 +73,7 @@ const GROUPS = (t: Translate): Array<{ title: string; items: [string, string][] 
       [t.keyClick, t.cellClickEdit],
       [`${t.keyRightClick} · ⇧F10`, `${t.ctxAddRow} · ${t.ctxAlign}`],
       ["⇧←↑↓→", t.helpCellSelect],
+      ["Enter", t.helpCellEdit],
       ["Tab / ⇧Tab", t.cellNavHelp],
     ],
   },

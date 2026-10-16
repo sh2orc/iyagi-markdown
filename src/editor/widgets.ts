@@ -648,6 +648,21 @@ export class TableWidget extends WidgetType {
       } else if (
         !activeEdit &&
         !e.isComposing &&
+        !e.shiftKey &&
+        e.key === "Enter" &&
+        selActive !== null
+      ) {
+        // Enter — 선택(액티브 모서리) 셀 편집 진입. 마우스 클릭이 유일한 진입이던
+        // 것을 닫는다(화살표 선택→Enter 편집→Tab 이동 — 전 키보드 표 편집).
+        e.preventDefault();
+        const cell = gridCellAt(Array.from(wrap.querySelectorAll("tr")), selActive.r, selActive.c);
+        if (cell) {
+          clearSelection();
+          editBeginners.get(cell)?.();
+        }
+      } else if (
+        !activeEdit &&
+        !e.isComposing &&
         e.shiftKey &&
         (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight")
       ) {
@@ -772,6 +787,8 @@ export class TableWidget extends WidgetType {
       openTableMenu(rc, e.clientX, e.clientY);
     });
     // 셀을 Word처럼 제자리 편집: 포커스 시 원문(마크다운) 노출, 블러/Enter/Tab 시 반영.
+    // editBeginners — 키보드(Enter) 진입용: 셀 요소 → 편집 시작 함수.
+    const editBeginners = new Map<HTMLElement, () => void>();
     const makeEditable = (cell: HTMLElement, row: number, col: number, onDblClick = false): void => {
       const raw = (row === 0 ? parsed.header[col] : parsed.rows[row - 1]?.[col]) ?? "";
       let editing = false;
@@ -794,6 +811,7 @@ export class TableWidget extends WidgetType {
           sel.addRange(r);
         }
       };
+      editBeginners.set(cell, begin);
       const finish = (focus?: { row: number; col: number }): void => {
         if (!editing) return;
         editing = false;

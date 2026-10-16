@@ -201,3 +201,22 @@ describe("표 키보드 선택·메뉴(⇧화살표·메뉴 키)", { retry: 1 },
     view.destroy();
   });
 });
+
+describe("표 키보드 편집 진입(Enter)", { retry: 1 }, () => {
+  it("선택 액티브 모서리 셀을 Enter로 편집 — 마우스 없는 표 편집 완결", async () => {
+    const view = await tableView();
+    const cs = cells(view);
+    cs[0]!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    cs[1]!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    window.dispatchEvent(new MouseEvent("mouseup"));
+    await new Promise((r) => setTimeout(r, 15));
+    const wrap = view.dom.querySelector(".md-table-wrap")!;
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 15));
+    // 편집 상태 — md-cell-editing 클래스 + 원문 노출(11차 jsdom 규약).
+    const editingCell = view.dom.querySelector(".md-cell-editing");
+    expect(editingCell).not.toBeNull();
+    expect(editingCell!.textContent).toBe("2"); // 액티브 모서리(드래그 끝 셀)
+    view.destroy();
+  });
+});
