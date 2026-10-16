@@ -187,6 +187,17 @@ comrak AST → OOXML 직접 작성. Word 기본 스타일(제목·번호·표·�
   그 페인의 플렉스 부모 폭)와 ←→ 키보드 이동을 같은 클램프·저장으로
   제공(`role="separator"`+`aria-valuenow`) — 마우스 전용 분할은 키보드
   사용자의 사각지대.
+- **표 위젯 키보드 모델(엑셀 패리티)**: 일반 화살표=활성 셀 이동(단일 셀로
+  접힘·헤더 행 포함), ⇧화살표=사각 확장(앵커 고정·액티브 모서리),
+  Enter/⇧Enter=편집 진입·아래/위, Tab=셀 간, ⇧F10·메뉴 키=표 메뉴,
+  Esc 뒤 화살표=재시작, `paintSelection`이 활성 셀 `scrollIntoView(nearest)`
+  로 추종(메서드 옵셔널 콜 — jsdom 미구현). 편집 진입은 `editBeginners`
+  맵(셀→begin 클로저)으로 노출 — 새 진입 경로는 이 맵에.
+- **종료·닫기는 하나의 확인 흐름**: ⌘W(CloseRequested)와 ⌘Q(Rust
+  `ExitRequested` → `quit-requested` 이벤트 → `exit_confirmed` 커맨드,
+  static `EXIT_CONFIRMED` 플래그로 재진입 방지) 모두 `confirmDirty()` 공용
+  헬퍼를 탄다 — 한쪽만 고쳐지는 드리프트 금지. CloseConfirm의 저장 실패
+  보류가 양쪽에 상속된다.
 - **입력창+가상 선택(팔레트 계열)**: 포커스는 입력창에 유지하고
   `role="combobox"`+`aria-activedescendant`(항목 id)·`listbox/option`·
   `aria-selected`로 스크린 리더에 선택 전달. 섹션 머리행은
