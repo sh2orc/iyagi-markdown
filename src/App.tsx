@@ -1197,6 +1197,9 @@ export function App(): JSX.Element {
           onOpenVersions={() => setVersionsOpen(true)}
           onOpenBacklinks={() => setBacklinksOpen(true)}
           onOpenBrokenLinks={() => setBrokenOpen(true)}
+          onOpenComments={() => setCommentsOpen(true)}
+          onOpenReview={() => setReviewOpen(true)}
+          onOpenFrontMatter={() => setFmOpen(true)}
           onAddComment={() => {
             // 커서 줄에 메모 추가(우클릭 메뉴와 같은 대화상자).
             const v = editorView.current;
