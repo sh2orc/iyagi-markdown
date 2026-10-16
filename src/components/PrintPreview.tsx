@@ -119,9 +119,10 @@ export function PrintPreview({
     return () => {
       alive = false;
     };
-    // margin·scale·renderKey — 옵션 변경 재렌더.
+    // margin·scale·renderKey — 옵션 변경 재렌더. tab.docStyle — 열 직후
+    // 비동기 로드 경합(SourcePreview와 같은 제자리 변이 함정).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, tab?.state.doc, store, margin, scale, renderKey]);
+  }, [tab, tab?.state.doc, tab?.docStyle, store, margin, scale, renderKey]);
 
   if (!tab) return null;
 
