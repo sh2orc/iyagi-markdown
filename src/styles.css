@@ -2704,3 +2704,11 @@ body.resizing .toc {
     transparent 1px calc(var(--md-space-px, 0.5ch) * 2)
   );
 }
+
+/* 표 셀 다중 선택(드래그·⇧클릭) — 강조색 반투명 오버레이. */
+.md-table td.md-cell-selected,
+.md-table th.md-cell-selected {
+  background: rgba(59, 130, 246, 0.18);
+  background: color-mix(in srgb, var(--accent, #3b82f6) 20%, transparent);
+}
+.md-table-wrap:focus { outline: none; }

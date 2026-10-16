@@ -11,6 +11,8 @@ import { renderMathInto } from "../plugins/katex";
 import { renderMermaid } from "../plugins/mermaid";
 import { parseFrontMatter } from "./frontmatter";
 import { phrases } from "../app/phrases";
+import * as tableOps from "./tableOps";
+import type { CellRect } from "./tableOps";
 
 // — 수식 —
 
@@ -319,6 +321,44 @@ export interface ParsedTable {
   rows: string[][];
 }
 
+// — 표 우클릭 메뉴 다리 — 위젯(표 안)에서 우클릭하면 ContextMenu가 표 전용
+// 항목을 띄운다. 위젯은 구조 연산(tableOps)을 실행 클로저로 넘긴다.
+
+export type TableMenuOp =
+  | "row-above"
+  | "row-below"
+  | "col-left"
+  | "col-right"
+  | "del-rows"
+  | "del-cols"
+  | "del-table"
+  | "align-left"
+  | "align-center"
+  | "align-right"
+  | "sort-asc"
+  | "sort-desc"
+  | "clear-sel"
+  | "copy-sel";
+
+export interface TableMenuTarget {
+  /** 우클릭한 셀(행 0 = 헤더). */
+  row: number;
+  col: number;
+  /** 전체 행 수(헤더 포함)·열 수. */
+  rows: number;
+  cols: number;
+  /** 셀 다중 선택(드래그·⇧클릭)이 있으면. */
+  selection: CellRect | null;
+  run: (op: TableMenuOp) => void;
+}
+
+let tableMenuHandler: ((target: TableMenuTarget, x: number, y: number) => void) | null = null;
+export function setTableMenuHandler(
+  fn: ((target: TableMenuTarget, x: number, y: number) => void) | null,
+): void {
+  tableMenuHandler = fn;
+}
+
 /** GFM 표 원문 → 구조. 장식 빌더가 부른다(순수 함수 — 단위 테스트 대상). */
 export function parseTable(src: string): ParsedTable | null {
   const lines = src.split("\n").filter((l) => l.trim().length > 0);
@@ -468,13 +508,200 @@ export class TableWidget extends WidgetType {
       }
       view.dispatch({ changes: { from, to, insert: text }, userEvent: "input.tableCell" });
     };
+
+    // — 셀 다중 선택(드래그·⇧클릭) + 표 우클릭 메뉴(Word 표 선택·엑셀 사각 선택) —
+    let selAnchor: { r: number; c: number } | null = null;
+    let selRect: CellRect | null = null;
+    let dragSelecting = false;
+    let suppressBegin = false;
+    const cellAt = (target: EventTarget | null): { r: number; c: number } | null => {
+      const cell = (target as HTMLElement | null)?.closest?.("td, th");
+      const rowEl = cell?.closest?.("tr");
+      if (!(cell instanceof HTMLElement) || !(rowEl instanceof HTMLElement)) return null;
+      const r = Array.from(wrap.querySelectorAll("tr")).indexOf(rowEl);
+      const c = Array.from(rowEl.children).indexOf(cell);
+      return r < 0 || c < 0 ? null : { r, c };
+    };
+    const paintSelection = (): void => {
+      wrap.querySelectorAll("td,th").forEach((cell) => cell.classList.remove("md-cell-selected"));
+      if (!selRect) return;
+      const rows = Array.from(wrap.querySelectorAll("tr"));
+      for (let r = selRect.r1; r <= selRect.r2; r++) {
+        for (let c = selRect.c1; c <= selRect.c2; c++) {
+          rows[r]?.children[c]?.classList.add("md-cell-selected");
+        }
+      }
+    };
+    const clearSelection = (): void => {
+      selAnchor = null;
+      selRect = null;
+      dragSelecting = false;
+      paintSelection();
+    };
+    const applyOp = (mutate: (t: ParsedTable) => ParsedTable | null): void => {
+      const next = mutate(parsed);
+      if (next) commit(next);
+    };
+    const range = (a: number, b: number): number[] => {
+      const out: number[] = [];
+      for (let i = a; i <= b; i++) out.push(i);
+      return out;
+    };
+
+    wrap.tabIndex = -1; // 선택 키(Delete·Esc·⌘C)를 받기 위한 포커스 가능 요소
+    wrap.addEventListener("mousedown", (e) => {
+      if (e.button !== 0 || view.state.readOnly) return;
+      const rc = cellAt(e.target);
+      if (!rc) return;
+      if (selRect && e.shiftKey) {
+        // ⇧클릭 — 앵커에서 클릭 셀까지 확장(편집 시작 억제).
+        e.preventDefault();
+        suppressBegin = true;
+        selRect = tableOps.normRect(selAnchor ?? rc, rc);
+        paintSelection();
+        wrap.focus();
+        return;
+      }
+      if (selRect) {
+        const inside =
+          rc.r >= selRect.r1 && rc.r <= selRect.r2 && rc.c >= selRect.c1 && rc.c <= selRect.c2;
+        if (inside) {
+          // 선택 안 클릭 — 선택 유지(편집 억제).
+          e.preventDefault();
+          wrap.focus();
+          return;
+        }
+        clearSelection(); // 밖 클릭 — 해제 후 일반 흐름(클릭=편집)
+      }
+      selAnchor = rc;
+      suppressBegin = false;
+      // 드래그 — 다른 셀로 넘어가면 선택 모드(클릭=편집 예약 취소).
+      const onMove = (ev: MouseEvent): void => {
+        const cur = cellAt(ev.target);
+        if (!cur) return;
+        if (!dragSelecting && cur.r === rc.r && cur.c === rc.c) return;
+        if (!dragSelecting) {
+          dragSelecting = true;
+          suppressBegin = true;
+          // 편집 시작 직후 드래그 — 블러로 취소(값 불변 → 렌더 복원).
+          if (activeEdit) activeEdit.blur();
+        }
+        selRect = tableOps.normRect(selAnchor ?? rc, cur);
+        paintSelection();
+        ev.preventDefault();
+      };
+      const onUp = (): void => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        if (dragSelecting) {
+          dragSelecting = false;
+          setTimeout(() => {
+            suppressBegin = false;
+          }, 0);
+          wrap.focus();
+        }
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    });
+    wrap.addEventListener("keydown", (e) => {
+      if (!selRect) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        clearSelection();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        const rect = selRect;
+        applyOp((t) => tableOps.clearCells(t, rect));
+        clearSelection();
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === "c" || e.key === "C")) {
+        e.preventDefault();
+        const rect = selRect;
+        void navigator.clipboard?.writeText(tableOps.tsvOf(parsed, rect)).catch(() => {});
+      }
+    });
+    wrap.addEventListener("focusout", () => {
+      // 포커스가 표 밖으로 완전히 나가면 선택 해제(셀 편집 이동은 유지).
+      setTimeout(() => {
+        if (!wrap.contains(document.activeElement) && !dragSelecting) clearSelection();
+      }, 0);
+    });
+    wrap.addEventListener("contextmenu", (e) => {
+      const rc = cellAt(e.target);
+      if (!rc) return; // 셀 밖(여백) — 일반 메뉴
+      e.preventDefault();
+      e.stopPropagation();
+      if (view.state.readOnly) return; // 읽기 모드 — 일반 메뉴도 표 전용 항목 없음
+      const rect = selRect ?? tableOps.normRect(rc, rc);
+      tableMenuHandler?.(
+        {
+          row: rc.r,
+          col: rc.c,
+          rows: parsed.rows.length + 1,
+          cols: nCols,
+          selection: selRect,
+          run: (op) => {
+            switch (op) {
+              case "row-above":
+                applyOp((t) => tableOps.insertRow(t, rect.r1 - 1));
+                break;
+              case "row-below":
+                applyOp((t) => tableOps.insertRow(t, rect.r2));
+                break;
+              case "col-left":
+                applyOp((t) => tableOps.insertCol(t, rect.c1 - 1));
+                break;
+              case "col-right":
+                applyOp((t) => tableOps.insertCol(t, rect.c2));
+                break;
+              case "del-rows":
+                applyOp((t) => tableOps.deleteRows(t, range(rect.r1, rect.r2)));
+                break;
+              case "del-cols":
+                applyOp((t) => tableOps.deleteCols(t, range(rect.c1, rect.c2)));
+                break;
+              case "del-table": {
+                const from = view.posAtDOM(wrap);
+                const to = from + this.src.length;
+                const after = view.state.sliceDoc(to, Math.min(view.state.doc.length, to + 1));
+                view.dispatch({
+                  changes: { from, to: to + (after === "\n" ? 1 : 0), insert: "" },
+                  userEvent: "delete.table",
+                });
+                break;
+              }
+              case "align-left":
+              case "align-center":
+              case "align-right":
+                applyOp((t) => tableOps.setColAlign(t, rc.c, op.slice(6) as "left" | "center" | "right"));
+                break;
+              case "sort-asc":
+                applyOp((t) => tableOps.sortRowsBy(t, rc.c, false));
+                break;
+              case "sort-desc":
+                applyOp((t) => tableOps.sortRowsBy(t, rc.c, true));
+                break;
+              case "clear-sel":
+                applyOp((t) => tableOps.clearCells(t, rect));
+                clearSelection();
+                break;
+              case "copy-sel":
+                void navigator.clipboard?.writeText(tableOps.tsvOf(parsed, rect)).catch(() => {});
+                break;
+            }
+          },
+        },
+        e.clientX,
+        e.clientY,
+      );
+    });
     // 셀을 Word처럼 제자리 편집: 포커스 시 원문(마크다운) 노출, 블러/Enter/Tab 시 반영.
     const makeEditable = (cell: HTMLElement, row: number, col: number, onDblClick = false): void => {
       const raw = (row === 0 ? parsed.header[col] : parsed.rows[row - 1]?.[col]) ?? "";
       let editing = false;
       let cancelled = false;
       const begin = () => {
-        if (editing) return;
+        if (editing || suppressBegin) return;
         editing = true;
         cancelled = false;
         cell.contentEditable = "true";

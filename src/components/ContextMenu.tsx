@@ -13,6 +13,7 @@ import { LinkDialog, type LinkEditTarget } from "./LinkDialog";
 import { pathHintsOf } from "../app/linkHints";
 import { CommentDialog } from "./CommentDialog";
 import { previewConfigField } from "../editor/livePreview";
+import { setTableMenuHandler, type TableMenuOp, type TableMenuTarget } from "../editor/widgets";
 
 interface Props {
   store: AppStore;
@@ -28,6 +29,7 @@ interface MenuState {
   inTable: boolean;
   link: { url: string; text: string; from: number; to: number; baseDir: string } | null;
   img: { url: string; alt: string; from: number; to: number } | null;
+  table: TableMenuTarget | null;
 }
 
 export function ContextMenu({ store, t }: Props): JSX.Element | null {
@@ -58,6 +60,7 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
         inTable: pos != null && !!fmt.tableAround(view),
         link: link ? { url: link.url, text: link.text, from: link.from, to: link.to, baseDir } : null,
       img: img ? { url: img.url, alt: img.alt, from: img.from, to: img.to } : null,
+      table: null,
       });
     };
     // 메뉴 바깥 포인터 다운·Esc로 닫기. 메뉴 자체는 제외 — 항목 활성화가
@@ -80,6 +83,24 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
     };
   }, [store]);
 
+  // 표 위젯 우클릭 — 위젯이 구조 연산 클로저를 넘기면 표 전용 항목으로 연다.
+  useEffect(() => {
+    setTableMenuHandler((target, x, y) => {
+      setMenu({
+        x,
+        y,
+        hasSelection: false,
+        canUndo: editableNow(store),
+        canRedo: editableNow(store),
+        inTable: true,
+        link: null,
+        img: null,
+        table: target,
+      });
+    });
+    return () => setTableMenuHandler(null);
+  }, [store]);
+
   if (!menu) return null;
 
   const view = store.view;
@@ -97,6 +118,12 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
     setMenu(null);
     // 잠긴 문서의 편집 동작 차단(151차 일관성 — 열기·복사 등은 그대로).
     if (!view.state.readOnly) fn();
+    view.focus();
+  };
+
+  const runTable = (op: TableMenuOp) => {
+    setMenu(null);
+    if (!view.state.readOnly) menu.table?.run(op);
     view.focus();
   };
 
@@ -165,6 +192,31 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
           setImgEdit({ text: menu.img!.alt, url: menu.img!.url, from: menu.img!.from, to: menu.img!.to });
         })}
       {menu.link && <span className="ctx-sep" />}
+      {menu.table && (
+        <>
+          <span className="ctx-sep" />
+          {item(t.tmRowAbove, () => runTable("row-above"))}
+          {item(t.tmRowBelow, () => runTable("row-below"))}
+          {item(t.tmColLeft, () => runTable("col-left"))}
+          {item(t.tmColRight, () => runTable("col-right"))}
+          {item(t.tmDelRows, () => runTable("del-rows"), {
+            danger: true,
+            disabled: (menu.table.selection?.r2 ?? menu.table.row) === 0,
+          })}
+          {item(t.tmDelCols, () => runTable("del-cols"), {
+            danger: true,
+            disabled: menu.table.cols <= 1,
+          })}
+          {item(`← ${t.tmAlign}`, () => runTable("align-left"))}
+          {item(`↔ ${t.tmAlign}`, () => runTable("align-center"))}
+          {item(`→ ${t.tmAlign}`, () => runTable("align-right"))}
+          {item(t.tmSortAsc, () => runTable("sort-asc"), { disabled: menu.table.rows <= 1 })}
+          {item(t.tmSortDesc, () => runTable("sort-desc"), { disabled: menu.table.rows <= 1 })}
+          {menu.table.selection && item(t.tmClearSel, () => runTable("clear-sel"))}
+          {menu.table.selection && item(t.tmCopySel, () => runTable("copy-sel"))}
+          {item(t.tmDelTable, () => runTable("del-table"), { danger: true })}
+        </>
+      )}
       {item(t.ctxUndo, () => run(() => undo(view)), { disabled: !menu.canUndo || !editable })}
       {item(t.ctxRedo, () => run(() => redo(view)), { disabled: !menu.canRedo || !editable })}
       <span className="ctx-sep" />
