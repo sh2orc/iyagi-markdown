@@ -3,7 +3,7 @@
 // 노드 크기 = 연결 수(차수), 활성 문서는 강조.
 // 줌(휠, 커서 고정)·팬(배경 드래그)·더블클릭 리셋 — 노드 밀집 대비.
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
@@ -112,6 +112,30 @@ function buildGraph(store: AppStore, wikiLinks?: Array<{ from: string; to: strin
   return { nodes, edges };
 }
 
+/** 화살표 이동 — 방향 축으로 가장 가까운 노드(수직 오프셋 벌점).
+ *  순수 함수(로빙 tabindex 키보드 탐색용 — 리스트 규약의 SVG 판). */
+export function nearestNodeInDirection(
+  nodes: Array<{ id: string; x: number; y: number }>,
+  fromId: string,
+  dx: -1 | 0 | 1,
+  dy: -1 | 0 | 1,
+): string | null {
+  const from = nodes.find((n) => n.id === fromId);
+  if (!from) return null;
+  let best: { id: string; score: number } | null = null;
+  for (const n of nodes) {
+    if (n.id === fromId) continue;
+    const ax = n.x - from.x;
+    const ay = n.y - from.y;
+    const parallel = ax * dx + ay * dy; // 방향 축 투영(진행 거리)
+    if (parallel <= 0) continue; // 반대편·제자리 제외
+    const perp = Math.abs(ax * dy - ay * dx); // 방향에 수직인 어긋남
+    const score = perp * perp * 3 + parallel; // 정렬된 노드 우선
+    if (best === null || score < best.score) best = { id: n.id, score };
+  }
+  return best?.id ?? null;
+}
+
 /** 간단 힘 기반 배치 — 4회 반복(좌표는 px). */
 function layout(nodes: GraphNode[], edges: GraphEdge[], iterations = 4): void {
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -164,6 +188,9 @@ function layout(nodes: GraphNode[], edges: GraphEdge[], iterations = 4): void {
 
 export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.Element | null {
   const [selected, setSelected] = useState<string | null>(null);
+  // 로빙 tabindex — 화살표로 노드 간 이동, Enter로 열기(리스트 키보드 규약의 SVG 판).
+  const [focused, setFocused] = useState<string | null>(null);
+  const nodeEls = useRef(new Map<string, SVGGElement>());
   // 뷰 상태 — viewBox 안에서 g transform으로 적용(줌·팬).
   const [view, setView] = useState({ k: 1, tx: 0, ty: 0 });
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -220,6 +247,30 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
     setView((v) => ({ ...v, tx: p.tx + (a.x - b.x), ty: p.ty + (a.y - b.y) }));
   };
 
+  // 화살표 이동 — 상태 바꾸면 이펙트가 실제 포커스를 옮긴다.
+  useEffect(() => {
+    if (focused) nodeEls.current.get(focused)?.focus();
+  }, [focused]);
+
+  const onSvgKey = (e: React.KeyboardEvent<SVGSVGElement>): void => {
+    const dirs: Record<string, [-1 | 0 | 1, -1 | 0 | 1]> = {
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+    };
+    const dir = dirs[e.key];
+    if (!dir) return;
+    const cur = focused ?? nodes[0]?.id;
+    if (!cur) return;
+    e.preventDefault();
+    const next = nearestNodeInDirection(nodes, cur, dir[0], dir[1]);
+    if (next) {
+      setFocused(next);
+      setSelected(next); // 이동도 선택 피드백(클릭과 동일 — 상세 열기 버튼 갱신)
+    }
+  };
+
   return (
     <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="graph-frame">
@@ -248,6 +299,7 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
               onPointerUp={() => {
                 panRef.current = null;
               }}
+              onKeyDown={onSvgKey}
               onDoubleClick={(e) => {
                 // 배경 더블클릭 — 줌·팬 리셋(노드는 문서 열기).
                 if (!(e.target as Element).closest(".graph-node")) setView({ k: 1, tx: 0, ty: 0 });
@@ -272,14 +324,32 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
                 );
               })}
               {/* 노드 */}
-              {nodes.map((n) => {
+              {nodes.map((n, i) => {
                 const isActive = n.id === activePath;
                 const isSel = selected === n.id;
                 return (
                   <g
                     key={n.id}
+                    ref={(el) => {
+                      if (el) nodeEls.current.set(n.id, el);
+                      else nodeEls.current.delete(n.id);
+                    }}
                     transform={`translate(${n.x},${n.y})`}
-                    onClick={() => setSelected(n.id)}
+                    tabIndex={focused === n.id || (focused === null && i === 0) ? 0 : -1}
+                    role="button"
+                    aria-label={n.name}
+                    onClick={() => {
+                      setSelected(n.id);
+                      setFocused(n.id);
+                    }}
+                    onFocus={() => setFocused(n.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onOpen(n.id);
+                      }
+                    }}
                     onDoubleClick={(e) => {
                       e.stopPropagation();
                       onOpen(n.id);

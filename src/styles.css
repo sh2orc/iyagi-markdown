@@ -2241,6 +2241,12 @@ body.resizing .toc {
   stroke: var(--md-accent);
   stroke-width: 2.5;
 }
+/* 키보드 로빙 포커스 — 링은 원 스트로크로(SVG outline 대신) */
+.graph-node:focus { outline: none; }
+.graph-node:focus circle {
+  stroke: var(--md-accent);
+  stroke-width: 2.5;
+}
 
 .graph-label {
   font-size: 10px;
