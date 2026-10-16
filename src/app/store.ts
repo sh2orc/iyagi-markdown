@@ -187,6 +187,20 @@ export class AppStore {
   /** 프런트가 저장한 뒤 잠깐 오는 외부 이벤트를 무시하기 위한 최근 저장 시각. */
   private lastSavedAt = 0;
 
+  /** 경로별 마지막 자기 쓰기 내용 — 쓰기 시작 시점(동기)에 기록.
+   *  fs 이벤트가 저장 응답보다 먼저 도착하는 경합에서 savedText는 아직 예전
+   *  내용이라 내용 비교가 뚫린다 — 디스크가 "방금 쓰기 시작한 내용"과 같아도
+   *  자기 저장이다. */
+  private recentSelfWrites = new Map<string, { text: string; at: number }>();
+
+  /** 30초 지난 자기 쓰기 기록 정리(메모리 상한 — 부하 시 이벤트 지연 실측 ~2s의 15배). */
+  private pruneSelfWrites(): void {
+    const cutoff = Date.now() - 30_000;
+    for (const [p, e] of this.recentSelfWrites) {
+      if (e.at < cutoff) this.recentSelfWrites.delete(p);
+    }
+  }
+
   constructor(io: StoreIO) {
     setCommentsProvider(() => this.active?.comments ?? []);
     // 변경 추적 — 활성 탭의 베이스라인 제공(장식 플러그인이 소비).
@@ -736,6 +750,9 @@ export class AppStore {
       }
     }
     try {
+      // 쓰기 시작(동기)에 기록 — 이벤트가 응답보다 먼저 와도 내용 매치로 자기 저장 판별.
+      this.pruneSelfWrites();
+      this.recentSelfWrites.set(tab.path, { text: newText, at: Date.now() });
       const res = await this.io.writeDocument(tab.path, newText, tab.meta);
       // 메모·책갈피 재앵커 — 이전 저장본→새 본문 diff로 줄 보정.
       if (oldText !== newText) {
@@ -763,6 +780,7 @@ export class AppStore {
       tab.savedText = newText;
       tab.savedMtime = res.mtime;
       tab.savedAt = Date.now();
+      this.lastSavedAt = Date.now(); // 자동 저장도 시간창 가드·재저장 경합 가드에 들게
       tab.dirty = false;
       this.emit();
       this.scheduleSessionSave(); // 분할 편집 탭의 커서·상태도 세션에
@@ -786,6 +804,8 @@ export class AppStore {
     if (!path) return false; // Save As 경로는 호출자(UI)가 지정
     const text = tab.state.doc.toString();
     try {
+      this.pruneSelfWrites();
+      this.recentSelfWrites.set(path, { text, at: Date.now() });
       const out = await this.io.writeDocument(path, text, tab.meta);
       tab.path = path;
       tab.title = baseName(path);
@@ -825,14 +845,16 @@ export class AppStore {
       return;
     }
     // 내용 비교로 자기 저장 판별 — 시간 창(부하 시 fs 이벤트가 1.5~2초 늦게
-    // 오면 뚫린다)·비활성 탭 저장도 커버. 파일이 마지막 저장 내용과 같으면
-    // 외부 변경이 아니다(직접 편집 중인데 충돌 모달이 뜨는 오남용 방지).
+    // 오면 뚫린다)·비활성 탭 저장도 커버. 파일이 마지막 저장 내용 또는 최근
+    // 자기 쓰기 내용(await 전 기록 — 저장 응답보다 이벤트가 먼저 오는 경합)과
+    // 같으면 외부 변경이 아니다(직접 편집 중인데 충돌 모달이 뜨는 오남용 방지).
     void (async () => {
       const startedAt = Date.now();
       let sameAsSaved = false;
       try {
         const doc = await this.io.readDocument(path);
-        sameAsSaved = doc.text === tab.savedText;
+        const selfWrite = this.recentSelfWrites.get(path);
+        sameAsSaved = doc.text === tab.savedText || (selfWrite !== undefined && doc.text === selfWrite.text);
       } catch {
         /* 읽기 실패 — 기존 흐름으로 판정 */
       }

@@ -358,4 +358,44 @@ describe("외부 변경(수동 QA 항목 자동화)", () => {
     store.externalChange("/tmp/ext.md", "removed");
     expect(t.conflict).toBe("removed");
   });
+
+  it("자동 저장 진행 중 도착한 자기 fs 이벤트는 충돌 아님(await 전 savedText 경합)", async () => {
+    // 재현: 연속 편집 → 자동 저장의 writeDocument가 아직 펜딩인데(저장#1의
+    // 늦은 이벤트·부하 시 이벤트가 응답보다 먼저 처리) 디스크는 이미 새 내용.
+    // savedText는 예전 내용이라 13차 내용 비교만으로는 뚫린다 — 쓰기 시작
+    // 시점의 자기 쓰기 기록(recentSelfWrites)으로 판별해야 한다.
+    const io = fakeIo();
+    let releaseWrite: (() => void) | null = null;
+    io.writeDocument = (_p: string, text: string) =>
+      new Promise((resolve) => {
+        releaseWrite = () => resolve({ mtime: 3, size: text.length });
+      });
+    const store = new AppStore(io);
+    const view = mount(store);
+    await openTab(store, "/tmp/race.md");
+    const t = store.active!;
+    view.dispatch({ changes: { from: 0, insert: "v2 " } });
+    await nextFrame();
+    store.syncActiveState();
+    expect(t.dirty).toBe(true);
+
+    const saving = store.saveTabById(t.id); // 자동 저장 시작 — writeDocument 펜딩
+    // 디스크(=readDocument)는 새 내용, savedText는 예전 내용인 창.
+    (store as unknown as { io: StoreIO }).io.readDocument = async () => ({
+      text: view.state.doc.toString(),
+      meta: { hadBom: false, crlf: false },
+      mtime: 3,
+      size: 1,
+    });
+    store.externalChange("/tmp/race.md", "changed");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.conflict).toBeNull(); // 구멍이면 "conflict" → 모달
+
+    releaseWrite!();
+    await saving;
+    expect(t.dirty).toBe(false);
+    expect(t.savedText.startsWith("v2 ")).toBe(true);
+    view.destroy();
+    setViewListener(null);
+  });
 });
