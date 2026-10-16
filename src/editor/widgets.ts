@@ -532,9 +532,10 @@ export class TableWidget extends WidgetType {
       view.dispatch({ changes: { from, to, insert: text }, userEvent: "input.tableCell" });
     };
 
-    // — 셀 다중 선택(드래그·⇧클릭) + 표 우클릭 메뉴(Word 표 선택·엑셀 사각 선택) —
+    // — 셀 다중 선택(드래그·⇧클릭·⇧화살표) + 표 우클릭 메뉴(Word 표 선택·엑셀 사각 선택) —
     let selAnchor: { r: number; c: number } | null = null;
     let selRect: CellRect | null = null;
+    let selActive: { r: number; c: number } | null = null; // 확장 모서리(⇧클릭·키보드 화살표)
     let dragSelecting = false;
     let suppressBegin = false;
     const cellAt = (target: EventTarget | null): { r: number; c: number } | null => {
@@ -558,6 +559,7 @@ export class TableWidget extends WidgetType {
     const clearSelection = (): void => {
       selAnchor = null;
       selRect = null;
+      selActive = null;
       dragSelecting = false;
       paintSelection();
     };
@@ -580,6 +582,7 @@ export class TableWidget extends WidgetType {
         // ⇧클릭 — 앵커에서 클릭 셀까지 확장(편집 시작 억제).
         e.preventDefault();
         suppressBegin = true;
+        selActive = rc;
         selRect = tableOps.normRect(selAnchor ?? rc, rc);
         paintSelection();
         wrap.focus();
@@ -610,6 +613,7 @@ export class TableWidget extends WidgetType {
           if (activeEdit) activeEdit.blur();
         }
         selRect = tableOps.normRect(selAnchor ?? rc, cur);
+        selActive = cur;
         paintSelection();
         ev.preventDefault();
       };
@@ -641,6 +645,41 @@ export class TableWidget extends WidgetType {
         e.preventDefault();
         const rect = selRect;
         void navigator.clipboard?.writeText(tableOps.tsvOf(parsed, rect)).catch(() => {});
+      } else if (
+        !activeEdit &&
+        !e.isComposing &&
+        e.shiftKey &&
+        (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight")
+      ) {
+        // ⇧화살표 — 사각 선택을 키보드로 확장(엑셀 확장 선택).
+        e.preventDefault();
+        const maxR = Array.from(wrap.querySelectorAll("tr")).length - 1;
+        const maxC = nCols - 1;
+        const act = selActive ?? { r: selRect.r1, c: selRect.c1 };
+        const next = {
+          r:
+            e.key === "ArrowUp" || e.key === "ArrowDown"
+              ? Math.max(0, Math.min(maxR, act.r + (e.key === "ArrowDown" ? 1 : -1)))
+              : act.r,
+          c:
+            e.key === "ArrowLeft" || e.key === "ArrowRight"
+              ? Math.max(0, Math.min(maxC, act.c + (e.key === "ArrowRight" ? 1 : -1)))
+              : act.c,
+        };
+        selAnchor = selAnchor ?? act;
+        selActive = next;
+        selRect = tableOps.normRect(selAnchor, next);
+        paintSelection();
+      } else if (
+        !activeEdit &&
+        (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) &&
+        selActive !== null
+      ) {
+        // 메뉴 키·⇧F10 — 표 메뉴를 키보드로 호출(14개 오퍼레이션 전부 도달).
+        e.preventDefault();
+        const cell = gridCellAt(Array.from(wrap.querySelectorAll("tr")), selActive.r, selActive.c);
+        const box = cell?.getBoundingClientRect();
+        if (box) openTableMenu(selActive, box.left, box.bottom + 4);
       }
     });
     wrap.addEventListener("focusout", () => {
@@ -649,11 +688,8 @@ export class TableWidget extends WidgetType {
         if (!wrap.contains(document.activeElement) && !dragSelecting) clearSelection();
       }, 0);
     });
-    wrap.addEventListener("contextmenu", (e) => {
-      const rc = cellAt(e.target);
-      if (!rc) return; // 셀 밖(여백) — 일반 메뉴
-      e.preventDefault();
-      e.stopPropagation();
+    // 표 메뉴 타깃 조립(우클릭·키보드 메뉴 키 공용).
+    const openTableMenu = (rc: { r: number; c: number }, x: number, y: number): void => {
       if (view.state.readOnly) return; // 읽기 모드 — 일반 메뉴도 표 전용 항목 없음
       const rect = selRect ?? tableOps.normRect(rc, rc);
       tableMenuHandler?.(
@@ -722,9 +758,16 @@ export class TableWidget extends WidgetType {
             }
           },
         },
-        e.clientX,
-        e.clientY,
+        x,
+        y,
       );
+    };
+    wrap.addEventListener("contextmenu", (e) => {
+      const rc = cellAt(e.target);
+      if (!rc) return; // 셀 밖(여백) — 일반 메뉴
+      e.preventDefault();
+      e.stopPropagation();
+      openTableMenu(rc, e.clientX, e.clientY);
     });
     // 셀을 Word처럼 제자리 편집: 포커스 시 원문(마크다운) 노출, 블러/Enter/Tab 시 반영.
     const makeEditable = (cell: HTMLElement, row: number, col: number, onDblClick = false): void => {

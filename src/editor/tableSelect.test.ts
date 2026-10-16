@@ -143,3 +143,61 @@ describe("셀 병합 렌더·오퍼레이션", { retry: 1 }, () => {
     view.destroy();
   });
 });
+
+describe("표 키보드 선택·메뉴(⇧화살표·메뉴 키)", { retry: 1 }, () => {
+  it("⇧화살표 — 선택을 키보드로 확장(엑셀 확장 선택)", async () => {
+    const view = await tableView();
+    const cs = cells(view);
+    cs[0]!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    cs[1]!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    window.dispatchEvent(new MouseEvent("mouseup"));
+    await new Promise((r) => setTimeout(r, 15));
+    expect(selected(view).length).toBe(2); // (1행 1열)→(1행 2열)
+    const wrap = view.dom.querySelector(".md-table-wrap")!;
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", shiftKey: true, bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(selected(view).length).toBe(4); // 2×2로 확장(앵커 고정)
+    view.destroy();
+  });
+
+  it("⇧화살표 — 그리드 경계 클램프(마지막 열·행)", async () => {
+    const view = await tableView();
+    const cs = cells(view);
+    cs[0]!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    cs[1]!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    window.dispatchEvent(new MouseEvent("mouseup"));
+    await new Promise((r) => setTimeout(r, 15));
+    const wrap = view.dom.querySelector(".md-table-wrap")!;
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", shiftKey: true, bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(selected(view).length).toBe(2); // 마지막 열 — 그대로
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", shiftKey: true, bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(selected(view).length).toBe(4); // 액티브 모서리가 헤더 행으로 확장(앵커는 r=1)
+    view.destroy();
+  });
+
+  it("메뉴 키(⇧F10) — 표 메뉴 타깃 호출·병합 실행", async () => {
+    const view = await tableView();
+    let target: TableMenuTarget | null = null;
+    setTableMenuHandler((tg) => {
+      target = tg;
+    });
+    const cs = cells(view);
+    cs[0]!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    cs[3]!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    window.dispatchEvent(new MouseEvent("mouseup"));
+    await new Promise((r) => setTimeout(r, 15));
+    const wrap = view.dom.querySelector(".md-table-wrap")!;
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(target).not.toBeNull();
+    expect(target!.row).toBe(2); // 활성 모서리(드래그 끝 셀)
+    expect(target!.col).toBe(1);
+    target!.run("merge"); // 키보드 경로로 병합까지
+    await new Promise((r) => setTimeout(r, 20));
+    expect(view.state.doc.toString()).toContain("1 2");
+    setTableMenuHandler(null);
+    view.destroy();
+  });
+});
