@@ -138,7 +138,10 @@ export function SourcePreview({
       alive = false;
       clearTimeout(id);
     };
-  }, [text, theme, baseDir, tab, store]);
+    // tab.docStyle — 제자리 변이라 객체 자체를 의존성에 넣어야 스타일·이미지
+    // 폭 변경이 재렌더된다(열 때 비동기 로드 경합도 커버).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, theme, baseDir, tab, tab.docStyle, store]);
 
   // 왼쪽(소스) 스크롤 → 오른쪽 비례 동기.
   useEffect(() => {

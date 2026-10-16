@@ -132,6 +132,23 @@ function previewConfigEquals(a: PreviewConfig | undefined, b: PreviewConfig): bo
   if ((a.longSentenceMarks ?? false) !== (b.longSentenceMarks ?? false)) return false;
   if ((a.longSentenceMin ?? 60) !== (b.longSentenceMin ?? 60)) return false;
   if ((a.formattingMarks ?? false) !== (b.formattingMarks ?? false)) return false;
+  // 메모 전체(해결 여부 포함) — 줄 번호만 같고 resolved가 바뀌면 다른 설정이다
+  // (해결 토글이 줄 배지에 반영되게. 18차 함정의 재발 방지).
+  const aCm = a.comments ?? [];
+  const bCm = b.comments ?? [];
+  if (aCm.length !== bCm.length) return false;
+  for (let i = 0; i < aCm.length; i++) {
+    if (aCm[i]!.lineNo !== bCm[i]!.lineNo || aCm[i]!.resolved !== bCm[i]!.resolved) return false;
+  }
+  // 표 폭 — 열 px 배열이 내용까지 같아야 같은 설정.
+  const kta = Object.keys(a.tableWidths);
+  const ktb = Object.keys(b.tableWidths);
+  if (kta.length !== ktb.length) return false;
+  for (const k of kta) {
+    const av = a.tableWidths[k] ?? [];
+    const bv = b.tableWidths[k] ?? [];
+    if (av.length !== bv.length || av.some((w, i) => w !== bv[i])) return false;
+  }
   // 위키링크 인덱스 — 참조 비교(트리가 바뀔 때만 store가 새 인스턴스를 만든다).
   if (a.wikiIndex !== b.wikiIndex) return false;
   return true;

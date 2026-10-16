@@ -180,8 +180,10 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
       clearTimeout(id);
     };
     // 문서 편집에 250ms 디바운스로 재렌더 — 참조가 살아 있는 복사본.
+    // tab.docStyle — 제자리 변이라 객체 자체를 의존성에 넣어야 스타일 변경이
+    // 재렌더된다(SourcePreview와 같은 함정).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, tab?.path, store.state.theme, editMode]);
+  }, [doc, tab?.path, store.state.theme, editMode, tab?.docStyle]);
 
   if (!tab) return null;
 

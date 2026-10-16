@@ -12,7 +12,7 @@ import { EditorView } from "@codemirror/view";
 import { readFileSync } from "node:fs";
 
 import { createDocState, switchMode } from "./cm";
-import { __testing, setPreviewConfig } from "./livePreview";
+import { __testing, setCommentOpenHandler, setPreviewConfig } from "./livePreview";
 
 const SAMPLE = readFileSync(process.cwd() + "/docs/sample.md", "utf8");
 
@@ -148,6 +148,74 @@ describe("소스 모드 — 라이브 프리뷰 장식 없음(원문 그대로)"
     switchMode(view, "edit");
     await new Promise((r) => setTimeout(r, 60));
     expect(Object.keys(appliedKinds(view)).length).toBeGreaterThan(0);
+    view.destroy();
+  });
+});
+
+describe("프리뷰 설정 변경 감지(previewConfigEquals)", { retry: 1 }, () => {
+  // 위키 인덱스는 참조 비교다 — 스토어처럼 한 인스턴스를 공유해야 나머지
+  // 필드 비교가 고립된다(매번 new Map이면 무조건 "다른 설정"이 된다).
+  const wikiIndex = new Map<string, string[]>();
+  const cfg = (comments: Array<{ lineNo: number; resolved: boolean }>) => ({
+    baseDir: "/tmp",
+    remoteImages: true,
+    showImages: true,
+    theme: "light" as const,
+    imageWidths: {},
+    bookmarks: [],
+    comments,
+    tableWidths: {},
+    wikiIndex,
+  });
+
+  it("메모 해결(resolved) 토글은 다른 설정 — 미해결 배지가 사라진다", async () => {
+    setCommentOpenHandler(() => {});
+    const mk = (resolved: boolean) =>
+      cfg([{ lineNo: 1, resolved }]) && Object.assign(cfg([{ lineNo: 1, resolved }]), { commentLines: [1] });
+    const hasBadge = (view: EditorView): boolean => {
+      const cur = view.state.field(__testing.decorationField).iter();
+      while (cur.value) {
+        const spec = (cur.value as unknown as { spec?: { widget?: unknown } }).spec;
+        if (spec?.widget?.constructor?.name === "CommentCountWidget") return true;
+        cur.next();
+      }
+      return false;
+    };
+    const view = new EditorView({ state: createDocState("본문 한 줄.\n", "edit"), parent: document.body });
+    view.dispatch({ effects: setPreviewConfig.of(mk(false)) });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(hasBadge(view)).toBe(true); // 미해결 — 배지 있음
+    // 줄 번호는 같고 해결 여부만 바뀐다 — equals가 못 보면 배지가 그대로 남는다.
+    view.dispatch({ effects: setPreviewConfig.of(mk(true)) });
+    await new Promise((r) => setTimeout(r, 80));
+    expect(hasBadge(view)).toBe(false); // 해결 — 배지 사라짐
+    setCommentOpenHandler(null);
+    view.destroy();
+  });
+
+  it("표 폭(열 px) 변경도 다른 설정 — 장식 재계산 유발", async () => {
+    const view = new EditorView({ state: createDocState("| a | b |\n|---|---|\n", "edit"), parent: document.body });
+    const base = cfg([]);
+    view.dispatch({ effects: setPreviewConfig.of(base) });
+    await new Promise((r) => setTimeout(r, 60));
+    __testing.resetStats();
+    view.dispatch({
+      effects: setPreviewConfig.of({ ...base, tableWidths: { "1": [100, 120] } }),
+    });
+    await new Promise((r) => setTimeout(r, 60));
+    expect(__testing.stats.dispatches).toBeGreaterThan(0);
+    view.destroy();
+  });
+
+  it("같은 내용 재전송은 재계산하지 않는다(캐시 보존 — 7차 최적화 유지)", async () => {
+    const view = new EditorView({ state: createDocState("본문\n", "edit"), parent: document.body });
+    const c = cfg([]);
+    view.dispatch({ effects: setPreviewConfig.of(c) });
+    await new Promise((r) => setTimeout(r, 60));
+    __testing.resetStats();
+    view.dispatch({ effects: setPreviewConfig.of({ ...c }) }); // 내용 동일(새 객체)
+    await new Promise((r) => setTimeout(r, 60));
+    expect(__testing.stats.dispatches).toBe(0);
     view.destroy();
   });
 });
