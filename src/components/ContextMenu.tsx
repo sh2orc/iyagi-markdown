@@ -305,7 +305,10 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
           initial={linkEdit}
           pathHints={pathHintsOf(store)}
           t={t}
-          onCancel={() => setLinkEdit(null)}
+          onCancel={() => {
+            setLinkEdit(null);
+            store.view?.focus(); // 취소 후에도 에디터로 복귀(포커스 방치 방지)
+          }}
           onConfirm={(next) => {
             const view = store.view;
             setLinkEdit(null);
@@ -324,10 +327,14 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
         <CommentDialog
           t={t}
           lineNo={commentLine}
-          onCancel={() => setCommentLine(null)}
+          onCancel={() => {
+            setCommentLine(null);
+            store.view?.focus();
+          }}
           onConfirm={(text) => {
             setCommentLine(null);
             void store.addComment(commentLine, text);
+            store.view?.focus();
           }}
         />
       )}
@@ -337,7 +344,10 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
           pathHints={pathHintsOf(store)}
           initial={imgEdit}
           t={t}
-          onCancel={() => setImgEdit(null)}
+          onCancel={() => {
+            setImgEdit(null);
+            store.view?.focus();
+          }}
           onConfirm={(next) => {
             const view = store.view;
             setImgEdit(null);

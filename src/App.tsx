@@ -922,6 +922,42 @@ export function App(): JSX.Element {
     return () => window.removeEventListener("keydown", onEsc);
   }, [closeAsk, state.exportKind, styleOpen, printOpen, graphOpen, fmOpen, reviewOpen, settingsOpen, store]);
 
+  // 오버레이(시트·팔레트·패널·대화상자·이미지 뷰어)가 닫히면 포커스를 에디터로
+  // 복귀 — a11y 규범(대화상자는 이전 위치로)이자 키보드 사용자가 body에서
+  // Tab으로 다시 시작하지 않게 하는 조치. 팔레트→시트처럼 한 이벤트에서
+  // 교체되면 열림 수가 유지돼 발동하지 않는다(기호판 연속 삽입도 안전).
+  const anyOverlay =
+    settingsOpen ||
+    styleOpen ||
+    printOpen ||
+    shortcutsOpen ||
+    statsOpen ||
+    paletteOpen ||
+    wsSearchOpen ||
+    graphOpen ||
+    versionsOpen ||
+    backlinksOpen ||
+    brokenOpen ||
+    diffOpen ||
+    symbolOpen ||
+    tableDialogOpen ||
+    commentsOpen ||
+    reviewOpen ||
+    fmOpen ||
+    trackOpen ||
+    viewer !== null ||
+    commentAddLine !== null ||
+    imgEditPos !== null ||
+    closeAsk !== null ||
+    state.exportKind !== null ||
+    state.searchOpen ||
+    state.tabs.some((t) => t.conflict);
+  const hadOverlay = useRef(false);
+  useEffect(() => {
+    if (hadOverlay.current && !anyOverlay) editorView.current?.focus();
+    hadOverlay.current = anyOverlay;
+  }, [anyOverlay]);
+
   // 위키링크 자동완성 목록 — 트리 기반(워크스페이스 문서들).
   useEffect(() => {
     setWikiDocsProvider(() => wikiDocsOf(state.tree));
