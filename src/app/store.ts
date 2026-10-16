@@ -201,6 +201,9 @@ export class AppStore {
     }
   }
 
+  /** 자동 저장 실패 알림 중복 억제 — 성공으로 회복되면 해제(다음 실패 재알림). */
+  private autosaveFailNotified = false;
+
   constructor(io: StoreIO) {
     setCommentsProvider(() => this.active?.comments ?? []);
     // 변경 추적 — 활성 탭의 베이스라인 제공(장식 플러그인이 소비).
@@ -781,11 +784,18 @@ export class AppStore {
       tab.savedMtime = res.mtime;
       tab.savedAt = Date.now();
       this.lastSavedAt = Date.now(); // 자동 저장도 시간창 가드·재저장 경합 가드에 들게
+      this.autosaveFailNotified = false;
       tab.dirty = false;
       this.emit();
       this.scheduleSessionSave(); // 분할 편집 탭의 커서·상태도 세션에
       return true;
-    } catch {
+    } catch (e) {
+      // 자동 저장 실패가 조용하면 사용자는 저장된 줄 알고 앱을 닫는다(유실
+      // 사고 — Word는 상태 표시로 경고). 연속 실패엔 첫 알림만.
+      if (!this.autosaveFailNotified) {
+        this.autosaveFailNotified = true;
+        this.toast(`${phrases.saveFailed}: ${e instanceof Error ? e.message : String(e)}`, "error");
+      }
       return false;
     }
   }

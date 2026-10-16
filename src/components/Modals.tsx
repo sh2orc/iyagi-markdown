@@ -51,17 +51,20 @@ export function CloseConfirm({
             onClick={async () => {
               // 저장 후 진행 — saveActive는 '활성' 탭만 저장하므로 각 탭으로
               // 전환해가며 저장하고, 끝나면 원래 활성 탭으로 되돌린다.
+              // 저장에 실패한 탭이 하나라도 있으면 닫지 않는다(유실 방지 —
+              // 저장 실패는 saveActive가 토스트로 안내한다).
               const restoreId = store.state.activeId;
+              let failed = false;
               for (const tab of dirtyTabs) {
                 if (!tab.path) continue;
                 store.activate(tab.id);
-                await store.saveActive();
+                if (!(await store.saveActive())) failed = true;
               }
               if (restoreId && store.state.activeId !== restoreId) {
                 const back = store.state.tabs.find((x) => x.id === restoreId);
                 if (back) store.activate(restoreId);
               }
-              onDone(true);
+              onDone(failed ? false : true);
             }}
           >
             {t.dirtySave}

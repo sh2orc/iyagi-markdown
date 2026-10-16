@@ -414,3 +414,33 @@ describe("외부 변경(수동 QA 항목 자동화)", () => {
     expect(persisted.length).toBe(2);
   });
 });
+
+describe("자동 저장 실패 알림(조용한 유실 방지)", () => {
+  it("실패 시 에러 토스트 — 연속 실패 중복 억제·회복 후 재실패 재알림", async () => {
+    const io = fakeIo();
+    const diskFull = () => Promise.reject(new Error("disk full"));
+    io.writeDocument = diskFull;
+    const store = new AppStore(io);
+    const view = mount(store);
+    await openTab(store, "/tmp/autosave-fail.md");
+    const t = store.active!;
+    view.dispatch({ changes: { from: 0, insert: "x" } });
+    await nextFrame();
+    const errs = () => store.state.toasts.filter((x) => x.kind === "error");
+    expect(await store.saveTabById(t.id)).toBe(false);
+    expect(errs()).toHaveLength(1); // 첫 실패 알림
+    expect(t.dirty).toBe(true); // dirty 유지 — 다음 입력에 재시도
+    expect(await store.saveTabById(t.id)).toBe(false);
+    expect(errs()).toHaveLength(1); // 연속 실패 — 중복 억제
+    io.writeDocument = async (_p: string, text: string) => ({ mtime: 5, size: text.length });
+    expect(await store.saveTabById(t.id)).toBe(true); // 회복
+    expect(t.dirty).toBe(false);
+    io.writeDocument = diskFull;
+    view.dispatch({ changes: { from: 0, insert: "y" } });
+    await nextFrame();
+    expect(await store.saveTabById(t.id)).toBe(false); // 재실패
+    expect(errs()).toHaveLength(2); // 회복 후 재알림
+    view.destroy();
+    setViewListener(null);
+  });
+});
