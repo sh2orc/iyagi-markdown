@@ -29,7 +29,7 @@ libc = "0.2"
 
 # macOS 바인딩 — Tauri 2.12가 쓰는 objc2 0.6 계열과 같은 세대를 고정한다.
 objc2 = "0.6"
-objc2-foundation = "0.3"
+objc2-foundation = { version = "0.3", features = ["NSURL"] }
 objc2-app-kit = "0.3"
 objc2-core-graphics = "0.3"
 objc2-core-foundation = "0.3"

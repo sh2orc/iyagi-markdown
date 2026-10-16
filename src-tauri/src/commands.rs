@@ -660,7 +660,8 @@ pub async fn find_orphan_images(root: String) -> Result<Vec<md_core::search::Orp
     .map_err(err)?
 }
 
-/// 고아 이미지 일괄 삭제 — 사용자 확인 후 프런트가 부른다.
+/// 고아 이미지 일괄 삭제 — 휴지통 이동 우선(Finder 복구 가능), 실패 시 기존 삭제.
+/// 사용자 2단계 확인 후 프런트가 부른다.
 #[tauri::command]
 pub async fn delete_orphan_images(paths: Vec<String>) -> Result<u32, String> {
     // 파일 삭제도 워커 스레드에서(메인 스레드 보호 — find_orphan_images와 동일 규칙).
@@ -672,7 +673,9 @@ pub async fn delete_orphan_images(paths: Vec<String>) -> Result<u32, String> {
             if !path.to_string_lossy().contains("/assets/") {
                 continue;
             }
-            if std::fs::remove_file(path).is_ok() {
+            // 휴지통 이동이 성공하면 그걸로 끝 — 오검출·실수를 Finder에서 되돌릴 수 있다.
+            // 휴지통 없는 볼륨(네트워크 등)은 기존처럼 즉시 삭제.
+            if md_macos::trash::move_to_trash(p) || std::fs::remove_file(path).is_ok() {
                 deleted += 1;
             }
         }

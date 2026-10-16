@@ -14,3 +14,14 @@ pub mod locale {
         std::env::var("LANG").ok().into_iter().collect()
     }
 }
+
+#[cfg(target_os = "macos")]
+pub mod trash;
+
+#[cfg(not(target_os = "macos"))]
+pub mod trash {
+    //! 비-macOS 폴백 — 휴지통 없음(호출자는 기존 삭제 경로 유지).
+    pub fn move_to_trash(_path: &str) -> bool {
+        false
+    }
+}
