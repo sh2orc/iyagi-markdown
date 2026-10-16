@@ -186,6 +186,18 @@ export function CommandPalette({
       ...(onOpenDiff ? [{ id: "diff", label: `${t.diffTitle}…`, run: onOpenDiff }] : []),
       { id: "wssearch", label: `${t.wsSearchTitle} ⇧⌘F`, run: () => onOpenWsSearch?.() },
       { id: "versions", label: `${t.scFile}: ${t.versionsTitle}`, run: () => onOpenVersions?.() },
+      // 로그 폴더 — 문제 보고·디버깅 경로(앱 안에서만, 실패는 안내).
+      ...(isInApp()
+        ? [
+            {
+              id: "logs-open",
+              label: `${t.scFile}: ${t.logsOpen}`,
+              run: () => {
+                void api.openLogsDir().catch(() => store.toast(t.logsOpenFailed, "error"));
+              },
+            },
+          ]
+        : []),
       { id: "backlinks", label: `${t.scView}: ${t.backlinksTitle}`, run: () => onOpenBacklinks?.() },
       ...(onOpenComments ? [{ id: "comments", label: `${t.commentsTitle}…`, run: onOpenComments }] : []),
       // 커서 줄에 메모 추가 — 우클릭 메뉴와 같은 대화상자(팔레티 진입은 그동안
