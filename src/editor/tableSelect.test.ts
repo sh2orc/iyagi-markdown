@@ -104,3 +104,42 @@ describe("빈 셀 행 높이 보존", { retry: 1 }, () => {
     view.destroy();
   });
 });
+
+describe("셀 병합 렌더·오퍼레이션", { retry: 1 }, () => {
+  it("마커 표는 colspan/rowspan으로 렌더 — 고스트 셀 없음", async () => {
+    const view = await tableView("| h | k |\n|---|---|\n| a | > |\n| ^ | x |\n");
+    const trs = view.dom.querySelectorAll(".md-table tbody tr");
+    expect(trs.length).toBe(2);
+    const first = trs[0]!;
+    expect(first.children.length).toBe(1); // ">" 고스트 스킵
+    const master = first.children[0] as HTMLTableCellElement;
+    expect(master.colSpan).toBe(2); // ">" 흡수
+    expect(master.rowSpan).toBe(2); // "^" 흡수
+    expect(master.textContent).toBe("a");
+    expect(trs[1]!.children.length).toBe(1); // "^" 고스트 스킵 — x만
+    expect((trs[1]!.children[0] as HTMLElement).textContent).toBe("x");
+    view.destroy();
+  });
+
+  it("선택 병합 오퍼레이션 — 원문에 마커 반영", async () => {
+    const view = await tableView();
+    let target: TableMenuTarget | null = null;
+    setTableMenuHandler((tg) => {
+      target = tg;
+    });
+    const cs = cells(view);
+    cs[0]!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    cs[1]!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    window.dispatchEvent(new MouseEvent("mouseup"));
+    await new Promise((r) => setTimeout(r, 15));
+    cs[1]!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 5));
+    target!.run("merge");
+    await new Promise((r) => setTimeout(r, 20));
+    const doc = view.state.doc.toString();
+    expect(doc).toContain("1 2");
+    expect(doc).toContain("> |");
+    setTableMenuHandler(null);
+    view.destroy();
+  });
+});

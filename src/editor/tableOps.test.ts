@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { ParsedTable } from "./widgets";
 import {
   clearCells,
+  mergeCells,
   deleteCols,
   deleteRows,
   insertCol,
@@ -13,6 +14,7 @@ import {
   setColAlign,
   sortRowsBy,
   tsvOf,
+  unmergeCells,
 } from "./tableOps";
 
 const T: ParsedTable = {
@@ -77,5 +79,41 @@ describe("tableOps", () => {
 
   it("tsvOf — 사각 영역 탭 구분(헤더 포함)", () => {
     expect(tsvOf(T, normRect({ r: 0, c: 0 }, { r: 1, c: 1 }))).toBe("h1\th2\nb2\tx");
+  });
+});
+
+describe("tableOps — 셀 병합/해제", () => {
+  const M: ParsedTable = {
+    align: [null, null],
+    header: ["h1", "h2"],
+    rows: [
+      ["a", "b"],
+      ["c", "d"],
+    ],
+  };
+
+  it("mergeCells — 2×2 영역: 좌상단에 내용 합침, 나머지 마커", () => {
+    const next = mergeCells(M, normRect({ r: 1, c: 0 }, { r: 2, c: 1 }));
+    expect(next.rows[0]).toEqual(["a b c d", ">"]);
+    expect(next.rows[1]).toEqual(["^", "^"]);
+  });
+
+  it("mergeCells — 기존 마커 셀은 내용 합침에서 제외", () => {
+    const pre = { ...M, rows: [["a", ">"], ["^", "d"]] };
+    const next = mergeCells(pre, normRect({ r: 1, c: 0 }, { r: 2, c: 1 }));
+    expect(next.rows[0][0]).toBe("a d");
+  });
+
+  it("mergeCells — 가로 한 줄·헤더 병합", () => {
+    expect(mergeCells(M, normRect({ r: 1, c: 0 }, { r: 1, c: 1 })).rows[0]).toEqual(["a b", ">"]);
+    expect(mergeCells(M, normRect({ r: 0, c: 0 }, { r: 0, c: 1 })).header).toEqual(["h1 h2", ">"]);
+  });
+
+  it("unmergeCells — 마커만 빈 셀로, 원본 불변", () => {
+    const merged = mergeCells(M, normRect({ r: 1, c: 0 }, { r: 2, c: 1 }));
+    const back = unmergeCells(merged, normRect({ r: 1, c: 0 }, { r: 2, c: 1 }));
+    expect(back.rows[0]).toEqual(["a b c d", ""]);
+    expect(back.rows[1]).toEqual(["", ""]);
+    expect(merged.rows[0][1]).toBe(">");
   });
 });

@@ -212,6 +212,13 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
           {item(`→ ${t.tmAlign}`, () => runTable("align-right"))}
           {item(t.tmSortAsc, () => runTable("sort-asc"), { disabled: menu.table.rows <= 1 })}
           {item(t.tmSortDesc, () => runTable("sort-desc"), { disabled: menu.table.rows <= 1 })}
+          {menu.table.selection &&
+            menu.table.selection.r2 >= menu.table.selection.r1 &&
+            (menu.table.selection.r2 - menu.table.selection.r1 + 1) *
+              (menu.table.selection.c2 - menu.table.selection.c1 + 1) >=
+              2 &&
+            item(t.tmMerge, () => runTable("merge"))}
+          {menu.table.selection && item(t.tmUnmerge, () => runTable("unmerge"))}
           {menu.table.selection && item(t.tmClearSel, () => runTable("clear-sel"))}
           {menu.table.selection && item(t.tmCopySel, () => runTable("copy-sel"))}
           {item(t.tmDelTable, () => runTable("del-table"), { danger: true })}

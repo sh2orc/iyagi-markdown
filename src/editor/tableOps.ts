@@ -119,3 +119,52 @@ export function tsvOf(t: ParsedTable, rect: CellRect): string {
   }
   return lines.join("\n");
 }
+
+/** 병합 마커 여부 — ">"(왼쪽과 병합)·"^"(위와 병합). 앱 렌더 전용 관례로
+ *  다른 렌더러에서는 기호 텍스트로 강등 표시(원문 무손실). */
+export function isMergeMark(s: string): boolean {
+  const v = s.trim();
+  return v === ">" || v === "^";
+}
+
+/** 선택 영역을 한 셀로 병합(Word "셀 병합") — 좌상단 셀에 내용을 합치고
+ *  첫 행 나머지는 ">", 아래 행들은 "^" 마커. */
+export function mergeCells(t: ParsedTable, rect: CellRect): ParsedTable {
+  const next = clone(t);
+  const get = (r: number, c: number): string =>
+    r === 0 ? (next.header[c] ?? "") : (next.rows[r - 1]?.[c] ?? "");
+  const set = (r: number, c: number, v: string): void => {
+    if (r === 0) next.header[c] = v;
+    else if (next.rows[r - 1]) next.rows[r - 1][c] = v;
+  };
+  const contents: string[] = [];
+  for (let r = rect.r1; r <= rect.r2; r++) {
+    for (let c = rect.c1; c <= rect.c2; c++) {
+      const v = get(r, c).trim();
+      if (v && !isMergeMark(v)) contents.push(v);
+    }
+  }
+  for (let r = rect.r1; r <= rect.r2; r++) {
+    for (let c = rect.c1; c <= rect.c2; c++) {
+      if (r === rect.r1 && c === rect.c1) set(r, c, contents.join(" "));
+      else set(r, c, r === rect.r1 ? ">" : "^");
+    }
+  }
+  return next;
+}
+
+/** 병합 해제 — 영역 안 병합 마커를 빈 셀로 되돌린다. */
+export function unmergeCells(t: ParsedTable, rect: CellRect): ParsedTable {
+  const next = clone(t);
+  const set = (r: number, c: number, v: string): void => {
+    if (r === 0) next.header[c] = v;
+    else if (next.rows[r - 1]) next.rows[r - 1][c] = v;
+  };
+  for (let r = rect.r1; r <= rect.r2; r++) {
+    for (let c = rect.c1; c <= rect.c2; c++) {
+      const cur = r === 0 ? (next.header[c] ?? "") : (next.rows[r - 1]?.[c] ?? "");
+      if (isMergeMark(cur)) set(r, c, "");
+    }
+  }
+  return next;
+}

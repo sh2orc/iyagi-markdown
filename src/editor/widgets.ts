@@ -321,6 +321,24 @@ export interface ParsedTable {
   rows: string[][];
 }
 
+
+/** 렌더된 셀의 그리드 열 좌표 — 병합 고스트가 행에서 빠지므로 dataset 사용. */
+function gridColOf(cell: HTMLElement, rowEl: HTMLElement): number {
+  const g = cell.dataset.gridC;
+  if (g != null) return Number(g);
+  return Array.from(rowEl.children).indexOf(cell);
+}
+
+/** (행, 그리드 열) 셀 찾기 — dataset.gridC 일치(없으면 자식 인덱스 폴백). */
+function gridCellAt(rows: Element[], r: number, c: number): HTMLElement | null {
+  const tr = rows[r];
+  if (!tr) return null;
+  const byGrid = Array.from(tr.children).find(
+    (el) => el instanceof HTMLElement && el.dataset.gridC === String(c),
+  );
+  return (byGrid instanceof HTMLElement ? byGrid : (tr.children[c] as HTMLElement | undefined)) ?? null;
+}
+
 // — 표 우클릭 메뉴 다리 — 위젯(표 안)에서 우클릭하면 ContextMenu가 표 전용
 // 항목을 띄운다. 위젯은 구조 연산(tableOps)을 실행 클로저로 넘긴다.
 
@@ -338,7 +356,9 @@ export type TableMenuOp =
   | "sort-asc"
   | "sort-desc"
   | "clear-sel"
-  | "copy-sel";
+  | "copy-sel"
+  | "merge"
+  | "unmerge";
 
 export interface TableMenuTarget {
   /** 우클릭한 셀(행 0 = 헤더). */
@@ -492,7 +512,7 @@ export class TableWidget extends WidgetType {
         if (!(cell instanceof HTMLElement) || !(rowEl instanceof HTMLElement)) return;
         const rows = Array.from(wrap.querySelectorAll("tr"));
         const r = rows.indexOf(rowEl);
-        const c = Array.from(rowEl.children).indexOf(cell);
+        const c = gridColOf(cell, rowEl);
         if (r < 0 || c < 0) return;
         clickFocus = { row: r, col: c };
       },
@@ -522,7 +542,7 @@ export class TableWidget extends WidgetType {
       const rowEl = cell?.closest?.("tr");
       if (!(cell instanceof HTMLElement) || !(rowEl instanceof HTMLElement)) return null;
       const r = Array.from(wrap.querySelectorAll("tr")).indexOf(rowEl);
-      const c = Array.from(rowEl.children).indexOf(cell);
+      const c = gridColOf(cell, rowEl);
       return r < 0 || c < 0 ? null : { r, c };
     };
     const paintSelection = (): void => {
@@ -531,7 +551,7 @@ export class TableWidget extends WidgetType {
       const rows = Array.from(wrap.querySelectorAll("tr"));
       for (let r = selRect.r1; r <= selRect.r2; r++) {
         for (let c = selRect.c1; c <= selRect.c2; c++) {
-          rows[r]?.children[c]?.classList.add("md-cell-selected");
+          gridCellAt(rows, r, c)?.classList.add("md-cell-selected");
         }
       }
     };
@@ -691,6 +711,14 @@ export class TableWidget extends WidgetType {
               case "copy-sel":
                 void navigator.clipboard?.writeText(tableOps.tsvOf(parsed, rect)).catch(() => {});
                 break;
+              case "merge":
+                applyOp((t) => tableOps.mergeCells(t, rect));
+                clearSelection();
+                break;
+              case "unmerge":
+                applyOp((t) => tableOps.unmergeCells(t, rect));
+                clearSelection();
+                break;
             }
           },
         },
@@ -781,7 +809,7 @@ export class TableWidget extends WidgetType {
       const pf = pendingCellFocus;
       pendingCellFocus = null;
       if (!pf) return;
-      const cell = w.querySelectorAll("tr")[pf.row]?.children[pf.col];
+      const cell = gridCellAt(Array.from(w.querySelectorAll("tr")), pf.row, pf.col);
       if (cell instanceof HTMLElement) {
         cell.dispatchEvent(new MouseEvent("dblclick", { bubbles: false }));
         if (!cell.classList.contains("md-cell-editing")) cell.dispatchEvent(new MouseEvent("mousedown"));
@@ -799,6 +827,10 @@ export class TableWidget extends WidgetType {
     const thead = document.createElement("thead");
     const hrow = document.createElement("tr");
     parsed.header.forEach((cell, i) => {
+      // 가로 병합 고스트(">")는 렌더하지 않는다 — 이전 실셀이 span 흡수.
+      let hSpan = 1;
+      while (i + hSpan < parsed.header.length && (parsed.header[i + hSpan] ?? "").trim() === ">") hSpan++;
+      if (cell.trim() === ">") return;
       const th = document.createElement("th");
       const a = parsed.align[i];
       if (a) th.style.textAlign = a;
@@ -841,6 +873,8 @@ export class TableWidget extends WidgetType {
       if (a === "left") th.dataset.align = "↤";
       else if (a === "center") th.dataset.align = "↔";
       else if (a === "right") th.dataset.align = "↦";
+      if (hSpan > 1) th.colSpan = hSpan; // 가로 병합
+      th.dataset.gridC = String(i); // 그리드 좌표(고스트 셀 건너뛰기에 필수)
       hrow.append(th);
     });
     thead.append(hrow);
@@ -849,9 +883,19 @@ export class TableWidget extends WidgetType {
     parsed.rows.forEach((row, ri) => {
       const tr = document.createElement("tr");
       row.forEach((cell, i) => {
+        const mark = cell.trim();
+        if (mark === ">") return; // 가로 병합 고스트 — 왼쪽 실셀이 span 흡수
+        if (mark === "^") return; // 세로 병합 고스트 — 위 실셀이 span 흡수
+        let span = 1;
+        while (i + span < row.length && (row[i + span] ?? "").trim() === ">") span++;
+        let rowspan = 1;
+        while (ri + rowspan < parsed.rows.length && (parsed.rows[ri + rowspan]?.[i] ?? "").trim() === "^") rowspan++;
         const td = document.createElement("td");
         const a = parsed.align[i];
         if (a) td.style.textAlign = a;
+        if (span > 1) td.colSpan = span;
+        if (rowspan > 1) td.rowSpan = rowspan;
+        td.dataset.gridC = String(i);
         td.append(tableCellText(cell));
         makeEditable(td, ri + 1, i);
         tr.append(td);
