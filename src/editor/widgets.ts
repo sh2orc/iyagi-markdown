@@ -649,6 +649,31 @@ export class TableWidget extends WidgetType {
         !activeEdit &&
         !e.isComposing &&
         !e.shiftKey &&
+        (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight")
+      ) {
+        // 일반 화살표 — 활성 셀 이동(엑셀 모델: 이동→⇧확장→Enter 편집).
+        // 단일 셀 선택으로 접는다(확장은 ⇧화살표가 담당).
+        e.preventDefault();
+        const maxR = Array.from(wrap.querySelectorAll("tr")).length - 1;
+        const act0 = selActive ?? { r: selRect!.r1, c: selRect!.c1 };
+        const act = {
+          r:
+            e.key === "ArrowUp" || e.key === "ArrowDown"
+              ? Math.max(0, Math.min(maxR, act0.r + (e.key === "ArrowDown" ? 1 : -1)))
+              : act0.r,
+          c:
+            e.key === "ArrowLeft" || e.key === "ArrowRight"
+              ? Math.max(0, Math.min(nCols - 1, act0.c + (e.key === "ArrowRight" ? 1 : -1)))
+              : act0.c,
+        };
+        selAnchor = act;
+        selActive = act;
+        selRect = tableOps.normRect(act, act);
+        paintSelection();
+      } else if (
+        !activeEdit &&
+        !e.isComposing &&
+        !e.shiftKey &&
         e.key === "Enter" &&
         selActive !== null
       ) {

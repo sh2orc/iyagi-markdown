@@ -220,3 +220,38 @@ describe("표 키보드 편집 진입(Enter)", { retry: 1 }, () => {
     view.destroy();
   });
 });
+
+describe("표 일반 화살표 — 활성 셀 이동(엑셀 모델)", { retry: 1 }, () => {
+  it("화살표로 단일 셀 선택 이동 → Enter 편집까지", async () => {
+    const view = await tableView();
+    const cs = cells(view);
+    cs[0]!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    cs[3]!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    window.dispatchEvent(new MouseEvent("mouseup"));
+    await new Promise((r) => setTimeout(r, 15));
+    expect(selected(view).length).toBe(4); // 2×2
+    const wrap = view.dom.querySelector(".md-table-wrap")!;
+    // 왼쪽 위로 두 번 — 액티브(2,2)→(2,1)→(1,1), 선택은 단일 셀로 접힌다.
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(selected(view).length).toBe(1);
+    expect(selected(view)[0]!.textContent).toBe("1");
+    // 위/왼쪽 끝 — 헤더 행(편집 가능한 첫 줄)까지 이동하고 그 넘은 클램프.
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }));
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(selected(view).length).toBe(1);
+    expect(selected(view)[0]!.textContent).toBe("a"); // 헤더 셀 — 진입 허용
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }));
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(selected(view)[0]!.textContent).toBe("a"); // (0,0) 클램프
+    // 돌아와서 Enter — 그 셀 편집.
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 15));
+    expect(view.dom.querySelector(".md-cell-editing")?.textContent).toBe("1");
+    view.destroy();
+  });
+});
