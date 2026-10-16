@@ -2712,3 +2712,16 @@ body.resizing .toc {
   background: color-mix(in srgb, var(--accent, #3b82f6) 20%, transparent);
 }
 .md-table-wrap:focus { outline: none; }
+
+/* 소스 모드 분할 미리보기 — 왼쪽 소스·오른쪽 읽기(Typora 이중 보기). */
+.source-split { flex: 1; display: flex; min-width: 0; min-height: 0; }
+.source-split .editor-host { flex: 1; min-width: 0; }
+.src-preview {
+  flex: 1;
+  min-width: 0;
+  border-left: 1px solid var(--md-border);
+  display: flex;
+  background: var(--md-bg, #fff);
+}
+.src-preview iframe { flex: 1; border: 0; background: transparent; }
+.src-preview-loading { flex: 1; }

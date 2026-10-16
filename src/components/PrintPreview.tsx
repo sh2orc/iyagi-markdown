@@ -12,7 +12,7 @@ const printFrame = { current: null as HTMLIFrameElement | null };
 const lastScroll = { current: 0 };
 
 /** 문서별 미리보기 본문 캐시(인쇄 슬라이더가 껍데기만 다시 조립하게). */
-const previewBodyCache = new Map<string, string>();
+export const previewBodyCache = new Map<string, string>();
 import type { Translate } from "../i18n";
 import type { PdfOptions } from "./ExportSheet";
 

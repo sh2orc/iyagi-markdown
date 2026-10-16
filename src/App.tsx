@@ -44,6 +44,7 @@ import { setWikiDocsProvider, setTagListProvider, type WikiDoc } from "./editor/
 import { SettingsSheet } from "./components/SettingsSheet";
 import { StylePanel } from "./components/StylePanel";
 import { PrintPreview } from "./components/PrintPreview";
+import { SourcePreview } from "./components/SourcePreview";
 import { ShortcutsPanel } from "./components/ShortcutsPanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { SymbolPanel } from "./components/SymbolPanel";
@@ -1064,9 +1065,16 @@ export function App(): JSX.Element {
           <Toolbar store={store} t={t} onInsertTable={() => setTableDialogOpen(true)} />
           <SearchPanel store={store} view={editorView.current} t={t} open={state.searchOpen} />
           <div className={`edit-split ${pinnedTabId ? "has-ref" : ""}`}>
-          <div className={`editor-area ${activeTab?.mode === "read" ? "read-mode" : ""}`}>
+          <div
+            className={`editor-area ${activeTab?.mode === "read" ? "read-mode" : ""} ${
+              activeTab?.mode === "source" ? "source-mode" : ""
+            }`}
+          >
             <MiniToolbar store={store} t={t} />
-            <div className="editor-host" ref={editorHost} />
+            <div className="source-split">
+              <div className="editor-host" ref={editorHost} />
+              {activeTab?.mode === "source" && <SourcePreview store={store} tab={activeTab} />}
+            </div>
             {!state.ready && <div className="app-splash">{t.loading}</div>}
             {state.ready && state.tabs.length === 0 && (
               <Welcome
