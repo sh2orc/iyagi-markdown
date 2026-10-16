@@ -29,6 +29,12 @@ pub fn lang_of(settings: &Settings) -> md_core::i18n::Lang {
 
 // — 앱 수명 —
 
+/// 프런트 오류 경계의 크래시 기록 — 로그 파일에 남겨 보고·사후 진단.
+#[tauri::command]
+pub fn log_error(message: String) {
+    tracing::error!(target: "frontend", "{}", message);
+}
+
 /// 프런트가 렌더링을 마쳤다 — 창을 보여준다.
 #[tauri::command]
 pub fn app_ready(app: AppHandle) {

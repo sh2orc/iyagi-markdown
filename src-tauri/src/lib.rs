@@ -63,6 +63,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             exit_confirmed,
+            commands::log_error,
             commands::app_ready,
             commands::app_info,
             commands::take_pending_files,

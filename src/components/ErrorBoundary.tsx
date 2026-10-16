@@ -5,6 +5,8 @@
 
 import React from "react";
 
+import { api, isInApp } from "../api";
+
 interface State {
   error: Error | null;
 }
@@ -17,8 +19,9 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
   }
 
   componentDidCatch(error: Error, info: unknown): void {
-    // 진단은 콘솔로(로그 정책은 기존과 동일하게 경로 유지).
+    // 진단은 콘솔 + 앱 로그 파일(로그 폴더 열기로 사용자가 보낼 수 있다).
     console.error("UI 크래시:", error, info);
+    if (isInApp()) void api.logError(`UI crash: ${error.message}\n${String(info)}`).catch(() => {});
   }
 
   render(): React.ReactNode {

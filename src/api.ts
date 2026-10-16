@@ -215,6 +215,7 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
 export const api = {
   appReady: () => invoke<void>("app_ready"),
   exitConfirmed: () => invoke<void>("exit_confirmed"),
+  logError: (message: string) => invoke<void>("log_error", { message }),
   appInfo: () => invoke<AppInfo>("app_info"),
   takePendingFiles: () => invoke<string[]>("take_pending_files"),
   readDocument: (path: string) => invoke<LoadedDoc>("read_document", { path }),
