@@ -497,6 +497,12 @@ export class TableWidget extends WidgetType {
         if (activeEdit === cell) activeEdit = null;
         cell.classList.remove("md-cell-editing");
         const value = cancelled ? raw : (cell.textContent ?? "").replace(/\s*\n\s*/g, " ").trim();
+        // 셀 DOM은 항상 렌더 상태로 되돌린다 — 포커스 이동(값 불변)·커밋 가드
+        // 탈락 경로에서 contentEditable이 남으면 이전 셀 테두리가 굳는다.
+        cell.contentEditable = "false";
+        cell.textContent = "";
+        cell.append(tableCellText(raw));
+        if (value === raw && !focus) return;
         const next: ParsedTable = {
           align: parsed.align,
           header: [...parsed.header],
@@ -504,12 +510,6 @@ export class TableWidget extends WidgetType {
         };
         if (row === 0) next.header[col] = value;
         else if (next.rows[row - 1]) next.rows[row - 1][col] = value;
-        if (value === raw && !focus) {
-          cell.contentEditable = "false";
-          cell.textContent = "";
-          cell.append(tableCellText(raw));
-          return;
-        }
         if (focus && focus.row > next.rows.length) {
           next.rows.push(Array.from({ length: nCols }, () => ""));
         }

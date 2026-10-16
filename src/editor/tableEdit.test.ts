@@ -576,3 +576,31 @@ describe("insertFootnote / nextFootnoteId", async () => {
     v.destroy();
   });
 });
+
+describe("표 셀 제자리 편집(DOM) — 셀 이동 시 이전 테두리 해제", { retry: 1 }, () => {
+  it("다른 셀 클릭: 이전 셀은 contentEditable 해제·렌더 복원, 새 셀 편집", async () => {
+    const view = new EditorView({
+      state: createDocState("| h | k |\n|---|---|\n| **강조** | 2 |\n", "edit"),
+      parent: document.body,
+    });
+    await new Promise((r) => setTimeout(r, 40)); // 위젯 마운트
+    const cells = view.dom.querySelectorAll(".md-table tbody td");
+    expect(cells.length).toBe(2);
+    const a = cells[0] as HTMLElement;
+    const b = cells[1] as HTMLElement;
+    a.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 15)); // begin 지연
+    // jsdom은 contentEditable 프로퍼티를 속성에 반영하지 않는다 — 편집 상태는
+    // 클래스와 원문 노출로 단언한다(테두리는 [contenteditable="true"]와 동일 시점).
+    expect(a.classList.contains("md-cell-editing")).toBe(true);
+    expect(a.textContent).toBe("**강조**"); // 원문 마커 노출
+    // 셀 B 클릭 → 캡처 기록 → A 블러(finish) → B begin.
+    b.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    a.dispatchEvent(new FocusEvent("blur"));
+    await new Promise((r) => setTimeout(r, 15));
+    expect(a.classList.contains("md-cell-editing")).toBe(false); // 편집 해제
+    expect(a.textContent).toBe("강조"); // 렌더 복원(마커 ** 아님)
+    expect(b.classList.contains("md-cell-editing")).toBe(true); // 새 셀 편집
+    view.destroy();
+  });
+});
