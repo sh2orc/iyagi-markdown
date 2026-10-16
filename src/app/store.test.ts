@@ -332,16 +332,29 @@ describe("외부 변경(수동 QA 항목 자동화)", () => {
     expect(t.conflict).toBeNull();
     expect(t.dirty).toBe(false);
 
-    // 2) 더티 → 충돌 플래그, 내용 유지.
+    // 2) 더티 + 파일 내용이 저장 내용과 같음(자기 저장 이벤트가 늦게 도착) →
+    //    충돌 아님 — 직접 편집 중인데 모달이 뜨는 오남용 방지.
     view.dispatch({ changes: { from: 0, insert: "수정 " } });
     await nextFrame();
     expect(t.dirty).toBe(true);
+    store.externalChange("/tmp/ext.md", "changed");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.conflict).toBeNull();
+
+    // 3) 더티 + 파일 내용이 실제로 다름 → 충돌 플래그, 내용 유지.
+    (store as unknown as { io: StoreIO }).io.readDocument = async () => ({
+      text: "# 외부에서 바뀜\n",
+      meta: { hadBom: false, crlf: false },
+      mtime: 9,
+      size: 1,
+    });
     const before = t.state.doc.toString();
     store.externalChange("/tmp/ext.md", "changed");
+    await new Promise((r) => setTimeout(r, 20));
     expect(t.conflict).toBe("conflict");
     expect(t.state.doc.toString()).toBe(before);
 
-    // 3) 제거 → removed 표시.
+    // 4) 제거 → removed 표시.
     store.externalChange("/tmp/ext.md", "removed");
     expect(t.conflict).toBe("removed");
   });

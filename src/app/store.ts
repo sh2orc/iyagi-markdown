@@ -810,7 +810,7 @@ export class AppStore {
   // — 외부 변경 —
 
   externalChange(path: string, kind: "changed" | "removed"): void {
-    // 방금 저장한 파일이면 무시(self-write는 Rust가 이미 걸렀지만 이중 방어).
+    // 방금 저장한 파일이면 무시(self-write는 Rust가 이미 걸렸지만 이중 방어).
     if (Date.now() - this.lastSavedAt < 2000 && this.active?.path === path) return;
     const tab = this.state.tabs.find((t) => t.path === path);
     if (!tab) {
@@ -824,15 +824,36 @@ export class AppStore {
       this.emit();
       return;
     }
-    const dirty = tab.dirty;
-    if (dirty) {
-      tab.conflict = "conflict";
-      this.emit();
-    } else {
-      // 수정 중이 아니면 자동 다시 읽기(커서·스크롤 보존).
-      void this.reloadTab(tab.id, true);
-    }
-    void this.refreshTree();
+    // 내용 비교로 자기 저장 판별 — 시간 창(부하 시 fs 이벤트가 1.5~2초 늦게
+    // 오면 뚫린다)·비활성 탭 저장도 커버. 파일이 마지막 저장 내용과 같으면
+    // 외부 변경이 아니다(직접 편집 중인데 충돌 모달이 뜨는 오남용 방지).
+    void (async () => {
+      const startedAt = Date.now();
+      let sameAsSaved = false;
+      try {
+        const doc = await this.io.readDocument(path);
+        sameAsSaved = doc.text === tab.savedText;
+      } catch {
+        /* 읽기 실패 — 기존 흐름으로 판정 */
+      }
+      if (sameAsSaved) {
+        void this.refreshTree();
+        return;
+      }
+      // 읽는 사이 다시 저장했다면(이벤트는 이전 자기 저장의 것) 외부 변경 아님.
+      if (this.lastSavedAt > startedAt && this.state.tabs.some((x) => x.path === path && !x.conflict)) {
+        void this.refreshTree();
+        return;
+      }
+      if (tab.dirty) {
+        tab.conflict = "conflict";
+        this.emit();
+      } else {
+        // 수정 중이 아니면 자동 다시 읽기(커서·스크롤 보존).
+        void this.reloadTab(tab.id, true);
+      }
+      void this.refreshTree();
+    })();
   }
 
   async reloadTab(id: string, keepPosition: boolean): Promise<void> {
