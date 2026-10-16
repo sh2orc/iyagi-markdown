@@ -69,28 +69,38 @@ export function ImageViewer({ src, alt, t, onClose, onEditAlt, onNav, index, tot
         <span className="imgviewer-name" title={src}>
           {alt || src.split("/").pop()}
         </span>
-        <button className="mtb-btn" title="-" onClick={() => setZoom((z) => Math.max(0.1, z / 1.25))}>
+        <button
+          className="mtb-btn"
+          title={t.zoomOut}
+          aria-label={t.zoomOut}
+          onClick={() => setZoom((z) => Math.max(0.1, z / 1.25))}
+        >
           −
         </button>
         {index !== undefined && total !== undefined && (
           <span className="imgviewer-index">{index + 1} / {total}</span>
         )}
         <span className="imgviewer-zoom">{Math.round(zoom * 100)}%</span>
-        <button className="mtb-btn" title="+" onClick={() => setZoom((z) => Math.min(8, z * 1.25))}>
+        <button
+          className="mtb-btn"
+          title={t.zoomIn}
+          aria-label={t.zoomIn}
+          onClick={() => setZoom((z) => Math.min(8, z * 1.25))}
+        >
           +
         </button>
-        <button className="mtb-btn" title="100%" onClick={reset}>
+        <button className="mtb-btn" title={t.zoomActual} aria-label={t.zoomActual} onClick={reset}>
           1:1
         </button>
         {onEditAlt && (
-          <button className="mtb-btn" title={t.imageEditTitle} onClick={onEditAlt}>
+          <button className="mtb-btn" title={t.imageEditTitle} aria-label={t.imageEditTitle} onClick={onEditAlt}>
             ✎
           </button>
         )}
-        <button className="mtb-btn" title="↻" onClick={() => setRot((r) => (r + 90) % 360)}>
+        <button className="mtb-btn" title={t.imgRotate} aria-label={t.imgRotate} onClick={() => setRot((r) => (r + 90) % 360)}>
           ↻
         </button>
-        <button className="mtb-btn" onClick={onClose}>
+        <button className="mtb-btn" title={t.close} aria-label={t.close} onClick={onClose}>
           ✕
         </button>
       </div>

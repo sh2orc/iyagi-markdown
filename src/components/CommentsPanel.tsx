@@ -65,6 +65,7 @@ export function CommentsPanel({ store, t, onClose }: Props): JSX.Element | null 
         <button
           className="cmt-act"
           title={t.commentEdit}
+          aria-label={t.commentEdit}
           onClick={() => setEditing({ id: c.id, lineNo: c.lineNo, text: c.text })}
         >
           ✎
@@ -72,11 +73,17 @@ export function CommentsPanel({ store, t, onClose }: Props): JSX.Element | null 
         <button
           className="cmt-act"
           title={c.resolved ? t.commentUnresolve : t.commentResolveBtn}
+          aria-label={c.resolved ? t.commentUnresolve : t.commentResolveBtn}
           onClick={() => void store.resolveComment(c.id, !c.resolved)}
         >
           {c.resolved ? "↺" : "✓"}
         </button>
-        <button className="cmt-act cmt-act-del" title={t.commentDelete} onClick={() => void store.removeComment(c.id)}>
+        <button
+          className="cmt-act cmt-act-del"
+          title={t.commentDelete}
+          aria-label={t.commentDelete}
+          onClick={() => void store.removeComment(c.id)}
+        >
           ×
         </button>
       </div>

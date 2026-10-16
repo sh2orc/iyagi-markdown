@@ -134,6 +134,7 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, 
               <button
                 className="status-cell status-backlinks"
                 title={t.backlinksTitle}
+                aria-label={`${t.backlinksTitle} ${tab.backlinks}`}
                 onClick={onOpenBacklinks}
               >
                 🔗 {tab.backlinks}
@@ -143,6 +144,7 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, 
               <button
                 className={`status-cell status-track ${tab.trackStats.added + tab.trackStats.removed > 0 ? "has-changes" : ""}`}
                 title={t.trackPanelTitle}
+                aria-label={`${t.trackPanelTitle} +${tab.trackStats.added} −${tab.trackStats.removed}`}
                 onClick={onOpenTrack}
               >
                 ✎ +{tab.trackStats.added} −{tab.trackStats.removed}
@@ -152,6 +154,7 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, 
               <button
                 className="status-cell status-comments"
                 title={t.commentsTitle}
+                aria-label={`${t.commentsTitle} ${tab.comments!.filter((c) => !c.resolved).length}`}
                 onClick={onOpenComments}
               >
                 💬 {tab.comments!.filter((c) => !c.resolved).length}
