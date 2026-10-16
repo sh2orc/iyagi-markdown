@@ -1,7 +1,7 @@
 // 인용·서지 순수 로직 — 정의 파싱·첫 등장 순 번호·표시 문자열·HTML 치환.
 // @vitest-environment jsdom
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { brokenCitations, citeDefsToHtml, citeDisplay, citeNumbering, isCiteDefLine } from "./citations";
 
@@ -72,6 +72,16 @@ describe("citeDefsToHtml (내보내기 전처리)", () => {
 });
 
 describe("인용 위젯 클릭 → 서지 이동(통합)", { retry: 2 }, () => {
+  // jsdom은 Range.getClientRects가 없어 CM 측정 경로가 죽는다 — 스텁
+  // (editor.test 486행 규약. 풀 스위트 병렬 시 언핸들 에러로 새던 원인).
+  beforeAll(() => {
+    const proto = Range.prototype as unknown as { getClientRects?: () => DOMRectList };
+    if (!proto.getClientRects) {
+      Object.defineProperty(Range.prototype, "getClientRects", {
+        value: () => [{ top: 0, bottom: 12, left: 0, right: 40, width: 40, height: 12 }],
+      });
+    }
+  });
   it("클릭하면 정의 줄로 커서가 옮겨진다", async () => {
     const { EditorView } = await import("@codemirror/view");
     const { createDocState } = await import("./cm");
