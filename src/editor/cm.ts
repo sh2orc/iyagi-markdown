@@ -163,6 +163,42 @@ import { writingComp, writingConf, writingExtension } from "./writing";
 import { smartPunctComp, smartPunctExtension } from "./smartPunct";
 import { indentGuidePlugin } from "./indentGuide";
 
+/** 파이프 없는 텍스트 줄이 표 행(| 시작) 사이에 끼면 빈 줄로 분리한다.
+ *  순수 텍스트 판정이라 트리 지연과 무관하게 즉시 동작(첫 글자에서 분리). */
+function splitTableAtPlainLine(view: EditorView, u: import("@codemirror/view").ViewUpdate): void {
+  const doc = u.state.doc;
+  const seen = new Set<number>();
+  u.changes.iterChangedRanges((fromA, toA) => {
+    const first = doc.lineAt(fromA).number;
+    const last = doc.lineAt(Math.min(toA, doc.length)).number;
+    for (let n = first; n <= last; n++) seen.add(n);
+  });
+  // 변경 줄만 검사(성능 — 문서 전체 순회 안 함).
+  for (const n of seen) {
+    if (n < 1 || n > doc.lines) continue;
+    const line = doc.line(n);
+    const t = line.text;
+    if (!t.trim() || /^\s*\|/.test(t)) continue; // 빈 줄·표 행은 대상 아님
+    const prev = n > 1 ? doc.line(n - 1) : null;
+    const next = n < doc.lines ? doc.line(n + 1) : null;
+    const before = prev !== null && /^\s*\|/.test(prev.text);
+    const after = next !== null && /^\s*\|/.test(next.text);
+    if (!before && !after) continue;
+    const insertBefore = before ? "\n" : "";
+    const insertAfter = after ? "\n" : "";
+    const head = view.state.selection.main.head;
+    view.dispatch({
+      changes: [
+        ...(insertBefore ? [{ from: line.from, insert: insertBefore }] : []),
+        ...(insertAfter ? [{ from: line.to, insert: insertAfter }] : []),
+      ],
+      selection: { anchor: head + insertBefore.length },
+      userEvent: "input.tableSplit",
+    });
+    return; // 한 번에 한 분리(변경 범위가 넓어도 다음 입력에서 이어서)
+  }
+}
+
 export type ViewMode = "edit" | "read" | "source";
 
 export const editableComp = new Compartment();
@@ -368,6 +404,11 @@ function baseExtensions(): Extension[] {
     previewConfigField,
     EditorView.updateListener.of((u) => {
       if (u.docChanged || u.selectionSet) listener?.(u);
+      // 표 행 사이에 일반 문장 타이핑 — 자동 빈 줄 분리(GFM이 파이프 없는
+      // 줄까지 표 행으로 삼키는 것을 방지, 표가 갈라지며 문장은 문단이 된다).
+      if (u.docChanged && u.transactions.some((tr) => tr.isUserEvent("input.type"))) {
+        splitTableAtPlainLine(u.view, u);
+      }
       // 클릭 교정 최종 적용 — CM의 포인터 선택(userEvent select.pointer)이
       // 확정된 이 시점에 비로소 비교한다(그 전엔 덮일 수 있다).
       if (pendingClickFix !== null && u.selectionSet) {

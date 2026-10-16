@@ -15,7 +15,7 @@ import { parseTable, serializeTable } from "./widgets";
 import { computeMatches, updateMatchesForChanges } from "../search/searchCm";
 import { createDocState, guardedLineMove, headingFoldOf, listItemFoldOf } from "./cm";
 import { sortLines, sortedLineTexts } from "./format";
-import { blockWidgetRangesBetween } from "./livePreview";
+import { blockWidgetRangesBetween, __testing } from "./livePreview";
 
 const parse = (doc: string) => {
   const state = EditorState.create({
@@ -581,6 +581,54 @@ describe("클릭 교정 — 블록 위젯 인접 줄 클릭", { retry: 1 }, () =
     line1.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 50, clientY: 10 }));
     await new Promise((r) => setTimeout(r, 120));
     expect(view.state.selection.main.head).toBe(4);
+    view.destroy();
+  });
+});
+
+describe("표 행 사이 일반 문장 자동 분리", { retry: 1 }, () => {
+  it("파이프 없는 텍스트 타이핑 → 빈 줄로 표 분리(두 표로 파싱)", async () => {
+    const view = new EditorView({
+      state: createDocState("| a | b |\n|---|---|\n| 1 | 2 |\n중간 문\n| c | d |\n|---|---|\n| 3 | 4 |\n", "edit"),
+      parent: document.body,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    // 문장 줄에 한 글자 타이핑(사용자 시나리오 — 첫 글자에서 분리).
+    const line = view.state.doc.line(4);
+    view.dispatch({
+      changes: { from: line.to, insert: "자" },
+      selection: { anchor: line.to + 1 },
+      userEvent: "input.type",
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    const text = view.state.doc.toString();
+    expect(text).toContain("중간 문자\n\n| c |"); // 아래 표와 빈 줄 분리
+    expect(text).toContain("| 1 | 2 |\n\n중간"); // 위 표와 빈 줄 분리
+    // 두 표 + 문단으로 파싱됐는지 — 적용 장식 위젯 2개.
+    const decos = view.state.field(__testing.decorationField);
+    let widgets = 0;
+    let c2 = decos.iter();
+    while (c2.value) {
+      if (c2.value.spec.widget) widgets++;
+      c2.next();
+    }
+    expect(widgets).toBeGreaterThanOrEqual(2);
+    view.destroy();
+  });
+
+  it("빈 줄·표 행 타이핑은 분리하지 않음", async () => {
+    const view = new EditorView({
+      state: createDocState("| a | b |\n|---|---|\n| 1 | 2 |\n", "edit"),
+      parent: document.body,
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    const line = view.state.doc.line(3);
+    view.dispatch({
+      changes: { from: line.to, insert: "x" },
+      selection: { anchor: line.to + 1 },
+      userEvent: "input.type",
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(view.state.doc.toString()).toBe("| a | b |\n|---|---|\n| 1 | 2 |x\n");
     view.destroy();
   });
 });

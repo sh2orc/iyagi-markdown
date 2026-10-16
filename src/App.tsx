@@ -246,6 +246,7 @@ export function App(): JSX.Element {
       saveFailed: t.saveFailed,
       speakStartedDoc: t.speakStartedDoc,
       speakStartedSel: t.speakStartedSel,
+      speakFailed: t.speakFailed,
     });
     let disposed = false;
     initBridge();
@@ -412,6 +413,8 @@ export function App(): JSX.Element {
     const view = new EditorView({ parent: editorHost.current });
     editorView.current = view;
     store.view = view;
+    // 개발 진단용 — 브라우저 콘솔/테스트에서 뷰에 직접 접근(프로덕션 제외).
+    if (import.meta.env.DEV) (window as unknown as { __iyagiView?: unknown }).__iyagiView = view;
     store.hostEl = editorHost.current;
     setViewListener((update) => store.onDocChanged(update));
     const tab = store.active;
