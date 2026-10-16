@@ -73,6 +73,15 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
   const [html, setHtml] = useState<string | null>(null);
   const doc = tab?.state.doc;
 
+  // 키보드 리사이즈 — ←→로 구분선 이동(드래그와 같은 클램프·저장).
+  const stepRefW = (delta: number): void => {
+    setRefW((cur) => {
+      const next = Math.min(60, Math.max(20, cur + delta));
+      localStorage.setItem(REF_W_KEY, String(Math.round(next)));
+      return next;
+    });
+  };
+
   // 스크롤 동기 — 메인 에디터 스크롤을 참조 iframe에 비례 적용(번역 대조).
   useEffect(() => {
     const view = store.view;
@@ -180,6 +189,13 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
     <div className="ref-pane" style={{ flexBasis: `${refW}%` }}>
       <div
         className="ref-pane-resizer"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t.refPaneTitle}
+        aria-valuemin={20}
+        aria-valuemax={60}
+        aria-valuenow={Math.round(refW)}
+        tabIndex={0}
         onPointerDown={(e) => {
           dragRef.current = {
             x: e.clientX,
@@ -187,6 +203,15 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
             splitW: (e.currentTarget as HTMLElement).closest(".edit-split")?.clientWidth || window.innerWidth,
           };
           document.body.classList.add("resizing");
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowLeft") {
+            e.preventDefault();
+            stepRefW(2); // 구분선 왼쪽 이동 = 참조 페인 확대
+          } else if (e.key === "ArrowRight") {
+            e.preventDefault();
+            stepRefW(-2);
+          }
         }}
       />
       <div className="ref-pane-head">

@@ -177,6 +177,12 @@ comrak AST → OOXML 직접 작성. Word 기본 스타일(제목·번호·표·�
 - **리스트 패널 키보드**: ↑↓ 선택·Enter 주요 동작·Esc 닫기, `is-sel`
   하이라이트+`scrollIntoView({block:"nearest"})`, `onMouseEnter` 동기.
   중첩 다이얼로그가 있으면 `e.target !== e.currentTarget` 가드.
+  SVG 그래프 같은 공간 뷰는 로빙 tabindex+방향키 이동(정렬 노드 우선)으로
+  같은 규약을 적용한다.
+- **분할 리사이저**: 드래그(포인터 캡처·**컨테이너 %** — 창 폭이 아니라
+  그 페인의 플렉스 부모 폭)와 ←→ 키보드 이동을 같은 클램프·저장으로
+  제공(`role="separator"`+`aria-valuenow`) — 마우스 전용 분할은 키보드
+  사용자의 사각지대.
 - **입력창+가상 선택(팔레트 계열)**: 포커스는 입력창에 유지하고
   `role="combobox"`+`aria-activedescendant`(항목 id)·`listbox/option`·
   `aria-selected`로 스크린 리더에 선택 전달. 섹션 머리행은
@@ -188,7 +194,8 @@ comrak AST → OOXML 직접 작성. Word 기본 스타일(제목·번호·표·�
   억제), `prefers-contrast: more`(보조 텍스트 AAA·테두리·포커스 링 강화).
   색 대비는 WCAG 상대휘도 공식으로 실측 — 눈짐작 금지.
 - **파괴적 동작**(되돌릴 수 없는 삭제): 한 번 더 누르는 2단계 무장
-  (⚠ 문구·4초 자동 해제).
+  (⚠ 문구·4초 자동 해제). 파일 삭제는 휴지통 이동이 우선(복구 가능 —
+  Word/Obsidian 관례), 즉시 삭제는 휴지통 없는 볼륨 폴백일 뿐.
 - **i18n**: 평문 dict와 포맷터 dict(`f`)가 별개 — 항상 en/ko **쌍**으로
   추가(ko 누락은 타입이 못 잡고 런타임 크래시). 무인자 문구도 `f`에 넣으면
   `t.f.key()` 호출 필수.

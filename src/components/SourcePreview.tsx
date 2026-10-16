@@ -162,11 +162,26 @@ export function SourcePreview({
     return () => view.scrollDOM.removeEventListener("scroll", onScroll);
   }, [store, html]);
 
+  // 키보드 리사이즈 — ←→로 구분선 이동(APG separator 관례: 방향키=이동).
+  const stepWidth = (delta: number): void => {
+    setW((cur) => {
+      const next = clampPreviewWidth(cur + delta);
+      localStorage.setItem(SRC_W_KEY, String(Math.round(next)));
+      return next;
+    });
+  };
+
   return (
     <div className="src-preview" style={{ flexBasis: `${w}%` }}>
       <div
         className="src-preview-resizer"
-        aria-hidden="true"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t.previewPaneTitle}
+        aria-valuemin={20}
+        aria-valuemax={80}
+        aria-valuenow={Math.round(w)}
+        tabIndex={0}
         onPointerDown={(e) => {
           dragRef.current = {
             x: e.clientX,
@@ -174,6 +189,15 @@ export function SourcePreview({
             splitW: (e.currentTarget as HTMLElement).closest(".source-split")?.clientWidth || window.innerWidth,
           };
           document.body.classList.add("resizing");
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowLeft") {
+            e.preventDefault();
+            stepWidth(2); // 구분선 왼쪽 이동 = 미리보기 확대
+          } else if (e.key === "ArrowRight") {
+            e.preventDefault();
+            stepWidth(-2);
+          }
         }}
       />
       {html ? (
