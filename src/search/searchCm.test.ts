@@ -68,3 +68,37 @@ describe("wholeWord 단어 단위 찾기", () => {
     expect(wholeWordRegexSource("id:", false)).toBe("\\b(?:id:)");
   });
 });
+
+// findNext — 42차 메뉴 케이스가 의존하는 이동 명령의 직접 검증(키·메뉴
+// 경로와 같은 함수 — 15차 '실제 경로 검증'의 순수 버전).
+// @vitest-environment jsdom
+describe("findNext (이동 명령)", () => {
+  it("쿼리 있으면 커서 기준 다음/이전 매치로 순환", async () => {
+    const { EditorView } = await import("@codemirror/view");
+    const { EditorState } = await import("@codemirror/state");
+    const { searchField, findNext, setSearchState, searchStateOf } = await import("./searchCm");
+    // jsdom 스크롤 측정 스텁(editor.test 규약)
+    const proto = Range.prototype as unknown as { getClientRects?: () => DOMRectList };
+    if (!proto.getClientRects) {
+      Object.defineProperty(Range.prototype, "getClientRects", {
+        value: () => [{ top: 0, bottom: 12, left: 0, right: 40, width: 40, height: 12 }],
+      });
+    }
+    const state = EditorState.create({
+      doc: "alpha beta gamma beta\n",
+      extensions: [searchField],
+    });
+    const view = new EditorView({ state, parent: document.body });
+    view.dispatch({ effects: setSearchState.of({ query: { text: "beta", caseSensitive: false, regexp: false } }) });
+    expect(searchStateOf(view.state).matches.length).toBe(2);
+    findNext(view, true); // 커서 0 → 첫 매치
+    expect(view.state.selection.main.from).toBe(6);
+    findNext(view, true); // → 둘째 매치
+    expect(view.state.selection.main.from).toBe(17);
+    findNext(view, true); // 끝 → 처음으로 순환
+    expect(view.state.selection.main.from).toBe(6);
+    findNext(view, false); // 역방향
+    expect(view.state.selection.main.from).toBe(17);
+    view.destroy();
+  });
+});
