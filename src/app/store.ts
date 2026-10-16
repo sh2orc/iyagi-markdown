@@ -1053,6 +1053,9 @@ export class AppStore {
       if (started) {
         this.toast(sel.empty ? phrases.speakStartedDoc : phrases.speakStartedSel);
         this.markSpeaking(true);
+      } else {
+        // 시작 실패가 조용하면 눌렀는데 아무 일도 없는 것처럼 보인다.
+        this.toast(phrases.speakFailed, "error");
       }
     });
   }

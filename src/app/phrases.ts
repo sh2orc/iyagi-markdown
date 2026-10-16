@@ -11,6 +11,7 @@ export interface WidgetPhrases {
   saveFailed: string;
   speakStartedDoc: string;
   speakStartedSel: string;
+  speakFailed: string;
 }
 
 const DEFAULTS: WidgetPhrases = {
@@ -22,6 +23,7 @@ const DEFAULTS: WidgetPhrases = {
   saveFailed: "Could not save the file",
   speakStartedDoc: "Reading the document aloud",
   speakStartedSel: "Reading the selection aloud",
+  speakFailed: "Could not start reading aloud",
 };
 
 export const phrases: WidgetPhrases = { ...DEFAULTS };

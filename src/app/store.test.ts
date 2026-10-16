@@ -444,3 +444,21 @@ describe("자동 저장 실패 알림(조용한 유실 방지)", () => {
     setViewListener(null);
   });
 });
+
+describe("TTS 시작 실패 피드백", () => {
+  it("speakStart=false면 에러 토스트(조용한 무반응 방지)", async () => {
+    const io = fakeIo();
+    io.speakStart = async () => false;
+    const store = new AppStore(io);
+    const view = mount(store);
+    await openTab(store, "/tmp/tts-fail.md");
+    store.speakActive();
+    await new Promise((r) => setTimeout(r, 10));
+    const errs = store.state.toasts.filter((x) => x.kind === "error");
+    expect(errs).toHaveLength(1);
+    expect(errs[0]?.text).toContain("reading aloud");
+    expect(store.speaking).toBe(false);
+    view.destroy();
+    setViewListener(null);
+  });
+});
