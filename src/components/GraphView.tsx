@@ -252,6 +252,15 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
     if (focused) nodeEls.current.get(focused)?.focus();
   }, [focused]);
 
+  // 마운트 시 첫 노드 포커스 — 화살표 탐색이 열자마자 동작(모달 자체 포커스
+  // 규약의 SVG 판 — 로빙 시작점). ref 콜백은 이펙트보다 먼저 채워진다.
+  useEffect(() => {
+    const first = nodes[0];
+    if (first) nodeEls.current.get(first.id)?.focus();
+    // 마운트 시 1회 — 이후 노드 집합이 바뀌어도(워크스페이스 갱신) 유지.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const onSvgKey = (e: React.KeyboardEvent<SVGSVGElement>): void => {
     const dirs: Record<string, [-1 | 0 | 1, -1 | 0 | 1]> = {
       ArrowLeft: [-1, 0],

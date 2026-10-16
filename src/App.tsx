@@ -916,11 +916,15 @@ export function App(): JSX.Element {
         setReviewOpen(false);
         return;
       }
+      if (statsOpen) {
+        setStatsOpen(false);
+        return;
+      }
       if (settingsOpen) setSettingsOpen(false);
     };
     window.addEventListener("keydown", onEsc);
     return () => window.removeEventListener("keydown", onEsc);
-  }, [closeAsk, state.exportKind, styleOpen, printOpen, graphOpen, fmOpen, reviewOpen, settingsOpen, store]);
+  }, [closeAsk, state.exportKind, styleOpen, printOpen, graphOpen, fmOpen, reviewOpen, statsOpen, settingsOpen, store]);
 
   // 오버레이(시트·팔레트·패널·대화상자·이미지 뷰어)가 닫히면 포커스를 에디터로
   // 복귀 — a11y 규범(대화상자는 이전 위치로)이자 키보드 사용자가 body에서
