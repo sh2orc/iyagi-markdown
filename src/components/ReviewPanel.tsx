@@ -9,6 +9,8 @@ import { sentenceLengthStats } from "../editor/writing";
 import { brokenWikiLinks } from "../editor/brokenLinks";
 import { resolveWikiLink } from "../editor/wiki";
 import { stripFrontMatter } from "../editor/frontmatter";
+import { brokenCitations, citeNumbering } from "../editor/citations";
+import { smoothScrollIntoView } from "../editor/cm";
 import type { Translate } from "../i18n";
 
 interface Props {
@@ -49,6 +51,9 @@ export function ReviewPanel({ store, t, onClose, onOpenBrokenLinks, onOpenStats,
     tab && store.state.workspace
       ? brokenWikiLinks(stripFrontMatter(raw), (name) => resolveWikiLink(name, dir, store.wikiIndex)).length
       : -1; // -1 = 워크스페이스 없음(판정 불가)
+  // 인용 — 고유 키 수(첫 등장 순)·끊긴 인용(정의 없는 키 사용처).
+  const citeNum = tab ? citeNumbering(raw) : null;
+  const brokenCites = citeNum ? brokenCitations(raw) : [];
 
   // 고아 이미지 — 워크스페이스 루트 대상, 열 때 1회 스캔.
   useEffect(() => {
@@ -99,6 +104,22 @@ export function ReviewPanel({ store, t, onClose, onOpenBrokenLinks, onOpenStats,
   const fmtSize = (n: number): string =>
     n >= 1_048_576 ? `${(n / 1_048_576).toFixed(1)}MB` : n >= 1024 ? `${Math.round(n / 1024)}KB` : `${n}B`;
 
+  /** 인용으로 이동 — 끊긴 것이 있으면 첫 사용처, 아니면 서지(첫 정의 줄). */
+  const gotoCites = (): void => {
+    const view = store.view;
+    if (!view || !citeNum) return;
+    let pos = brokenCites[0]?.pos;
+    if (pos === undefined) {
+      const first = citeNum.defs.values().next().value;
+      if (first) pos = view.state.doc.line(Math.min(first.line, view.state.doc.lines)).from;
+    }
+    if (pos === undefined) return;
+    onClose();
+    view.dispatch({ selection: { anchor: pos } });
+    view.focus();
+    smoothScrollIntoView(view, pos);
+  };
+
   return (
     <div
       className="overlay modal-overlay"
@@ -134,6 +155,27 @@ export function ReviewPanel({ store, t, onClose, onOpenBrokenLinks, onOpenStats,
             <p className="review-count">{longSentences}</p>
             <button className="review-open" onClick={onOpenStats}>
               {t.reviewOpenStats}
+            </button>
+          </section>
+          <section className="review-card">
+            <h3>{t.reviewCites}</h3>
+            {citeNum && (
+              <p className="review-count">
+                {citeNum.order.length}
+                {brokenCites.length > 0 && (
+                  <span className="review-cite-warn" title={t.reviewCitesBroken}>
+                    {" "}
+                    ⚠{brokenCites.length}
+                  </span>
+                )}
+              </p>
+            )}
+            <button
+              className="review-open"
+              disabled={!citeNum || (citeNum.order.length === 0 && citeNum.defs.size === 0)}
+              onClick={gotoCites}
+            >
+              {t.reviewOpenCites}
             </button>
           </section>
           <section className="review-card review-card-wide">

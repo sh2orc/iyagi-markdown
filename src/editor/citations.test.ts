@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { citeDefsToHtml, citeDisplay, citeNumbering, isCiteDefLine } from "./citations";
+import { brokenCitations, citeDefsToHtml, citeDisplay, citeNumbering, isCiteDefLine } from "./citations";
 
 const DOC = [
   "서론 [@kim2020]와 연구 [@lee2021, p. 12].",
@@ -84,5 +84,22 @@ describe("인용 위젯 클릭 → 서지 이동(통합)", { retry: 2 }, () => {
     // kim2020 정의는 DOC의 7번 줄.
     expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(7);
     view.destroy();
+  });
+});
+
+describe("brokenCitations (검수 허브 카드)", () => {
+  it("정의 없는 키 사용처만 — 위치는 문서 오프셋", () => {
+    const doc = "서론 [@a]과 [@b, p. 3].\n\n[@a]: A. 저자.";
+    const broken = brokenCitations(doc);
+    expect(broken).toEqual([{ key: "b", pos: doc.indexOf("[@b") }]);
+  });
+
+  it("펜스 내부·정의 줄은 끊긴 것으로 안 친다", () => {
+    const doc = ["앞 [@ok]", "", "```", "[@ghost] 와 [@fenced]", "```", "", "[@ok]: O."].join("\n");
+    expect(brokenCitations(doc)).toEqual([]);
+  });
+
+  it("모두 정의되었으면 빈 배열", () => {
+    expect(brokenCitations(DOC)).toEqual([]);
   });
 });

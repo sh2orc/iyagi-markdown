@@ -89,6 +89,27 @@ export function isCiteDefLine(text: string): boolean {
   return DEF_RE.test(text);
 }
 
+/** 끊긴 인용(정의 없는 키의 사용처) — 문서 위치와 함께(첫 것으로 점프용).
+ *  펜스 내부·정의 줄은 제외(nonFenceLines·citeNumbering과 같은 규칙). */
+export function brokenCitations(text: string): Array<{ key: string; pos: number }> {
+  const defs = parseCiteDefs(text);
+  const out: Array<{ key: string; pos: number }> = [];
+  let offset = 0;
+  let fence = false;
+  for (const line of text.split("\n")) {
+    if (/^\s*(```|~~~)/.test(line)) fence = !fence;
+    if (!fence && !DEF_RE.test(line)) {
+      CITE_RE.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = CITE_RE.exec(line)) !== null) {
+        if (!defs.has(m[1]!)) out.push({ key: m[1]!, pos: offset + m.index });
+      }
+    }
+    offset += line.length + 1;
+  }
+  return out;
+}
+
 /** 전역 플래그 상태 없는 새 인용 정규식(스캔 호출마다 생성). */
 export function citeRegExp(): RegExp {
   return /\[@([^\][\s]+)(?:,\s*([^\]]*))?\]/g;

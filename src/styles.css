@@ -2533,6 +2533,7 @@ body.resizing .toc {
 .review-card-wide { flex: 1 1 100%; }
 .review-card h3 { font-size: 12px; color: var(--md-fg-dim); font-weight: 650; margin: 0; }
 .review-count { font-size: 24px; font-weight: 700; margin: 2px 0; font-variant-numeric: tabular-nums; }
+.review-cite-warn { font-size: 14px; font-weight: 650; color: var(--md-error); cursor: help; }
 .review-open {
   border: none; background: none; color: var(--md-accent); cursor: pointer;
   font-size: 12px; padding: 2px 0;
