@@ -193,10 +193,22 @@ export function App(): JSX.Element {
     backlinksOpen ||
     brokenOpen ||
     diffOpen ||
+    graphOpen ||
+    fmOpen ||
+    reviewOpen ||
+    commentsOpen ||
+    trackOpen ||
+    symbolOpen ||
+    tableDialogOpen ||
+    viewer !== null ||
+    commentAddLine !== null ||
+    imgEditPos !== null ||
     state.exportKind ||
     state.busy ||
     state.tabs.some((x) => x.conflict === "conflict" || x.conflict === "removed")
   );
+  // 검색 바는 modalOpen에서 의도적으로 제외 — 열려도 편집 가능(10자리 찾기
+  // 흐름). 기호판 연속 삽입도 프로그램 삽입이라 inert와 무관하다.
   useEffect(() => {
     if (editorHost.current) editorHost.current.inert = modalOpen;
   }, [modalOpen]);
@@ -216,18 +228,15 @@ export function App(): JSX.Element {
         ),
       ).filter((el) => el.offsetParent !== null);
       if (focusables.length === 0) return;
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
       const active = document.activeElement as HTMLElement | null;
-      if (!top.contains(active)) {
-        e.preventDefault();
-        first.focus();
-      } else if (e.shiftKey && active === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
+      // 항상 잡고 안에서 순환 — 중간 요소에서 기본 Tab을 놓아주면 콤보박스
+      // 오버레이(다음 포커스 가능 요소가 없는)는 모달 밖 툴바로 한 걸 샌다.
+      e.preventDefault();
+      const idx = active !== null && top.contains(active) ? focusables.indexOf(active) : -1;
+      if (e.shiftKey) {
+        focusables[idx <= 0 ? focusables.length - 1 : idx - 1].focus();
+      } else {
+        focusables[idx === -1 || idx === focusables.length - 1 ? 0 : idx + 1].focus();
       }
     };
     window.addEventListener("keydown", onTab, true);
