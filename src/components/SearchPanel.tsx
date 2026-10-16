@@ -233,7 +233,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
           />
           <button
             className="search-toggle"
-            disabled={!query || count === 0}
+            disabled={!query || count === 0 || view?.state.readOnly === true}
             onClick={() => {
               if (!query || !view) return;
               replaceCurrent(view, { ...query, replacement });
@@ -244,7 +244,8 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
           </button>
           <button
             className="search-toggle"
-            disabled={!query || count === 0}
+            disabled={!query || count === 0 || view?.state.readOnly === true}
+            title={view?.state.readOnly ? t.lockedNoEdit : `${t.findReplaceAll} (${count})`}
             onClick={() => {
               if (!query || !view) return;
               // 실행 전 확인(Word의 바꾸기 확인) — 취소하면 원문 그대로.
@@ -254,7 +255,6 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
               store.toast(t.f.replaced(n));
               force((x) => x + 1);
             }}
-            title={`${t.findReplaceAll} (${count})`}
           >
             {t.findReplaceAll}{count > 0 ? ` (${count})` : ""}
           </button>

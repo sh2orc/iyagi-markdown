@@ -38,7 +38,14 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
 
   const sel = view?.state.selection.main;
   const canShow =
-    !hidden && view && tab && tab.mode === "edit" && sel && !sel.empty && sel.to > sel.from;
+    !hidden &&
+    view &&
+    tab &&
+    tab.mode === "edit" &&
+    view.state.readOnly !== true && // 잠긴 탭 — 서식 바가 떠도 동작이 없다
+    sel &&
+    !sel.empty &&
+    sel.to > sel.from;
 
   if (!canShow || !sel || !view || !tab) return null;
 

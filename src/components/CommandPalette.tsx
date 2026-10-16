@@ -155,10 +155,12 @@ export function CommandPalette({
   const commands: Cmd[] = useMemo(() => {
     const view = store.view;
     const editable = !!view && store.active?.mode !== "read";
-    // 잠긴(읽기 전용) 문서의 편집 명령은 무시 — 입력 차단과 일관(144차).
+    // 잠긴(읽기 전용) 문서의 편집 명령 차단 — 입력 차단과 일관(144차).
+    // 조용히 무시하지 않고 안내(25~28차 조용한 실패 규칙).
     const go = (fn: () => void) => () => {
       const ro = view ? view.state.readOnly : false;
-      if (!ro) fn();
+      if (ro) store.toast(t.lockedNoEdit, "error");
+      else fn();
       view?.focus();
     };
     const cmds: Cmd[] = [

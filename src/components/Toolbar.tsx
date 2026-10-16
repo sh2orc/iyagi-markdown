@@ -50,7 +50,9 @@ export function Toolbar({ store, t, onInsertTable,
   const state = store.getSnapshot();
   const view = store.view;
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
-  const disabled = !view || !tab || tab.mode === "read";
+  // 잠긴 탭(readOnly)도 읽기 모드와 같은 취급 — 활성처럼 보이고 무반응인
+  // 버튼은 죽은 클릭(151차 탭 잠금 일관성).
+  const disabled = !view || !tab || tab.mode === "read" || view.state.readOnly === true;
 
   const run = (fn: (v: NonNullable<typeof view>) => boolean) => {
     if (view) {
