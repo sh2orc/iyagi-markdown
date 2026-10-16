@@ -368,6 +368,23 @@ function baseExtensions(): Extension[] {
     previewConfigField,
     EditorView.updateListener.of((u) => {
       if (u.docChanged || u.selectionSet) listener?.(u);
+      // 클릭 교정 최종 적용 — CM의 포인터 선택(userEvent select.pointer)이
+      // 확정된 이 시점에 비로소 비교한다(그 전엔 덮일 수 있다).
+      if (pendingClickFix !== null && u.selectionSet) {
+        const fix = pendingClickFix;
+        pendingClickFix = null;
+        const keyboard = u.transactions.some((tr) => tr.isUserEvent("select.keyboard"));
+        const sel = u.state.selection;
+        const head = sel.main.head;
+        // 키보드 이동이면 폐기(클릭이 아니게 됨). 그 외(포인터 확정 등)는
+        // 여전히 어긋나 있을 때만 최종 교정.
+        if (!keyboard && sel.ranges.length === 1 && !(head >= fix.from && head <= fix.to)) {
+          const v = u.view;
+          queueMicrotask(() => {
+            if (v.dom.isConnected) v.dispatch({ selection: { anchor: fix.anchor } });
+          });
+        }
+      }
     }),
     // 스마트 붙여넣기 — ① URL을 선택 텍스트 위에 붙이면 링크로(Word/워프류),
     // ② HTML 클립보드(Word·브라우저 복사)는 마크다운으로 변환해 삽입.
@@ -464,37 +481,36 @@ function baseExtensions(): Extension[] {
       },
       mouseup(event, view) {
         // 클릭 교정 — CM의 클릭→위치 매핑이 블록 위젯(표·수식) 인접 줄에서
-        // 어긋나 다른 줄(위젯 쪽)에 떨어질 때, 실제 클릭한 DOM 줄로 옮긴다
-        // (키보드 가드와 한 쌍. posAtDOM은 측정 없이 동작). 즉시 디스패치는
-        // CM 마우스 선택에 덮이고, 그 확정이 rAF로 늦기도 해 두 번 검사한다.
+        // 어긋나는 것을 잡는다(키보드 가드와 한 쌍). 교정은 CM의 포인터 선택이
+        // 확정된 뒤(updateListener의 select.pointer) 최종 적용 — rAF 경합으로
+        // 늦은 CM 갱신에 덮이지 않게. 4px 이상 이동(드래그)은 존중.
         const lineEl = clickedLineEl;
         const at = clickedAt;
         clickedLineEl = null;
         clickedAt = null;
-        if (event.button !== 0) return false;
-        // 4px 이상 움직였으면 드래그 선택 — 존중(교정 없음).
-        const moved = !at || Math.abs(event.clientX - at.x) + Math.abs(event.clientY - at.y) > 4;
-        if (moved) return false;
+        if (event.button !== 0 || !at) return false;
+        if (Math.abs(event.clientX - at.x) + Math.abs(event.clientY - at.y) > 4) return false;
         if (!(lineEl instanceof HTMLElement) || !lineEl.isConnected) return false;
-        const target = event.target as HTMLElement | null;
-        const anchor =
-          target && lineEl.contains(target) && target !== lineEl
-            ? view.posAtDOM(target, 0)
-            : view.posAtDOM(lineEl, 0);
-        const check = (rearm: boolean): void => {
-          if (!view.dom.isConnected) return;
-          const sel = view.state.selection;
-          if (sel.ranges.length === 1) {
-            const line = view.state.doc.lineAt(anchor);
-            const head = sel.main.head;
-            if (!(head >= line.from && head <= line.to)) {
-              // 클릭(이동 없음) — 커서가 딴 줄에 떨어졌으면 클릭 줄로 접는다.
-              view.dispatch({ selection: { anchor } });
-            }
-          }
-          if (rearm) requestAnimationFrame(() => check(false));
+        const from = view.posAtDOM(lineEl, 0);
+        const line = view.state.doc.lineAt(from);
+        const guess = view.posAtCoords({ x: event.clientX, y: event.clientY }, false);
+        pendingClickFix = {
+          from: line.from,
+          to: line.to,
+          // 클릭 열 보존 — CM 추측 위치를 클릭한 줄 범위로 클램프.
+          anchor: guess == null ? line.from : Math.min(Math.max(guess, line.from), line.to),
         };
-        setTimeout(() => check(true), 0);
+        // CM의 클릭 선택 갱신이 이미 끝났을 수도(순서는 보장 없음) — 최종 폴백.
+        setTimeout(() => {
+          const fix = pendingClickFix;
+          if (!fix || !view.dom.isConnected) return;
+          pendingClickFix = null;
+          const sel = view.state.selection;
+          const head = sel.main.head;
+          if (sel.ranges.length === 1 && !(head >= fix.from && head <= fix.to)) {
+            view.dispatch({ selection: { anchor: fix.anchor } });
+          }
+        }, 80);
         return false;
       },
       paste(event, view) {
@@ -819,6 +835,8 @@ export const __testingCopy = {
 /** 직전 mousedown이 누른 텍스트 줄·지점(클릭 교정용). */
 let clickedLineEl: HTMLElement | null = null;
 let clickedAt: { x: number; y: number } | null = null;
+/** mouseup이 등록한 클릭 교정 — select.pointer 확정 후 적용. */
+let pendingClickFix: { from: number; to: number; anchor: number } | null = null;
 
 // — 서식 없이 붙여넣기(⌥⌘⇧V) — 클립보드 읽기 실패 시 다음 붙여넣기에 적용. —
 let plainPasteQueued = false;

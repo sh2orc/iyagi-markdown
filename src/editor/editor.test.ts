@@ -558,7 +558,7 @@ describe("클릭 교정 — 블록 위젯 인접 줄 클릭", { retry: 1 }, () =
     ) as HTMLElement;
     line5.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     line5.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 60)); // CM rAF 선택 확정 + 교정 재검사까지
+    await new Promise((r) => setTimeout(r, 120)); // CM 선택 확정 + 교정 폴백까지
     expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(5);
     view.destroy();
   });
@@ -573,13 +573,13 @@ describe("클릭 교정 — 블록 위젯 인접 줄 클릭", { retry: 1 }, () =
     view.dispatch({ selection: { anchor: 0 } });
     line1.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
     line1.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 60));
+    await new Promise((r) => setTimeout(r, 120));
     expect(view.state.selection.main.head).toBeLessThanOrEqual(3); // 같은 줄(0~3) 유지
     // 드래그 선택 — 이동 좌표가 있으면 존중(교정 없음).
     view.dispatch({ selection: { anchor: 0, head: 4 } });
     line1.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: 0, clientY: 0 }));
     line1.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 50, clientY: 10 }));
-    await new Promise((r) => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 120));
     expect(view.state.selection.main.head).toBe(4);
     view.destroy();
   });
