@@ -332,7 +332,7 @@ export const editorTheme = EditorView.theme({
   ".md-hr": {
     border: "none",
     borderTop: "2px solid var(--md-border)",
-    margin: "0.35em 0",
+    padding: "0.35em 0",
     display: "block",
   },
 
@@ -425,7 +425,7 @@ export const editorTheme = EditorView.theme({
   // contain: 비동기로 채워지는 위젯의 재배치·재페인트 범위를 위젯 안으로 묶는다.
   ".md-math-block": {
     textAlign: "center",
-    margin: "0.25em 0",
+    padding: "0.25em 0",
     overflowX: "auto",
     padding: "2px 0",
     contain: "layout style",
@@ -443,7 +443,7 @@ export const editorTheme = EditorView.theme({
   // — 다이어그램 —
   ".md-diagram": {
     textAlign: "center",
-    margin: "0.3em 0",
+    padding: "0.3em 0",
     overflowX: "auto",
     background: "var(--md-diagram-bg)",
     border: "1px solid var(--md-code-border)",
@@ -472,7 +472,7 @@ export const editorTheme = EditorView.theme({
   },
 
   // — 표(Word 라이트 그리드) —
-  ".md-table-wrap": { margin: "0.25em 0 0.8em", overflowX: "auto", contain: "layout style" },
+  ".md-table-wrap": { padding: "0.25em 0 0.8em", overflowX: "auto", contain: "layout style" },
   ".md-table": { borderCollapse: "collapse", fontSize: "0.95em", lineHeight: "1.45" },
   ".md-table th, .md-table td": {
     border: "1px solid var(--md-table-line)",
