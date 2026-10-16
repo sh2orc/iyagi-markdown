@@ -8,6 +8,7 @@ import { api, isInApp, type SearchHit } from "../api";
 import type { AppStore } from "../app/store";
 import { splitHighlights } from "../search/searchCm";
 import type { Translate } from "../i18n";
+import { imeComposing } from "../app/ime";
 
 export interface Group {
   path: string;
@@ -160,6 +161,7 @@ export function WorkspaceSearch({ store, t, onClose, onOpenHit, initialQuery }: 
           disabled={noWorkspace}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
+            if (imeComposing(e)) return; // IME 조합 중 키는 IME가 소비(한글 Esc·Enter 새기기 방지)
             if (e.key === "ArrowDown") {
               e.preventDefault();
               setSel((s) => step(s, 1));
@@ -191,6 +193,7 @@ export function WorkspaceSearch({ store, t, onClose, onOpenHit, initialQuery }: 
               value={replacement}
               onChange={(e) => setReplacement(e.target.value)}
               onKeyDown={(e) => {
+                if (imeComposing(e)) return; // IME 조합 중 키는 IME가 소비(한글 Esc·Enter 새기기 방지)
                 if (e.key === "Enter") {
                   e.preventDefault();
                   void replaceAll();

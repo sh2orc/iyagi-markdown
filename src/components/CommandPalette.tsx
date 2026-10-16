@@ -19,6 +19,7 @@ import { stripFrontMatter } from "../editor/frontmatter";
 import { smoothScrollIntoView } from "../editor/cm";
 import { foldAll, unfoldAll } from "@codemirror/language";
 import { DOC_TEMPLATES } from "../app/templates";
+import { imeComposing } from "../app/ime";
 
 /** 라벨 끝의 단축키 토큰 분리 — "저장 ⌘S" → ["저장", "⌘S"]. 순수 함수. */
 export function splitKbd(label: string): [string, string | null] {
@@ -404,6 +405,7 @@ export function CommandPalette({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
+            if (imeComposing(e)) return; // IME 조합 중 키는 IME가 소비(한글 Esc·Enter 새기기 방지)
             if (e.key === "ArrowDown") {
               e.preventDefault();
               setSel((s) => step(s, 1));

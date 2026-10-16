@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { Translate } from "../i18n";
+import { imeComposing } from "../app/ime";
 
 interface Props {
   t: Translate;
@@ -41,6 +42,7 @@ export function CommentDialog({ t, lineNo, initial = "", onConfirm, onCancel }: 
           placeholder={t.commentPlaceholder}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
+            if (imeComposing(e)) return; // IME 조합 중 키는 IME가 소비(한글 Esc·Enter 새기기 방지)
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
               if (text.trim()) onConfirm(text);

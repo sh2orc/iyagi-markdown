@@ -188,6 +188,11 @@ comrak AST → OOXML 직접 작성. Word 기본 스타일(제목·번호·표·�
   `aria-selected`로 스크린 리더에 선택 전달. 섹션 머리행은
   `role="presentation"`.
 - **아이콘 전용 버튼**: `title`과 함께 `aria-label` 미러링.
+- **입력 요소의 keydown은 IME 가드 필수**(한글 조합 중 Esc=조합 취소, Enter=조합
+  확정이 앱 동작으로 새어 나가면 모달이 닫히고 편집이 반커밋된다).
+  React 합성 이벤트의 `e.isComposing`은 **런타임에 null**(타입에는 있음) —
+  `imeComposing(e)` 헬퍼(`src/app/ime.ts`, nativeEvent에서 판정)를 쓴다.
+  네이티브 `addEventListener`는 `e.isComposing`이 정상 동작.
 - **좁은 공간**: 오버레이가 아니라 실제 컨테이너 폭 기준 — `container-type:
   inline-size`+`@container` 등급 숨김(정보성부터 숨김, 창 밖으로 밀림 방지).
 - **시스템 설정 존중**: `prefers-reduced-motion`(전역 블록이 애니메이션

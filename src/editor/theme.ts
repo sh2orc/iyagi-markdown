@@ -425,7 +425,6 @@ export const editorTheme = EditorView.theme({
   // contain: 비동기로 채워지는 위젯의 재배치·재페인트 범위를 위젯 안으로 묶는다.
   ".md-math-block": {
     textAlign: "center",
-    padding: "0.25em 0",
     overflowX: "auto",
     padding: "2px 0",
     contain: "layout style",
@@ -443,7 +442,6 @@ export const editorTheme = EditorView.theme({
   // — 다이어그램 —
   ".md-diagram": {
     textAlign: "center",
-    padding: "0.3em 0",
     overflowX: "auto",
     background: "var(--md-diagram-bg)",
     border: "1px solid var(--md-code-border)",

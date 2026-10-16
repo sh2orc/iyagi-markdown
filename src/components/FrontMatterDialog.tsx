@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AppStore } from "../app/store";
 import { frontMatterMeta, upsertFrontMatter } from "../editor/frontmatter";
 import type { Translate } from "../i18n";
+import { imeComposing } from "../app/ime";
 
 interface Props {
   store: AppStore;
@@ -77,6 +78,7 @@ export function FrontMatterDialog({ store, t, onClose }: Props): JSX.Element | n
   const ko = store.state.settings.language === "ko";
   // 텍스트 입력에서 Enter=저장(다른 대화상자와 같은 규약), Esc는 App 글로벌.
   const onFieldKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (imeComposing(e)) return; // IME 조합 중 키는 IME가 소비(한글 Esc·Enter 새기기 방지)
     if (e.key === "Enter") {
       e.preventDefault();
       save();

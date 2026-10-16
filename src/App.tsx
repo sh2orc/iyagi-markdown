@@ -890,7 +890,7 @@ export function App(): JSX.Element {
   // 에디터가 먼저 처리한 Esc(자동완성 닫기 등)는 존중한다.
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
       if (closeAsk) return;
       if (state.exportKind) {
         store.setExportKind(null);

@@ -8,6 +8,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { api, isInApp, pickOpenFolder, type TreeNode } from "../api";
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
+import { imeComposing } from "../app/ime";
 
 interface Props {
   store: AppStore;
@@ -302,6 +303,7 @@ export function Sidebar({ store, tree, workspace, activePath, t, open }: Props):
               value={renaming.name}
               onChange={(e) => setRenaming({ ...renaming, name: e.target.value })}
               onKeyDown={(e) => {
+                if (imeComposing(e)) return; // IME 조합 중 키는 IME가 소비(한글 Esc·Enter 새기기 방지)
                 if (e.key === "Enter") {
                   e.preventDefault();
                   void doRename(renaming.name);

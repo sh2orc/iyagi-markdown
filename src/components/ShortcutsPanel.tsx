@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { Translate } from "../i18n";
+import { imeComposing } from "../app/ime";
 
 interface Props {
   t: Translate;
@@ -112,6 +113,7 @@ export function ShortcutsPanel({ t, onClose }: Props): JSX.Element {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
+            if (imeComposing(e)) return; // IME 조합 중 키는 IME가 소비(한글 Esc·Enter 새기기 방지)
             if (e.key === "Escape") {
               e.preventDefault();
               if (q) setQ("");

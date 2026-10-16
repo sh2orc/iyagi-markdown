@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { insertTable } from "../editor/format";
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
+import { imeComposing } from "../app/ime";
 
 interface Props {
   store: AppStore;
@@ -51,6 +52,7 @@ export function TableDialog({ store, t, onClose }: Props): JSX.Element {
         value={value}
         onChange={(e) => set(clamp(Number(e.target.value)))}
         onKeyDown={(e) => {
+          if (imeComposing(e)) return; // IME 조합 중 키는 IME가 소비(한글 Esc·Enter 새기기 방지)
           if (e.key === "Enter") {
             e.preventDefault();
             insert();

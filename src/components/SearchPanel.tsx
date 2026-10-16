@@ -17,6 +17,8 @@ import {
   type SearchQuery,
 } from "../search/searchCm";
 
+import { imeComposing } from "../app/ime";
+
 interface Props {
   store: AppStore;
   view: EditorView | null;
@@ -133,6 +135,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
             else apply(null);
           }}
           onKeyDown={(e) => {
+            if (imeComposing(e)) return; // IME 조합 중 키는 IME가 소비(한글 Esc·Enter 새기기 방지)
             if (e.key === "Enter") {
               e.preventDefault();
               // 보류 중이던 쿼리를 방금 확정했다면 첫 매치 이동이 이미 일어났다.
@@ -221,6 +224,7 @@ export function SearchPanel({ store, view, t, open }: Props): JSX.Element | null
             value={replacement}
             onChange={(e) => setReplacement(e.target.value)}
             onKeyDown={(e) => {
+              if (imeComposing(e)) return; // IME 조합 중 키는 IME가 소비(한글 Esc·Enter 새기기 방지)
               if (e.key === "Escape") {
                 e.preventDefault();
                 close();

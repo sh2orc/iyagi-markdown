@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { SYMBOL_CATS, searchSymbols, type SymbolCat } from "../app/symbols";
 import type { Translate } from "../i18n";
+import { imeComposing } from "../app/ime";
 
 interface Props {
   t: Translate;
@@ -70,6 +71,7 @@ export function SymbolPanel({ t, onInsert, onClose }: Props): JSX.Element {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
+            if (imeComposing(e)) return; // IME 조합 중 키는 IME가 소비(한글 Esc·Enter 새기기 방지)
             if (e.key === "Escape") {
               e.preventDefault();
               onClose();
