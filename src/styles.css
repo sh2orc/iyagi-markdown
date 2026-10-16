@@ -1446,6 +1446,26 @@ body.resizing .toc {
   }
 }
 
+/* 시스템 "대비 높이기"(macOS 디스플레이 접근성) — 보조 텍스트를 AAA급으로
+ * 올리고 테두리를 진하게, 포커스 링을 굵게. reduced-motion과 같은
+ * 시스템 설정 존중 규약. */
+@media (prefers-contrast: more) {
+  :root,
+  :root[data-theme="light"] {
+    --md-fg-dim: #4f5660;
+    --md-border: #8a8f98;
+    --md-border-strong: #565c66;
+  }
+  :root[data-theme="dark"] {
+    --md-fg-dim: #c3c9d0;
+    --md-border: #5a5e66;
+    --md-border-strong: #8a8f98;
+  }
+  :focus-visible {
+    outline-width: 3px;
+  }
+}
+
 /* 인쇄 미리보기 */
 
 .print-overlay {
