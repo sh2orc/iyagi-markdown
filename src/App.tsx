@@ -872,16 +872,20 @@ export function App(): JSX.Element {
         });
         if (!disposed) unlistens.push(u);
       });
+      // 더티 확인 공용 — ⌘W(창 닫기)·⌘Q(앱 종료)가 같은 절차를 탄다.
+      // CloseConfirm이 저장 실패 시 false로 보류한다(25차 가드 상속).
+      const confirmDirty = async (): Promise<boolean> => {
+        const dirty = store.state.tabs.filter((x) => x.dirty);
+        if (dirty.length === 0) return true;
+        const ok = await new Promise<boolean>((resolve) => setCloseAsk(() => resolve));
+        setCloseAsk(null);
+        return ok;
+      };
       {
         void import("@tauri-apps/api/event").then(async (ev) => {
           const uq = await ev.listen("quit-requested", async () => {
             if (windowLabel() !== "main") return;
-            const dirty = store.state.tabs.filter((x) => x.dirty);
-            if (dirty.length > 0) {
-              const ok = await new Promise<boolean>((resolve) => setCloseAsk(() => resolve));
-              setCloseAsk(null);
-              if (!ok) return; // 종료 철회 — exit_confirmed를 부르지 않는다
-            }
+            if (!(await confirmDirty())) return; // 종료 철회
             await api.saveSession(store.buildSession()).catch(() => {});
             void api.exitConfirmed();
           });
@@ -892,12 +896,7 @@ export function App(): JSX.Element {
       void webviewWindowApi().then(async (win) => {
         const u = await win.onCloseRequested(async (event) => {
           event.preventDefault();
-          const dirty = store.state.tabs.filter((x) => x.dirty);
-          if (dirty.length > 0) {
-            const ok = await new Promise<boolean>((resolve) => setCloseAsk(() => resolve));
-            setCloseAsk(null);
-            if (!ok) return;
-          }
+          if (!(await confirmDirty())) return;
           if (windowLabel() === "main") {
             await api.saveSession(store.buildSession()).catch(() => {});
           } else {
