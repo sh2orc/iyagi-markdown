@@ -540,3 +540,47 @@ describe("수직 이동 가드 — 블록 위젯 사이 줄 건너뛰기 방지"
     expect(covered.length).toBe(0); // 문장 줄 주변(빈 줄 포함)엔 위젯이 없다
   });
 });
+
+describe("클릭 교정 — 블록 위젯 인접 줄 클릭", { retry: 1 }, () => {
+  it("마우스업 시 커서가 다른 줄(위젯 쪽)에 있으면 클릭한 줄로", async () => {
+    const view = new EditorView({
+      state: createDocState(
+        "| a | b |\n|---|---|\n| 1 | 2 |\n\n중간 문장입니다\n\n| c | d |\n|---|---|\n| 3 | 4 |\n",
+        "edit",
+      ),
+      parent: document.body,
+    });
+    await new Promise((r) => setTimeout(r, 40));
+    view.dispatch({ selection: { anchor: view.state.doc.line(7).from } });
+    // 표 줄은 위젯이 대체 — 렌더된 .cm-line 중 문장 줄을 내용으로 찾는다.
+    const line5 = Array.from(view.dom.querySelectorAll(".cm-line")).find(
+      (el) => el.textContent === "중간 문장입니다",
+    ) as HTMLElement;
+    line5.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    line5.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 60)); // CM rAF 선택 확정 + 교정 재검사까지
+    expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(5);
+    view.destroy();
+  });
+
+  it("이미 그 줄이면·드래그 선택이면 그대로", async () => {
+    const view = new EditorView({
+      state: createDocState("첫 줄\n둘째 줄\n", "edit"),
+      parent: document.body,
+    });
+    await new Promise((r) => setTimeout(r, 20));
+    const line1 = view.dom.querySelectorAll(".cm-line")[0] as HTMLElement;
+    view.dispatch({ selection: { anchor: 0 } });
+    line1.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    line1.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 60));
+    expect(view.state.selection.main.head).toBeLessThanOrEqual(3); // 같은 줄(0~3) 유지
+    // 드래그 선택 — 이동 좌표가 있으면 존중(교정 없음).
+    view.dispatch({ selection: { anchor: 0, head: 4 } });
+    line1.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: 0, clientY: 0 }));
+    line1.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: 50, clientY: 10 }));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(view.state.selection.main.head).toBe(4);
+    view.destroy();
+  });
+});

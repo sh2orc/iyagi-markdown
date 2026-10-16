@@ -462,6 +462,41 @@ function baseExtensions(): Extension[] {
         prewarmCopyRenderer(); // 다음 복사부터 서식 적용
         return false; // 이번에는 기본(plain) 복사
       },
+      mouseup(event, view) {
+        // 클릭 교정 — CM의 클릭→위치 매핑이 블록 위젯(표·수식) 인접 줄에서
+        // 어긋나 다른 줄(위젯 쪽)에 떨어질 때, 실제 클릭한 DOM 줄로 옮긴다
+        // (키보드 가드와 한 쌍. posAtDOM은 측정 없이 동작). 즉시 디스패치는
+        // CM 마우스 선택에 덮이고, 그 확정이 rAF로 늦기도 해 두 번 검사한다.
+        const lineEl = clickedLineEl;
+        const at = clickedAt;
+        clickedLineEl = null;
+        clickedAt = null;
+        if (event.button !== 0) return false;
+        // 4px 이상 움직였으면 드래그 선택 — 존중(교정 없음).
+        const moved = !at || Math.abs(event.clientX - at.x) + Math.abs(event.clientY - at.y) > 4;
+        if (moved) return false;
+        if (!(lineEl instanceof HTMLElement) || !lineEl.isConnected) return false;
+        const target = event.target as HTMLElement | null;
+        const anchor =
+          target && lineEl.contains(target) && target !== lineEl
+            ? view.posAtDOM(target, 0)
+            : view.posAtDOM(lineEl, 0);
+        const check = (rearm: boolean): void => {
+          if (!view.dom.isConnected) return;
+          const sel = view.state.selection;
+          if (sel.ranges.length === 1) {
+            const line = view.state.doc.lineAt(anchor);
+            const head = sel.main.head;
+            if (!(head >= line.from && head <= line.to)) {
+              // 클릭(이동 없음) — 커서가 딴 줄에 떨어졌으면 클릭 줄로 접는다.
+              view.dispatch({ selection: { anchor } });
+            }
+          }
+          if (rearm) requestAnimationFrame(() => check(false));
+        };
+        setTimeout(() => check(true), 0);
+        return false;
+      },
       paste(event, view) {
         // 이미지 붙여넣기(스크린샷) — 클립보드에 파일 아닌 이미지가 있으면
         // 문서 폴더 assets/ 에 저장하고 표준 ![...](assets/...) 참조를 삽입한다.
@@ -594,6 +629,9 @@ function baseExtensions(): Extension[] {
         // ⌥클릭은 커서 추가 전용 — 링크·태그·각주 클릭 처리에서 제외.
         if (event.altKey) return false;
         const target = event.target as HTMLElement | null;
+        // 클릭 교정용 — 실제 클릭한 텍스트 줄과 지점(DOM 기준, 레이아웃 불필요).
+        clickedLineEl = target?.closest?.(".cm-line") ?? null;
+        clickedAt = { x: event.clientX, y: event.clientY };
         // 해시태그 클릭 → 워크스페이스 태그 검색으로.
         const tagEl = target?.closest?.(".md-tag");
         if (tagEl) {
@@ -777,6 +815,10 @@ export const __testingCopy = {
   ready: () => mdItInstance !== null,
   render: (md: string) => mdItInstance?.render(md) ?? null,
 };
+
+/** 직전 mousedown이 누른 텍스트 줄·지점(클릭 교정용). */
+let clickedLineEl: HTMLElement | null = null;
+let clickedAt: { x: number; y: number } | null = null;
 
 // — 서식 없이 붙여넣기(⌥⌘⇧V) — 클립보드 읽기 실패 시 다음 붙여넣기에 적용. —
 let plainPasteQueued = false;
