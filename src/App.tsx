@@ -872,6 +872,22 @@ export function App(): JSX.Element {
         });
         if (!disposed) unlistens.push(u);
       });
+      {
+        void import("@tauri-apps/api/event").then(async (ev) => {
+          const uq = await ev.listen("quit-requested", async () => {
+            if (windowLabel() !== "main") return;
+            const dirty = store.state.tabs.filter((x) => x.dirty);
+            if (dirty.length > 0) {
+              const ok = await new Promise<boolean>((resolve) => setCloseAsk(() => resolve));
+              setCloseAsk(null);
+              if (!ok) return; // 종료 철회 — exit_confirmed를 부르지 않는다
+            }
+            await api.saveSession(store.buildSession()).catch(() => {});
+            void api.exitConfirmed();
+          });
+          if (!disposed) unlistens.push(uq);
+        });
+      }
       // 창 닫기 요청 — 더티 확인 후 세션 저장하고 닫는다(보조 창은 저장 없이).
       void webviewWindowApi().then(async (win) => {
         const u = await win.onCloseRequested(async (event) => {

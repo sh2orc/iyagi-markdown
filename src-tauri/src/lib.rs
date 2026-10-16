@@ -2,6 +2,17 @@
 //! 순수 로직은 `md-core`, macOS 호출은 `md-macos`, 내보내기는 `md-export`.
 
 use tauri::{Emitter, Manager, RunEvent};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// ⌘Q(앱 종료) 확인 완료 — ExitRequested 재진입 루프 방지(아래 참조).
+static EXIT_CONFIRMED: AtomicBool = AtomicBool::new(false);
+
+/// 프런트가 종료 확인 절차(미저장 확인·세션 저장)를 마치고 부른다.
+#[tauri::command]
+fn exit_confirmed(app: tauri::AppHandle) {
+    EXIT_CONFIRMED.store(true, Ordering::SeqCst);
+    app.exit(0);
+}
 
 mod commands;
 mod logging;
@@ -51,6 +62,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            exit_confirmed,
             commands::app_ready,
             commands::app_info,
             commands::take_pending_files,
@@ -110,6 +122,17 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building IYAGI Markdown")
         .run(|app, event| {
+            // ⌘Q(메뉴 quit)는 창 닫기(CloseRequested)를 거치지 않고 종료된다 —
+            // 미저장 확인·세션 저장이 생략되는 것을 막으려 한 번 막고 프런트의
+            // 확인 절차(quit-requested)를 거쳐 exit_confirmed로 진짜 종료.
+            if let RunEvent::ExitRequested { api, .. } = &event {
+                if EXIT_CONFIRMED.load(Ordering::SeqCst) {
+                    return; // 확인 완료 — 종료 진행
+                }
+                api.prevent_exit();
+                let _ = app.emit("quit-requested", ());
+                return;
+            }
             if let RunEvent::Opened { urls } = event {
                 // macOS: 실행 중 파일 더블클릭/Dock 드롭으로 열기.
                 let files: Vec<String> = urls
