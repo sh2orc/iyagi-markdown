@@ -632,7 +632,25 @@ export class TableWidget extends WidgetType {
       window.addEventListener("mouseup", onUp);
     });
     wrap.addEventListener("keydown", (e) => {
-      if (!selRect) return;
+      if (!selRect) {
+        // 선택이 없어도(Esc로 닫은 뒤) 포커스가 표 안에 있으면 화살표로 재시작
+        // — 좌상단 단일 셀부터(이동은 일반 화살표가 이어받는다).
+        if (
+          !activeEdit &&
+          !e.isComposing &&
+          !e.shiftKey &&
+          (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight") &&
+          wrap.contains(document.activeElement)
+        ) {
+          e.preventDefault();
+          const start = { r: 0, c: 0 };
+          selAnchor = start;
+          selActive = start;
+          selRect = tableOps.normRect(start, start);
+          paintSelection();
+        }
+        return;
+      }
       if (e.key === "Escape") {
         e.preventDefault();
         clearSelection();

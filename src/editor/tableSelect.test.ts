@@ -255,3 +255,27 @@ describe("표 일반 화살표 — 활성 셀 이동(엑셀 모델)", { retry: 1
     view.destroy();
   });
 });
+
+describe("표 선택 재시작 — Esc 뒤 화살표", { retry: 1 }, () => {
+  it("Esc로 닫은 선택을 화살표로 좌상단부터 재시작", async () => {
+    const view = await tableView();
+    const cs = cells(view);
+    cs[0]!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    cs[3]!.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    window.dispatchEvent(new MouseEvent("mouseup"));
+    await new Promise((r) => setTimeout(r, 15));
+    expect(selected(view).length).toBe(4);
+    const wrap = view.dom.querySelector(".md-table-wrap")!;
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(selected(view).length).toBe(0); // 닫힘 — 포커스는 wrap에 남는다
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(selected(view).length).toBe(1);
+    expect(selected(view)[0]!.textContent).toBe("a"); // 좌상단(헤더 첫 셀)
+    wrap.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 5));
+    expect(selected(view)[0]!.textContent).toBe("1"); // 이어서 이동
+    view.destroy();
+  });
+});
