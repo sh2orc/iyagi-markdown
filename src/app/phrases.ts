@@ -8,6 +8,7 @@ export interface WidgetPhrases {
   imgMissing: string;
   imgLoadBlocked: string;
   linkOpen: string;
+  linkOpenFailed: string;
   saveFailed: string;
   speakStartedDoc: string;
   speakStartedSel: string;
@@ -20,6 +21,7 @@ const DEFAULTS: WidgetPhrases = {
   imgMissing: "Image not found",
   imgLoadBlocked: "Remote image blocked — click to load",
   linkOpen: "Open link",
+  linkOpenFailed: "Could not open the link",
   saveFailed: "Could not save the file",
   speakStartedDoc: "Reading the document aloud",
   speakStartedSel: "Reading the selection aloud",

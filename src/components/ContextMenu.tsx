@@ -6,6 +6,7 @@ import { redo, undo } from "@codemirror/commands";
 
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
+import { phrases } from "../app/phrases";
 import * as fmt from "../editor/format";
 import { copyFormat, pasteFormat } from "../editor/formatPainter";
 import { findImageAt, findLinkAt } from "../editor/livePreview";
@@ -179,7 +180,7 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
     run(() => {
       const target = menu.link!;
       void import("@tauri-apps/plugin-opener").then((opener) =>
-        opener.openUrl(target.url).catch(() => {}),
+        opener.openUrl(target.url).catch(() => store.toast(phrases.linkOpenFailed, "error")),
       );
       void target.baseDir;
     });

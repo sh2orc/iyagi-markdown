@@ -19,7 +19,7 @@ import {
 } from "./api";
 import { AppStore, resolveTheme, type ExportKind, type Tab } from "./app/store";
 import { replaceDoc, setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
-import { setPhrases } from "./app/phrases";
+import { phrases, setPhrases } from "./app/phrases";
 import { invalidateLinkPreviews } from "./editor/linkPreview";
 import { frontMatterLen, frontMatterMeta, stripFrontMatter } from "./editor/frontmatter";
 import { EPUB_CSS, epubChapterInputs, splitEpubChapters } from "./export/epub";
@@ -243,6 +243,7 @@ export function App(): JSX.Element {
       imgMissing: t.imgMissing,
       imgLoadBlocked: t.imgLoadBlocked,
       linkOpen: t.linkOpen,
+      linkOpenFailed: t.linkOpenFailed,
       saveFailed: t.saveFailed,
       speakStartedDoc: t.speakStartedDoc,
       speakStartedSel: t.speakStartedSel,
@@ -1023,7 +1024,9 @@ export function App(): JSX.Element {
         void store.openPath(target.path);
       } else if (target.kind === "external" || target.kind === "mail") {
         void import("@tauri-apps/plugin-opener").then((opener) =>
-          opener.openUrl(target.kind === "mail" ? target.url : target.url).catch(() => {}),
+          opener
+            .openUrl(target.kind === "mail" ? target.url : target.url)
+            .catch(() => store.toast(phrases.linkOpenFailed, "error")),
         );
       } else if (target.kind === "anchor") {
         scrollToAnchor(target.id);
