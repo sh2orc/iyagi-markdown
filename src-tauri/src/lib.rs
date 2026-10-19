@@ -29,6 +29,9 @@ pub fn run() {
         // 첫 인스턴스에 파일 경로를 넘기고 바로 끝난다.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             let files = extract_md_paths(&argv);
+            // 두 번째 실행은 기존 인스턴스에서 처리하고 조용히 끝난다 — 사용자
+            // 터미널엔 아무 것도 안 남아 실패로 오해되므로 앱 로그에 근거를 남긴다.
+            tracing::info!(count = files.len(), "두 번째 실행 — 기존 인스턴스 활성화(single-instance)");
             if !files.is_empty() {
                 state::queue_pending_files(app, files);
             }
