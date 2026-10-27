@@ -3,6 +3,8 @@
 // 기본값은 영어 — 앱 밖(단위 테스트)에서도 동작하게.
 
 export interface WidgetPhrases {
+  /** CM 본문 텍스트상자의 이름 — 스크린 리더가 "textbox"만 읽지 않게. */
+  editorLabel: string;
   mathError: string;
   diagramError: string;
   imgMissing: string;
@@ -10,12 +12,20 @@ export interface WidgetPhrases {
   linkOpen: string;
   linkOpenFailed: string;
   saveFailed: string;
+  settingsSaveFailed: string;
+  trackRestoreDeleted: string;
   speakStartedDoc: string;
   speakStartedSel: string;
   speakFailed: string;
+  clipboardReadFailed: string;
+  clipboardWriteFailed: string;
+  clipboardTargetChanged: string;
+  clipboardHtmlTooLarge: string;
+  clipboardHtmlFailed: string;
 }
 
 const DEFAULTS: WidgetPhrases = {
+  editorLabel: "Document editor",
   mathError: "Math error",
   diagramError: "render failed",
   imgMissing: "Image not found",
@@ -23,9 +33,16 @@ const DEFAULTS: WidgetPhrases = {
   linkOpen: "Open link",
   linkOpenFailed: "Could not open the link",
   saveFailed: "Could not save the file",
+  settingsSaveFailed: "Could not save settings",
+  trackRestoreDeleted: "Restore deleted text",
   speakStartedDoc: "Reading the document aloud",
   speakStartedSel: "Reading the selection aloud",
   speakFailed: "Could not start reading aloud",
+  clipboardReadFailed: "Could not read the clipboard. Use ⌘V to paste.",
+  clipboardWriteFailed: "Could not copy to the clipboard. The document was kept.",
+  clipboardTargetChanged: "The document or selected text changed; the pending clipboard edit was not applied.",
+  clipboardHtmlTooLarge: "This HTML is too large to convert. Available plain text was kept.",
+  clipboardHtmlFailed: "Could not convert the pasted HTML. Available plain text was kept.",
 };
 
 export const phrases: WidgetPhrases = { ...DEFAULTS };

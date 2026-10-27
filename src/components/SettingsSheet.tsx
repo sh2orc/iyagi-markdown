@@ -2,7 +2,7 @@
 // 디스크 저장(및 settings-changed 이벤트 왕복)은 짧게 디바운스 — 슬라이더를
 // 끌 때 매 틱마다 파일을 쓰지 않는다. 화면 반영은 즉시.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 import type { AppStore } from "../app/store";
 import { api, isInApp, type Settings } from "../api";
@@ -16,7 +16,7 @@ interface Props {
 }
 
 export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element | null {
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [voices, setVoices] = useState<Array<{ name: string; lang: string }>>([]);
   useEffect(() => {
     if (!isInApp()) return;
@@ -31,22 +31,12 @@ export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element |
       disposed = true;
     };
   }, []);
-  const set = (patch: Partial<Settings>) => {
-    const next = { ...store.state.settings, ...patch };
-    store.setSettings(next); // 화면은 즉시
-    if (isInApp()) {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        saveTimer.current = null;
-        void api.setSettings(next).catch(() => {});
-      }, 300);
-    }
-  };
+  const set = (patch: Partial<Settings>) => store.persistSettings(patch);
   if (!open) return null;
-  const s = store.state.settings;
+  const s = state.settings;
 
   return (
-    <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay modal-overlay" role="dialog" aria-modal="true" aria-label={t.settingsTitle} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal settings-modal">
         <div className="modal-title">{t.settingsTitle}</div>
         <div className="settings-grid">
@@ -73,7 +63,7 @@ export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element |
             <input
               type="range"
               min={0}
-              max={1200}
+              max={2400}
               step={20}
               value={s.lineWidth}
               onChange={(e) => set({ lineWidth: Number(e.target.value) })}
@@ -250,6 +240,19 @@ export function SettingsSheet({ store, open, onClose, t }: Props): JSX.Element |
           </label>
 
         </div>
+        {(state.settingsPending || state.settingsError) && (
+          <div className="settings-save-status" role="status" aria-live="polite">
+            <span>{state.settingsError
+              ? `${t.settingsSaveFailed}: ${state.settingsError}`
+              : t.settingsSaving}</span>
+            {state.settingsError && (
+              <button className="btn" disabled={state.settingsSaving}
+                onClick={() => void store.flushSettings().catch(() => {})}>
+                {state.settingsSaving ? t.settingsSaving : t.wsRetry}
+              </button>
+            )}
+          </div>
+        )}
         <div className="modal-actions">
           <button className="btn btn-primary" onClick={onClose}>
             {t.close}

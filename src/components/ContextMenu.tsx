@@ -4,13 +4,16 @@
 import { useEffect, useRef, useState } from "react";
 import { redo, undo } from "@codemirror/commands";
 
-import type { AppStore } from "../app/store";
+import type { AppStore, Tab } from "../app/store";
 import type { Translate } from "../i18n";
 import { phrases } from "../app/phrases";
 import * as fmt from "../editor/format";
 import { copyFormat, pasteFormat } from "../editor/formatPainter";
 import { findImageAt, findLinkAt } from "../editor/livePreview";
-import { LinkDialog, type LinkEditTarget } from "./LinkDialog";
+import { openLinkViaHandler } from "../editor/cm";
+import { copyTextToClipboard, cutTextToClipboard, pasteTextFromClipboard } from "../editor/clipboard";
+import { LinkDialog } from "./LinkDialog";
+import { captureInlineLinkEdit, type InlineLinkEdit } from "../editor/inlineLinkEdit";
 import { pathHintsOf } from "../app/linkHints";
 import { CommentDialog } from "./CommentDialog";
 import { previewConfigField } from "../editor/livePreview";
@@ -19,9 +22,13 @@ import { setTableMenuHandler, type TableMenuOp, type TableMenuTarget } from "../
 interface Props {
   store: AppStore;
   t: Translate;
+  onModalChange?: (open: boolean) => void;
 }
 
 interface MenuState {
+  tabId: string | null;
+  view: AppStore["view"];
+  doc: Tab["state"]["doc"];
   x: number;
   y: number;
   hasSelection: boolean;
@@ -33,11 +40,19 @@ interface MenuState {
   table: TableMenuTarget | null;
 }
 
-export function ContextMenu({ store, t }: Props): JSX.Element | null {
+export function ContextMenu({ store, t, onModalChange }: Props): JSX.Element | null {
   const [menu, setMenu] = useState<MenuState | null>(null);
-  const [linkEdit, setLinkEdit] = useState<LinkEditTarget | null>(null);
-  const [imgEdit, setImgEdit] = useState<LinkEditTarget | null>(null);
-  const [commentLine, setCommentLine] = useState<number | null>(null);
+  const [linkEdit, setLinkEdit] = useState<InlineLinkEdit | null>(null);
+  const [imgEdit, setImgEdit] = useState<InlineLinkEdit | null>(null);
+  useEffect(() => () => linkEdit?.finish(), [linkEdit]);
+  useEffect(() => () => imgEdit?.finish(), [imgEdit]);
+  const [commentTarget, setCommentTarget] = useState<{
+    id: string; path: string; title: string; lineNo: number; doc: Tab["state"]["doc"];
+  } | null>(null);
+  useEffect(() => {
+    onModalChange?.(!!(commentTarget || linkEdit || imgEdit));
+    return () => onModalChange?.(false);
+  }, [commentTarget, linkEdit, imgEdit, onModalChange]);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -51,6 +66,7 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
       const img = link ? null : findImageAt(view.state, pos);
       const baseDir = view.state.field(previewConfigField, false)?.baseDir ?? "";
       setMenu({
+        tabId: store.active?.id ?? null, view, doc: view.state.doc,
         x: cx,
         y: cy,
         hasSelection: !sel.empty,
@@ -113,7 +129,10 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
   // 표 위젯 우클릭 — 위젯이 구조 연산 클로저를 넘기면 표 전용 항목으로 연다.
   useEffect(() => {
     setTableMenuHandler((target, x, y) => {
+      const view = store.view;
+      if (!view) return;
       setMenu({
+        tabId: store.active?.id ?? null, view, doc: view.state.doc,
         x,
         y,
         hasSelection: false,
@@ -128,181 +147,204 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
     return () => setTableMenuHandler(null);
   }, [store]);
 
-  if (!menu) return null;
+  const renderMenu = (): JSX.Element | null => {
+    if (!menu) return null;
 
-  const view = store.view;
-  if (!view) return null;
-  const tab = store.active;
-  const editable = tab?.mode !== "read";
+    const view = store.view;
+    if (!view) return null;
+    const tab = store.active;
+    const editable = tab?.mode !== "read";
 
-  // 화면 오른쪽/아래로 넘치지 않게.
-  const style: React.CSSProperties = {
-    left: Math.min(menu.x, window.innerWidth - 230),
-    top: Math.min(menu.y, window.innerHeight - 340),
+    // 화면 오른쪽/아래로 넘치지 않게.
+    const style: React.CSSProperties = {
+      left: Math.min(menu.x, window.innerWidth - 230),
+      top: Math.min(menu.y, window.innerHeight - 340),
+    };
+
+    const run = (fn: () => void) => {
+      setMenu(null);
+      // 잠긴 문서의 편집 동작 차단(151차 일관성 — 열기·복사 등은 그대로).
+      if (!view.state.readOnly) fn();
+      view.focus();
+    };
+    /** 잠긴 문서에서도 동작하는 열기·복사 계열(151차 규약의 '그대로' 쪽). */
+    const runAlways = (fn: () => void) => {
+      setMenu(null);
+      fn();
+      view.focus();
+    };
+
+    const runTable = (op: TableMenuOp) => {
+      setMenu(null);
+      if (!view.state.readOnly) menu.table?.run(op);
+      view.focus();
+    };
+
+    const sel = view.state.selection.main;
+    const selText = sel.empty ? "" : view.state.sliceDoc(sel.from, sel.to);
+
+    const copySel = () =>
+      runAlways(() => {
+        void copyTextToClipboard(selText);
+      });
+    const cutSel = () =>
+      run(() => {
+        cutTextToClipboard(view);
+      });
+    const pasteClip = () =>
+      run(() => {
+        pasteTextFromClipboard(view);
+      });
+
+    const openLink = () =>
+      runAlways(() => {
+        const target = menu.link!;
+        // 프리뷰 클릭과 같은 해석 규칙으로 — 상대 경로 마크다운은 내부 열기,
+        // 앵커는 스크롤, 외부만 브라우저. 등록이 없으면 외부 열기로 폴백.
+        if (!openLinkViaHandler(target.url, target.baseDir)) {
+          void import("@tauri-apps/plugin-opener").then((opener) =>
+            opener.openUrl(target.url).catch(() => store.toast(phrases.linkOpenFailed, "error")),
+          );
+        }
+      });
+    const copyLink = () =>
+      runAlways(() => {
+        void copyTextToClipboard(menu.link!.url);
+        store.toast(t.linkCopy);
+      });
+
+    const item = (label: string, fn: () => void, opts?: { disabled?: boolean; danger?: boolean; sepAfter?: boolean }) => (
+      <button
+        key={label}
+        className={`ctx-item ${opts?.danger ? "is-danger" : ""}`}
+        disabled={opts?.disabled}
+        onClick={fn}
+      >
+        {label}
+      </button>
+    );
+
+    return (
+      <div ref={menuRef} className="ctx-menu" style={style} onContextMenu={(e) => e.preventDefault()}>
+        {menu.link && item(t.ctxOpenLink, openLink)}
+        {menu.link && item(t.ctxCopyLink, copyLink)}
+        {menu.link &&
+          item(t.ctxEditLink, () => {
+            // 대화상자를 열 때 메뉴는 명시적으로 닫는다(바깥 닫기가 메뉴를
+            // 제외하므로 스스로 끄는 것이 유일한 경로).
+            setMenu(null);
+            if (!tab || tab.id !== menu.tabId || view !== menu.view || view.state.doc !== menu.doc) {
+              store.toast(t.contextTargetChanged, "error"); return;
+            }
+            const target = captureInlineLinkEdit(view, menu.link!.from, menu.link!.to);
+            if (!target) { store.toast(t.contextTargetChanged, "error"); return; }
+            setLinkEdit(target);
+          })}
+        {menu.img &&
+          item(t.ctxEditImage, () => {
+            setMenu(null);
+            if (!tab || tab.id !== menu.tabId || view !== menu.view || view.state.doc !== menu.doc) {
+              store.toast(t.contextTargetChanged, "error"); return;
+            }
+            const target = captureInlineLinkEdit(view, menu.img!.from, menu.img!.to);
+            if (!target) { store.toast(t.contextTargetChanged, "error"); return; }
+            setImgEdit(target);
+          })}
+        {menu.link && <span className="ctx-sep" />}
+        {menu.table && (
+          <>
+            <span className="ctx-sep" />
+            {item(t.tmRowAbove, () => runTable("row-above"))}
+            {item(t.tmRowBelow, () => runTable("row-below"))}
+            {item(t.tmColLeft, () => runTable("col-left"))}
+            {item(t.tmColRight, () => runTable("col-right"))}
+            {item(t.tmDelRows, () => runTable("del-rows"), {
+              danger: true,
+              disabled: (menu.table.selection?.r2 ?? menu.table.row) === 0,
+            })}
+            {item(t.tmDelCols, () => runTable("del-cols"), {
+              danger: true,
+              disabled: menu.table.cols <= 1,
+            })}
+            {item(`← ${t.tmAlign}`, () => runTable("align-left"))}
+            {item(`↔ ${t.tmAlign}`, () => runTable("align-center"))}
+            {item(`→ ${t.tmAlign}`, () => runTable("align-right"))}
+            {item(t.tmSortAsc, () => runTable("sort-asc"), { disabled: menu.table.rows <= 1 })}
+            {item(t.tmSortDesc, () => runTable("sort-desc"), { disabled: menu.table.rows <= 1 })}
+            {menu.table.selection &&
+              menu.table.selection.r2 >= menu.table.selection.r1 &&
+              (menu.table.selection.r2 - menu.table.selection.r1 + 1) *
+                (menu.table.selection.c2 - menu.table.selection.c1 + 1) >=
+                2 &&
+              item(t.tmMerge, () => runTable("merge"))}
+            {menu.table.selection && item(t.tmUnmerge, () => runTable("unmerge"))}
+            {menu.table.selection && item(t.tmClearSel, () => runTable("clear-sel"))}
+            {menu.table.selection && item(t.tmCopySel, () => runTable("copy-sel"))}
+            {item(t.tmDelTable, () => runTable("del-table"), { danger: true })}
+          </>
+        )}
+        {item(t.ctxUndo, () => run(() => undo(view)), { disabled: !menu.canUndo || !editable })}
+        {item(t.ctxRedo, () => run(() => redo(view)), { disabled: !menu.canRedo || !editable })}
+        <span className="ctx-sep" />
+        {item(t.ctxCut, cutSel, { disabled: !editable || !menu.hasSelection })}
+        {item(t.ctxCopy, copySel, { disabled: !menu.hasSelection })}
+        {item(t.ctxPaste, pasteClip, { disabled: !editable })}
+        {item(t.ctxSelectAll, () => run(() => view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } })))}
+        {editable && menu.hasSelection && item(t.formatPainterCopy, () => run(() => copyFormat(view)))}
+        {editable && item(t.formatPainterPaste, () => run(() => pasteFormat(view)))}
+        {editable && menu.hasSelection && item(t.ctxSortLines, () => run(() => fmt.sortLines(view)))}
+        {editable && menu.hasSelection && item(t.ctxDedupeLines, () => run(() => fmt.sortLines(view, { unique: true })))}
+        {editable && menu.hasSelection && (
+          <>
+            <span className="ctx-sep" />
+            {item(`**${t.tbBold}**`, () => run(() => fmt.toggleBold(view)))}
+            {item(`*${t.tbItalic}*`, () => run(() => fmt.toggleItalic(view)))}
+            {item(`\`${t.tbCode}\``, () => run(() => fmt.toggleInlineCode(view)))}
+          </>
+        )}
+        {editable && tab?.path && (
+          <>
+            <span className="ctx-sep" />
+            {item(
+              store.bookmarkLinesFor(tab).includes(menuLine(store)) ? t.ctxRemoveBookmark : t.ctxAddBookmark,
+              () => run(() => { void store.toggleBookmark(); }),
+              { disabled: tab.bookmarksBusy || tab.bookmarksText === null },
+            )}
+            {item(t.ctxAddComment, () => {
+              setMenu(null);
+              const target = store.active;
+              const currentView = store.view;
+              if (!target?.path || !currentView) return;
+              setCommentTarget({ id: target.id, path: target.path, title: target.title,
+                lineNo: menuLine(store), doc: currentView.state.doc });
+            })}
+          </>
+        )}
+        {editable && menu.inTable && (
+          <>
+            <span className="ctx-sep" />
+            {item(t.ctxAddRow, () => run(() => fmt.tableAddRow(view)))}
+            {item(t.ctxAddCol, () => run(() => fmt.tableAddColumn(view)))}
+            {item(t.ctxDelRow, () => run(() => fmt.tableDeleteRow(view)))}
+            {item(t.ctxDelCol, () => run(() => fmt.tableDeleteColumn(view)))}
+            <span className="ctx-sep" />
+            {item(`⬅ ${t.ctxAlign}: ${t.alignLeft}`, () => run(() => fmt.tableAlignColumn(view, "left")))}
+            {item(`↔ ${t.ctxAlign}: ${t.alignCenter}`, () => run(() => fmt.tableAlignColumn(view, "center")))}
+            {item(`➡ ${t.ctxAlign}: ${t.alignRight}`, () => run(() => fmt.tableAlignColumn(view, "right")))}
+            {item(`⇹ ${t.ctxFormatTable}`, () => run(() => fmt.formatTable(view)))}
+            {item(t.alignNone, () => run(() => fmt.tableAlignColumn(view, "none")))}
+          </>
+        )}
+      </div>
+    );
   };
-
-  const run = (fn: () => void) => {
-    setMenu(null);
-    // 잠긴 문서의 편집 동작 차단(151차 일관성 — 열기·복사 등은 그대로).
-    if (!view.state.readOnly) fn();
-    view.focus();
-  };
-
-  const runTable = (op: TableMenuOp) => {
-    setMenu(null);
-    if (!view.state.readOnly) menu.table?.run(op);
-    view.focus();
-  };
-
-  const sel = view.state.selection.main;
-  const selText = sel.empty ? "" : view.state.sliceDoc(sel.from, sel.to);
-
-  const copySel = () =>
-    run(() => {
-      void navigator.clipboard?.writeText(selText).catch(() => {});
-    });
-  const cutSel = () =>
-    run(() => {
-      void navigator.clipboard?.writeText(selText).catch(() => {});
-      view.dispatch({ changes: { from: sel.from, to: sel.to } });
-    });
-  const pasteClip = () =>
-    run(() => {
-      navigator.clipboard
-        ?.readText()
-        .then((text) => {
-          if (text) view.dispatch({ changes: { from: sel.from, to: sel.to, insert: text } });
-        })
-        .catch(() => store.toast(t.ctxPasteBlocked, "error"));
-    });
-
-  const openLink = () =>
-    run(() => {
-      const target = menu.link!;
-      void import("@tauri-apps/plugin-opener").then((opener) =>
-        opener.openUrl(target.url).catch(() => store.toast(phrases.linkOpenFailed, "error")),
-      );
-      void target.baseDir;
-    });
-  const copyLink = () =>
-    run(() => {
-      void navigator.clipboard?.writeText(menu.link!.url).catch(() => {});
-      store.toast(t.linkCopy);
-    });
-
-  const item = (label: string, fn: () => void, opts?: { disabled?: boolean; danger?: boolean; sepAfter?: boolean }) => (
-    <button
-      key={label}
-      className={`ctx-item ${opts?.danger ? "is-danger" : ""}`}
-      disabled={opts?.disabled}
-      onClick={fn}
-    >
-      {label}
-    </button>
-  );
 
   return (
     <>
-    <div ref={menuRef} className="ctx-menu" style={style} onContextMenu={(e) => e.preventDefault()}>
-      {menu.link && item(t.ctxOpenLink, openLink)}
-      {menu.link && item(t.ctxCopyLink, copyLink)}
-      {menu.link &&
-        item(t.ctxEditLink, () => {
-          // 대화상자를 열 때 메뉴는 명시적으로 닫는다(바깥 닫기가 메뉴를
-          // 제외하므로 스스로 끄는 것이 유일한 경로).
-          setMenu(null);
-          setLinkEdit({ text: menu.link!.text, url: menu.link!.url, from: menu.link!.from, to: menu.link!.to });
-        })}
-      {menu.img &&
-        item(t.ctxEditImage, () => {
-          setMenu(null);
-          setImgEdit({ text: menu.img!.alt, url: menu.img!.url, from: menu.img!.from, to: menu.img!.to });
-        })}
-      {menu.link && <span className="ctx-sep" />}
-      {menu.table && (
-        <>
-          <span className="ctx-sep" />
-          {item(t.tmRowAbove, () => runTable("row-above"))}
-          {item(t.tmRowBelow, () => runTable("row-below"))}
-          {item(t.tmColLeft, () => runTable("col-left"))}
-          {item(t.tmColRight, () => runTable("col-right"))}
-          {item(t.tmDelRows, () => runTable("del-rows"), {
-            danger: true,
-            disabled: (menu.table.selection?.r2 ?? menu.table.row) === 0,
-          })}
-          {item(t.tmDelCols, () => runTable("del-cols"), {
-            danger: true,
-            disabled: menu.table.cols <= 1,
-          })}
-          {item(`← ${t.tmAlign}`, () => runTable("align-left"))}
-          {item(`↔ ${t.tmAlign}`, () => runTable("align-center"))}
-          {item(`→ ${t.tmAlign}`, () => runTable("align-right"))}
-          {item(t.tmSortAsc, () => runTable("sort-asc"), { disabled: menu.table.rows <= 1 })}
-          {item(t.tmSortDesc, () => runTable("sort-desc"), { disabled: menu.table.rows <= 1 })}
-          {menu.table.selection &&
-            menu.table.selection.r2 >= menu.table.selection.r1 &&
-            (menu.table.selection.r2 - menu.table.selection.r1 + 1) *
-              (menu.table.selection.c2 - menu.table.selection.c1 + 1) >=
-              2 &&
-            item(t.tmMerge, () => runTable("merge"))}
-          {menu.table.selection && item(t.tmUnmerge, () => runTable("unmerge"))}
-          {menu.table.selection && item(t.tmClearSel, () => runTable("clear-sel"))}
-          {menu.table.selection && item(t.tmCopySel, () => runTable("copy-sel"))}
-          {item(t.tmDelTable, () => runTable("del-table"), { danger: true })}
-        </>
-      )}
-      {item(t.ctxUndo, () => run(() => undo(view)), { disabled: !menu.canUndo || !editable })}
-      {item(t.ctxRedo, () => run(() => redo(view)), { disabled: !menu.canRedo || !editable })}
-      <span className="ctx-sep" />
-      {item(t.ctxCut, cutSel, { disabled: !menu.hasSelection })}
-      {item(t.ctxCopy, copySel, { disabled: !menu.hasSelection })}
-      {item(t.ctxPaste, pasteClip, { disabled: !editable })}
-      {item(t.ctxSelectAll, () => run(() => view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } })))}
-      {editable && menu.hasSelection && item(t.formatPainterCopy, () => run(() => copyFormat(view)))}
-      {editable && item(t.formatPainterPaste, () => run(() => pasteFormat(view)))}
-      {editable && menu.hasSelection && item(t.ctxSortLines, () => run(() => fmt.sortLines(view)))}
-      {editable && menu.hasSelection && item(t.ctxDedupeLines, () => run(() => fmt.sortLines(view, { unique: true })))}
-      {editable && menu.hasSelection && (
-        <>
-          <span className="ctx-sep" />
-          {item(`**${t.tbBold}**`, () => run(() => fmt.toggleBold(view)))}
-          {item(`*${t.tbItalic}*`, () => run(() => fmt.toggleItalic(view)))}
-          {item(`\`${t.tbCode}\``, () => run(() => fmt.toggleInlineCode(view)))}
-        </>
-      )}
-      {editable && tab?.path && (
-        <>
-          <span className="ctx-sep" />
-          {item(
-            store.active?.bookmarks.includes(menuLine(store)) ? t.ctxRemoveBookmark : t.ctxAddBookmark,
-            () => run(() => store.toggleBookmark()),
-          )}
-          {item(t.ctxAddComment, () => {
-            setMenu(null);
-            setCommentLine(menuLine(store));
-          })}
-        </>
-      )}
-      {editable && menu.inTable && (
-        <>
-          <span className="ctx-sep" />
-          {item(t.ctxAddRow, () => run(() => fmt.tableAddRow(view)))}
-          {item(t.ctxAddCol, () => run(() => fmt.tableAddColumn(view)))}
-          {item(t.ctxDelRow, () => run(() => fmt.tableDeleteRow(view)))}
-          {item(t.ctxDelCol, () => run(() => fmt.tableDeleteColumn(view)))}
-          <span className="ctx-sep" />
-          {item(`⬅ ${t.ctxAlign}: ${t.alignLeft}`, () => run(() => fmt.tableAlignColumn(view, "left")))}
-          {item(`↔ ${t.ctxAlign}: ${t.alignCenter}`, () => run(() => fmt.tableAlignColumn(view, "center")))}
-          {item(`➡ ${t.ctxAlign}: ${t.alignRight}`, () => run(() => fmt.tableAlignColumn(view, "right")))}
-          {item(`⇹ ${t.ctxFormatTable}`, () => run(() => fmt.formatTable(view)))}
-          {item(t.alignNone, () => run(() => fmt.tableAlignColumn(view, "none")))}
-        </>
-      )}
-    </div>
-
+      {renderMenu()}
       {linkEdit && (
         <LinkDialog
-          initial={linkEdit}
+          initial={linkEdit.initial}
           pathHints={pathHintsOf(store)}
           t={t}
           onCancel={() => {
@@ -310,30 +352,24 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
             store.view?.focus(); // 취소 후에도 에디터로 복귀(포커스 방치 방지)
           }}
           onConfirm={(next) => {
-            const view = store.view;
+            if (!linkEdit.apply(next)) throw new Error(t.linkTargetChanged);
             setLinkEdit(null);
-            if (!view) return;
-            view.dispatch({
-              changes: { from: linkEdit.from, to: linkEdit.to, insert: `[${next.text}](${next.url})` },
-              selection: { anchor: linkEdit.from + next.text.length + 3 },
-              userEvent: "input.editLink",
-            });
-            view.focus();
             store.toast(t.linkEdited);
           }}
         />
       )}
-      {commentLine !== null && (
+      {commentTarget !== null && (
         <CommentDialog
           t={t}
-          lineNo={commentLine}
+          title={commentTarget.title}
+          lineNo={commentTarget.lineNo}
           onCancel={() => {
-            setCommentLine(null);
+            setCommentTarget(null);
             store.view?.focus();
           }}
-          onConfirm={(text) => {
-            setCommentLine(null);
-            void store.addComment(commentLine, text);
+          onConfirm={async (text) => {
+            await store.addComment(commentTarget, commentTarget.lineNo, text, commentTarget.doc);
+            setCommentTarget(null);
             store.view?.focus();
           }}
         />
@@ -342,22 +378,15 @@ export function ContextMenu({ store, t }: Props): JSX.Element | null {
         <LinkDialog
           kind="image"
           pathHints={pathHintsOf(store)}
-          initial={imgEdit}
+          initial={imgEdit.initial}
           t={t}
           onCancel={() => {
             setImgEdit(null);
             store.view?.focus();
           }}
           onConfirm={(next) => {
-            const view = store.view;
+            if (!imgEdit.apply(next)) throw new Error(t.linkTargetChanged);
             setImgEdit(null);
-            if (!view) return;
-            view.dispatch({
-              changes: { from: imgEdit.from, to: imgEdit.to, insert: `![${next.text}](${next.url})` },
-              selection: { anchor: imgEdit.from + next.text.length + 4 },
-              userEvent: "input.editImage",
-            });
-            view.focus();
             store.toast(t.imageEdited);
           }}
         />

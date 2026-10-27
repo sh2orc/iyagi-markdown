@@ -119,7 +119,7 @@ describe("원문 보존 (§4-2)", () => {
         writes.push(`text:${text}`);
         return { mtime: 2, size: text.length };
       },
-      scanWorkspace: async () => [],
+      scanWorkspace: async () => ({ tree: [], issues: [] }),
       saveSession: async () => {},
       setAssetScope: async () => {},
       watchPaths: async () => {},

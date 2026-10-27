@@ -4,11 +4,20 @@ import { useState } from "react";
 
 import type { ExportKind } from "../app/store";
 import type { Translate } from "../i18n";
+import type { PdfOptions } from "../export/preview";
+import type { ExportSnapshot } from "../export/snapshot";
+import type { ExportResult } from "../export/result";
+import { imeComposing } from "../app/ime";
+import { useExportTask } from "./useExportTask";
+import { ExportFeedback } from "./ExportFeedback";
+export type { PdfOptions } from "../export/preview";
 
 interface Props {
   kind: ExportKind;
   t: Translate;
-  onRun: (kind: ExportKind, opts: PdfOptions) => void;
+  capture: () => ExportSnapshot | null;
+  onRun: (kind: ExportKind, opts: PdfOptions, snapshot: ExportSnapshot) => Promise<ExportResult>;
+  onReveal?: (path: string) => Promise<void>;
   onCancel: () => void;
   pageNumbers?: boolean;
   onTogglePageNumbers?: (v: boolean) => void;
@@ -19,14 +28,10 @@ interface Props {
   saved?: { paper: "a4" | "letter" | "a5"; landscape: boolean; margin: number; scale: number };
 }
 
-export interface PdfOptions {
-  paper: "a4" | "letter" | "a5";
-  orientation: "portrait" | "landscape";
-  marginMm: number;
-  scale: number;
-}
-
-export function ExportSheet({ kind, t, onRun, onCancel, pageNumbers = true, onTogglePageNumbers, pdfHeader = true, onTogglePdfHeader, saved }: Props): JSX.Element {
+export function ExportSheet({ kind, t, capture, onRun, onReveal, onCancel, pageNumbers = true, onTogglePageNumbers, pdfHeader = true, onTogglePdfHeader, saved }: Props): JSX.Element {
+  const [snapshot] = useState(capture);
+  const task = useExportTask();
+  const cancel = () => { if (!task.isRunning()) onCancel(); };
   // 마지막 내보내기 옵션 복원 — App이 실행 시 설정에 저장해 전달한다.
   const [paper, setPaper] = useState<"a4" | "letter" | "a5">(saved?.paper ?? "a4");
   const [orientation, setOrientation] = useState<"portrait" | "landscape">(saved?.landscape ? "landscape" : "portrait");
@@ -43,10 +48,18 @@ export function ExportSheet({ kind, t, onRun, onCancel, pageNumbers = true, onTo
           : t.exportDocx;
 
   return (
-    <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onCancel()}>
-      <div className="modal">
+    <div className="overlay modal-overlay" role="dialog" aria-modal="true" aria-label={`${t.exportTitle} — ${label}`}
+      aria-busy={task.busy} onClick={(e) => e.target === e.currentTarget && cancel()}
+      onKeyDown={(e) => {
+        if (imeComposing(e)) return;
+        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); cancel(); }
+      }}>
+      <div className="modal export-modal">
         <div className="modal-title">{t.exportTitle}</div>
         <div className="modal-kind">{label}</div>
+        <p className="export-document">{snapshot?.docTitle ?? t.emptyNoDoc}</p>
+        {snapshot && <p className="modal-hint">{t.exportSnapshotHint}</p>}
+        <fieldset className="export-fields" disabled={task.busy || task.complete}>
         {kind === "pdf" && (
           <div className="export-options">
             <label>
@@ -134,16 +147,25 @@ export function ExportSheet({ kind, t, onRun, onCancel, pageNumbers = true, onTo
             )}
           </div>
         )}
+        </fieldset>
         <p className="modal-hint">{t.exportVectorHint}</p>
+        <ExportFeedback busy={task.busy} result={task.result} t={t} onReveal={onReveal} />
         <div className="modal-actions">
           <button
             className="btn btn-primary"
-            onClick={() => onRun(kind, { paper, orientation, marginMm: margin, scale })}
+            disabled={!snapshot || task.busy || task.complete}
+            onClick={() => {
+              if (!snapshot) return;
+              void task.run(() => onRun(kind, { paper, orientation, marginMm: margin, scale }, {
+                ...snapshot, pageNumbers, header: pdfHeader, docxStyle: { ...snapshot.docxStyle, pageNumbers },
+              }));
+            }}
           >
-            {t.exportTitle}
+            {/* 실행 버튼 — 시트 제목(…로 열림)과 달리 동사로: 마지막 확인 단계임을 분명히. */}
+            {t.exportRun} {label}
           </button>
-          <button className="btn btn-plain" onClick={onCancel}>
-            {t.cancel}
+          <button className="btn btn-plain" disabled={task.busy} onClick={cancel}>
+            {task.complete ? t.done : t.cancel}
           </button>
         </div>
       </div>

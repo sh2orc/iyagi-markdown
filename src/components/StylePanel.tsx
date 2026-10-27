@@ -1,9 +1,7 @@
 // 문서 스타일 패널 — 이 문서만의 폰트·크기·행간·간격·강조색.
 // 저장은 SQLite 사이드카(원문 .md는 불변), 변경은 즉시 미리보기에 반영.
 
-import { useState } from "react";
-
-import { api, isInApp, type DocStyle } from "../api";
+import type { DocStyle } from "../api";
 import type { AppStore } from "../app/store";
 import { DEFAULT_DOC_STYLE, STYLE_PRESETS } from "../app/docStyle";
 import type { Translate } from "../i18n";
@@ -25,23 +23,20 @@ const HIGHLIGHT_SWATCHES: Array<[string, string, string]> = [
 
 export function StylePanel({ store, onClose, t }: Props): JSX.Element | null {
   const tab = store.active;
-  const [style, setStyle] = useState<DocStyle>(tab?.docStyle ?? DEFAULT_DOC_STYLE);
+  const style = tab?.docStyle ?? DEFAULT_DOC_STYLE;
   if (!tab) return null;
 
   const update = (patch: Partial<DocStyle>) => {
-    const next = { ...style, ...patch };
-    setStyle(next);
-    store.setDocStyle(next);
+    const next = { ...(tab.docStyle ?? DEFAULT_DOC_STYLE), ...patch };
+    store.setDocStyle(next, tab.id);
   };
 
   const reset = () => {
-    setStyle(DEFAULT_DOC_STYLE);
-    store.setDocStyle(DEFAULT_DOC_STYLE);
-    if (tab.path && isInApp()) void api.docStyleClear(tab.path).catch(() => {});
+    store.setDocStyle(DEFAULT_DOC_STYLE, tab.id);
   };
 
   return (
-    <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay modal-overlay" role="dialog" aria-modal="true" aria-label={t.styleTitle} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal settings-modal">
         <div className="modal-title">
           {t.styleTitle}

@@ -3,7 +3,7 @@
 
 use objc2_foundation::{NSFileManager, NSString, NSURL};
 
-/// 경로를 휴지통으로 이동. 성공 여부 — 실패 시 호출자가 기존 삭제로 폴백.
+/// 경로를 휴지통으로 이동. 실패 시 파일을 보존하고 호출자가 오류를 표시한다.
 pub fn move_to_trash(path: &str) -> bool {
     let fm = NSFileManager::defaultManager();
     let url = NSURL::fileURLWithPath(&NSString::from_str(path));

@@ -15,8 +15,8 @@ export function subsequence(query: string, text: string): number {
   if (!query) return 1;
   let qi = 0;
   let score = 0;
-  const hay = text.toLowerCase();
-  for (const ch of query.toLowerCase()) {
+  const hay = text.normalize("NFC").toLowerCase();
+  for (const ch of query.normalize("NFC").toLowerCase()) {
     const idx = hay.indexOf(ch, qi);
     if (idx === -1) return -1;
     score += idx === qi ? 2 : 1;
@@ -68,6 +68,6 @@ export function scoreFile(query: string, f: FileEntry): number {
   const sRel = subsequence(q, f.rel);
   if (sName < 0 && sRel < 0) return -1;
   let s = Math.max(sName < 0 ? 0 : sName * 2, sRel);
-  if (f.name.toLowerCase().startsWith(q.toLowerCase())) s += 4;
+  if (f.name.normalize("NFC").toLowerCase().startsWith(q.normalize("NFC").toLowerCase())) s += 4;
   return s;
 }

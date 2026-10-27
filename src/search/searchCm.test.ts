@@ -3,9 +3,16 @@
 
 import { describe, expect, it } from "vitest";
 
-import { computeMatches, splitHighlights, wholeWordRegexSource } from "./searchCm";
+import { computeMatches, splitHighlights, validSearchQuery } from "./searchCm";
 
 describe("splitHighlights", () => {
+  it("대소문자 옵션과 확장되는 유니코드 소문자 앞의 원문 위치를 보존한다", () => {
+    expect(splitHighlights("İ X x", "x", true)).toEqual([
+      { text: "İ X ", hit: false }, { text: "x", hit: true },
+    ]);
+    expect(splitHighlights("İ X x", "x").filter((part) => part.hit).map((part) => part.text)).toEqual(["X", "x"]);
+    expect(splitHighlights("İ i I", "i").filter((part) => part.hit).map((part) => part.text)).toEqual(["i", "I"]);
+  });
   it("대소문자무시로 매치를 감싼다", () => {
     expect(splitHighlights("World MARKER here", "marker")).toEqual([
       { text: "World ", hit: false },
@@ -50,22 +57,25 @@ describe("wholeWord 단어 단위 찾기", () => {
     expect(m.length).toBe(2); // cat, cat. (CAT 제외)
   });
 
-  it("정규식과 결합 — 그룹으로 감싸 경계 적용", () => {
-    const m = computeMatches("abc abcde", { text: "abc", caseSensitive: true, regexp: false, wholeWord: true });
+  it("정규식과 결합 — 실제 일치 문자열의 양끝 경계 적용", () => {
+    const m = computeMatches("abc abcde", { text: "a(b)c", caseSensitive: true, regexp: true, wholeWord: true });
     expect(m.length).toBe(1);
   });
 
-  it("한글 검색어는 단어 경계 미적용(\b가 죽는 문제 회피)", () => {
-    expect(wholeWordRegexSource("문서", false)).toBeNull();
+  it("한글도 주변 글자와 구분한 단어만 찾는다", () => {
     const m = computeMatches("문서 문서고", { text: "문서", caseSensitive: false, regexp: false, wholeWord: true });
-    expect(m.length).toBe(2); // 일반 검색과 동일
+    expect(m.length).toBe(1);
   });
 
-  it("경계는 단어 문자 가장자리에만", () => {
-    expect(wholeWordRegexSource("word", false)).toBe("\\b(?:word)\\b");
-    expect(wholeWordRegexSource("100", false)).toBe("\\b(?:100)\\b");
-    // 앞만 라틴 — 앞에만 경계.
-    expect(wholeWordRegexSource("id:", false)).toBe("\\b(?:id:)");
+  it("구두점 가장자리에는 단어 경계를 요구하지 않는다", () => {
+    expect(computeMatches("id:value grid:value", { text: "id:", caseSensitive: true, regexp: false, wholeWord: true }))
+      .toEqual([{ from: 0, to: 3 }]);
+  });
+
+  it("정규식 검증과 실제 검색은 같은 Unicode 문법을 사용한다", () => {
+    expect(validSearchQuery({ text: "[", caseSensitive: false, regexp: true })).toBe(false);
+    expect(validSearchQuery({ text: "[", caseSensitive: false, regexp: false })).toBe(true);
+    expect(computeMatches("한글 A", { text: "\\p{L}+", caseSensitive: false, regexp: true })).toHaveLength(2);
   });
 });
 

@@ -3,12 +3,13 @@
 //! 대소문자무시 부분문자열 검색. 결과는 도달 순(폴더 먼저·이름순)이라
 //! 같은 파일의 매치가 항상 연속한다. 표시용 줄 조각만 돌려준다.
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::tree::{is_markdown_name, should_skip_dir_name};
+use crate::tree::{ScanIssue, TreeNode};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,31 +24,127 @@ pub struct SearchHit {
 /// 표시용 줄 최대 글자 수.
 const CLIP_CHARS: usize = 200;
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchReport {
+    pub hits: Vec<SearchHit>,
+    pub issues: Vec<ScanIssue>,
+    /// True only after finding a matching line beyond the returned result limit.
+    pub truncated: bool,
+    pub files_read: usize,
+    pub files_total: usize,
+}
+
 pub fn search_tree(root: &Path, needle: &str, max_hits: usize) -> std::io::Result<Vec<SearchHit>> {
-    let mut hits = Vec::new();
+    search_tree_with_case(root, needle, max_hits, false)
+}
+
+pub fn search_tree_with_case(
+    root: &Path,
+    needle: &str,
+    max_hits: usize,
+    case_sensitive: bool,
+) -> std::io::Result<Vec<SearchHit>> {
+    search_report(root, needle, max_hits, case_sensitive).map(|report| report.hits)
+}
+
+pub fn search_report(
+    root: &Path,
+    needle: &str,
+    max_hits: usize,
+    case_sensitive: bool,
+) -> std::io::Result<SearchReport> {
+    search_report_with_limits(
+        root,
+        needle,
+        max_hits,
+        case_sensitive,
+        4 * 1024 * 1024,
+        128 * 1024 * 1024,
+    )
+}
+
+fn search_report_with_limits(
+    root: &Path,
+    needle: &str,
+    max_hits: usize,
+    case_sensitive: bool,
+    max_file_bytes: usize,
+    max_total_bytes: usize,
+) -> std::io::Result<SearchReport> {
+    use std::io::Read;
     let needle = needle.trim();
     if needle.is_empty() || max_hits == 0 {
-        return Ok(hits);
+        return Ok(SearchReport::default());
     }
-    let mut files = Vec::new();
-    collect_files(root, 0, 12, &mut files);
-    let needle_l = needle.to_lowercase();
+    if needle.chars().count() > 1024 {
+        return Err(std::io::Error::other(
+            "Search term exceeds 1,024 characters.",
+        ));
+    }
+    let (files, issues) = scan_search_files(root)?;
+    let mut report = SearchReport {
+        files_total: files.len(),
+        issues,
+        ..SearchReport::default()
+    };
+    let mut remaining = max_total_bytes;
+    let matcher = LiteralMatcher::new(needle, case_sensitive);
     for path in files {
-        if hits.len() >= max_hits {
+        if remaining == 0 {
+            report.issues.push(ScanIssue {
+                path: path.to_string_lossy().into_owned(),
+                code: "budget".into(),
+                message: "Search read limit reached; remaining documents were not searched.".into(),
+            });
             break;
         }
-        // 깨진 인코딩 파일도 서브스트링 검색은 가능해야 한다 — 손실 디코딩.
-        let bytes = match fs::read(&path) {
-            Ok(b) => b,
-            Err(_) => continue, // 권한·사라진 파일은 조용히 건너뛴다
+        // Bound actual reads, including failures and oversized documents.
+        let cap = max_file_bytes.saturating_add(1).min(remaining);
+        let mut bytes = Vec::new();
+        let read =
+            fs::File::open(&path).and_then(|file| file.take(cap as u64).read_to_end(&mut bytes));
+        remaining -= bytes.len();
+        let failure = |code: &str, message: String| ScanIssue {
+            path: path.to_string_lossy().into_owned(),
+            code: code.into(),
+            message,
         };
-        let text = String::from_utf8_lossy(&bytes);
-        for (i, line) in text.lines().enumerate() {
-            if hits.len() >= max_hits {
-                break;
+        if let Err(error) = read {
+            report.issues.push(failure("read", error.to_string()));
+            continue;
+        }
+        if bytes.len() > max_file_bytes {
+            report.issues.push(failure(
+                "size",
+                "Document exceeds the search file-size limit.".into(),
+            ));
+            continue;
+        }
+        // A read exactly filling the remaining budget may have stopped before EOF.
+        // Keep that document out of the results rather than claiming a complete read.
+        if bytes.len() == cap && cap <= max_file_bytes {
+            report.issues.push(failure(
+                "budget",
+                "Search read limit reached; this and remaining documents were not searched.".into(),
+            ));
+            break;
+        }
+        let doc = match crate::io::decode_doc(bytes, &path) {
+            Ok(doc) => doc,
+            Err(error) => {
+                report.issues.push(failure("encoding", error.to_string()));
+                continue;
             }
-            if let Some(at) = line.to_lowercase().find(&needle_l) {
-                hits.push(SearchHit {
+        };
+        report.files_read += 1;
+        for (i, line) in doc.text.lines().enumerate() {
+            if let Some(&(at, _)) = matcher.ranges(line, 1).first() {
+                if report.hits.len() == max_hits {
+                    report.truncated = true;
+                    return Ok(report);
+                }
+                report.hits.push(SearchHit {
                     path: path.to_string_lossy().into_owned(),
                     line_no: i as u32 + 1,
                     line: clip_line(line, at),
@@ -55,134 +152,105 @@ pub fn search_tree(root: &Path, needle: &str, max_hits: usize) -> std::io::Resul
             }
         }
     }
-    Ok(hits)
+    Ok(report)
 }
 
-/// 도달 순서가 사이드바 트리와 같은 파일 목록 수집(폴더 먼저·대소문자무시 이름순).
-fn collect_files(dir: &Path, depth: u32, max_depth: u32, out: &mut Vec<PathBuf>) {
-    if depth > max_depth {
-        return;
-    }
-    let entries = match fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return, // 권한·NotFound — 조용히
-    };
-    let mut dirs: Vec<(String, PathBuf)> = Vec::new();
-    let mut files: Vec<(String, PathBuf)> = Vec::new();
-    for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let ft = match entry.file_type() {
-            Ok(ft) => ft,
-            Err(_) => continue,
-        };
-        if ft.is_dir() {
-            if !should_skip_dir_name(&name) {
-                dirs.push((name, entry.path()));
+fn scan_search_files(root: &Path) -> std::io::Result<(Vec<PathBuf>, Vec<ScanIssue>)> {
+    fn walk(nodes: Vec<TreeNode>, paths: &mut Vec<PathBuf>) {
+        for node in nodes {
+            match node {
+                TreeNode::Dir { children, .. } => walk(children, paths),
+                TreeNode::File { path, .. } => paths.push(PathBuf::from(path)),
             }
-        } else if ft.is_file() && is_markdown_name(&name) {
-            files.push((name, entry.path()));
         }
-        // 심볼릭 링크는 양쪽 분기에 걸리지 않는다 — 건너뛴다(순환 방지).
     }
-    let by_name = |a: &(String, PathBuf), b: &(String, PathBuf)| {
-        a.0.to_lowercase()
-            .cmp(&b.0.to_lowercase())
-            .then_with(|| a.0.cmp(&b.0))
-    };
-    dirs.sort_by(by_name);
-    files.sort_by(by_name);
-    for (_, p) in dirs {
-        collect_files(&p, depth + 1, max_depth, out);
-    }
-    for (_, p) in files {
-        out.push(p);
-    }
+    let scan = crate::tree::scan_tree(root)?;
+    let mut paths = Vec::new();
+    walk(scan.tree, &mut paths);
+    Ok((paths, scan.issues))
 }
 
-/// 문서를 [[이름]]으로 참조하는 백링크를 찾는다(문서 자신 제외).
-/// 이름 비교는 대소문자무시 — stem 일치 또는 루트 기준 상대 경로(확장자 없음)가
-/// 대상을 접미로 포함([[folder/note]] → notes/의 note.md). 프런트 해석 규칙
-/// (editor/wiki.ts resolveWikiLink)과 같은 방향의 관대함.
+/// 위키·일반 Markdown 링크의 실제 대상 경로로 백링크를 찾는다.
 pub fn find_backlinks(root: &Path, doc_path: &str, max: usize) -> std::io::Result<Vec<SearchHit>> {
-    let mut out = Vec::new();
     if max == 0 {
-        return Ok(out);
+        return Ok(Vec::new());
     }
-    let doc_file = Path::new(doc_path);
-    let file_name = doc_file
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let stem = match file_name.rfind('.') {
-        Some(i) => file_name[..i].to_lowercase(),
-        None => file_name.to_lowercase(),
-    };
-    if stem.is_empty() {
-        return Ok(out);
+    let (tree, files) = crate::wiki_rename::inventory(root)?;
+    let index = crate::wiki_rename::index(&tree);
+    let inventory: HashSet<_> = files.iter().map(String::as_str).collect();
+    if !inventory.contains(doc_path) {
+        return Ok(Vec::new());
     }
-    // 루트 기준 상대 경로(확장자 제거·소문자) — 경로 포함 참조 비교용.
-    let root_s = root.to_string_lossy();
-    let rel_stem = doc_path
-        .strip_prefix(root_s.as_ref())
-        .unwrap_or(doc_path)
-        .trim_start_matches('/')
-        .to_lowercase();
-    let rel_stem = match rel_stem.rfind('.') {
-        Some(i) => rel_stem[..i].to_string(),
-        None => rel_stem,
-    };
-    let mut files = Vec::new();
-    collect_files(root, 0, 12, &mut files);
-    for path in files {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut remaining = 128 * 1024 * 1024;
+    for path in &files {
         if out.len() >= max {
             break;
         }
-        if path.as_os_str().to_string_lossy() == doc_path {
-            continue; // 문서 자신
+        if path == doc_path {
+            continue;
         }
-        let bytes = match fs::read(&path) {
-            Ok(b) => b,
-            Err(_) => continue,
-        };
-        let text = String::from_utf8_lossy(&bytes);
-        for (i, line) in text.lines().enumerate() {
+        let content = read_link_document(Path::new(path), &mut remaining)?;
+        let lines: Vec<_> = content.lines().collect();
+        let dir = Path::new(path).parent().unwrap_or(root);
+        for target in crate::document_links::targets(&content).map_err(std::io::Error::other)? {
             if out.len() >= max {
                 break;
             }
-            // 줄 안의 모든 [[..]] 검사 — 대상은 | 또는 # 앞까지.
-            let mut from = 0;
-            while let Some(open) = line[from..].find("[[") {
-                let abs_open = from + open;
-                let rest = &line[abs_open + 2..];
-                let close = rest.find("]]").map(|c| abs_open + 2 + c);
-                let nl = rest.find('\n').map(|c| abs_open + 2 + c);
-                let end = match (close, nl) {
-                    (Some(c), Some(n)) => c.min(n),
-                    (Some(c), None) => c,
-                    (None, _) => break,
-                };
-                let body = &line[abs_open + 2..end];
-                let target = body
-                    .split(['|', '#'])
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .replace('\\', "/")
-                    .to_lowercase();
-                if !target.is_empty()
-                    && (target == stem || (target.contains('/') && rel_stem.ends_with(&target)))
-                {
-                    out.push(SearchHit {
-                        path: path.to_string_lossy().into_owned(),
-                        line_no: i as u32 + 1,
-                        line: clip_line(line, abs_open),
-                    });
-                }
-                from = end.max(abs_open + 2);
+            if resolve_document_link(&target.destination, &index, &inventory, dir) == Some(doc_path)
+                && seen.insert((path.clone(), target.line))
+            {
+                let line = lines.get(target.line - 1).copied().unwrap_or("");
+                let start = content[..target.start]
+                    .rfind('\n')
+                    .map(|i| i + 1)
+                    .unwrap_or(0);
+                out.push(SearchHit {
+                    path: path.clone(),
+                    line_no: target.line as u32,
+                    line: clip_line(line, target.start.saturating_sub(start)),
+                });
             }
         }
     }
     Ok(out)
+}
+
+fn resolve_document_link<'a>(
+    destination: &crate::document_links::Destination,
+    index: &'a crate::wiki_rename::Index,
+    inventory: &HashSet<&'a str>,
+    dir: &Path,
+) -> Option<&'a str> {
+    use crate::{document_links::Destination, links::LinkTarget};
+    match destination {
+        Destination::Wiki(name) => crate::wiki_rename::resolve(index, name, dir),
+        Destination::Url(url) => match crate::links::resolve(url, dir) {
+            LinkTarget::Markdown { path, .. } => inventory.get(path.to_str()?).copied(),
+            _ => None,
+        },
+    }
+}
+
+fn read_link_document(path: &Path, remaining: &mut usize) -> std::io::Result<String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(4 * 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > 4 * 1024 * 1024 {
+        return Err(std::io::Error::other(format!(
+            "Link document exceeds 4 MiB: {}",
+            path.display()
+        )));
+    }
+    *remaining = remaining.checked_sub(bytes.len()).ok_or_else(|| {
+        std::io::Error::other("Document connection scan exceeds 128 MiB. Open a smaller folder.")
+    })?;
+    crate::io::decode_doc(bytes, path)
+        .map(|doc| doc.text)
+        .map_err(std::io::Error::other)
 }
 
 fn char_floor(s: &str, mut i: usize) -> usize {
@@ -319,6 +387,128 @@ mod tests {
     }
 
     #[test]
+    fn backlinks_and_graph_share_resolved_markdown_and_wiki_targets() {
+        let d = tempdir("document-links");
+        fs::create_dir_all(d.join("a")).unwrap();
+        fs::create_dir_all(d.join("b")).unwrap();
+        fs::write(d.join("a/note.md"), "[self](note.md) [[note]]").unwrap();
+        fs::write(d.join("b/note.md"), "other document").unwrap();
+        fs::write(
+            d.join("b/ref.md"),
+            "[local](note.md) [[note]]\n\
+            [cross](../a/note.md#heading) [[a/note]]\n\
+            [reference][id]\n\n[id]: ../a/note.md \"title\"\n[unused]: ../a/note.md\n",
+        )
+        .unwrap();
+        let target = d.join("a/note.md");
+        let hits = find_backlinks(&d, target.to_str().unwrap(), 100).unwrap();
+        assert_eq!(
+            hits.iter().map(|hit| hit.line_no).collect::<Vec<_>>(),
+            vec![2, 3]
+        );
+        assert!(hits.iter().all(|hit| hit.path.ends_with("b/ref.md")));
+        assert!(hits[1].line.contains("[reference][id]"));
+        let edges = extract_document_edges(&d).unwrap();
+        let destinations: Vec<_> = edges.iter().map(|edge| edge.to.as_str()).collect();
+        assert_eq!(
+            destinations,
+            vec![
+                d.join("b/note.md").to_str().unwrap(),
+                target.to_str().unwrap()
+            ]
+        );
+        assert!(edges.iter().all(|edge| edge.from.ends_with("b/ref.md")));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn link_uses_exclude_code_metadata_and_unused_definitions() {
+        let d = tempdir("document-links-exclusions");
+        fs::write(d.join("target.md"), "target").unwrap();
+        fs::write(
+            d.join("ref.md"),
+            "---\nlink: '[meta](target.md)'\n---\n\
+            `[code](target.md)`\n\n```md\n[[target]] [code](target.md)\n```\n\n\
+            <!-- [html](target.md) -->\n\n$[math](target.md)$\n\n\
+            [unused]: target.md\n\n[actual](target.md)\n",
+        )
+        .unwrap();
+        let hits = find_backlinks(&d, d.join("target.md").to_str().unwrap(), 100).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].line, "[actual](target.md)");
+        assert_eq!(extract_document_edges(&d).unwrap().len(), 1);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn encoded_links_follow_real_files_and_reference_duplicate_precedence() {
+        let d = tempdir("document-links-encoded");
+        fs::write(d.join("한글 name.md"), "target").unwrap();
+        fs::write(d.join("other.md"), "other").unwrap();
+        fs::write(
+            d.join("ref.md"),
+            "[한글](%ED%95%9C%EA%B8%80%20name.md#개요)\n\
+            ![document](<한글 name.md>)\n[duplicate][ID]\n\n\
+            [id]: other.md\n[ID]: <한글 name.md>\n",
+        )
+        .unwrap();
+        let hits = find_backlinks(&d, d.join("한글 name.md").to_str().unwrap(), 100).unwrap();
+        assert_eq!(
+            hits.iter().map(|hit| hit.line_no).collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        let edges = extract_document_edges(&d).unwrap();
+        assert_eq!(edges.len(), 2);
+        assert!(edges[0].to.ends_with("한글 name.md"));
+        assert!(edges[1].to.ends_with("other.md"));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn unresolved_external_and_outside_workspace_targets_are_not_graph_nodes() {
+        let d = tempdir("document-links-outside");
+        fs::write(
+            d.join("ref.md"),
+            "[missing](missing.md) [[missing]] [outside](../target.md)\n\
+            [web](https://host/target.md) [mail](mailto:a@host) [anchor](#heading)\n\
+            [asset](image.png) [file](file:///tmp/target.md)\n",
+        )
+        .unwrap();
+        assert!(extract_document_edges(&d).unwrap().is_empty());
+        assert!(
+            find_backlinks(&d, d.join("missing.md").to_str().unwrap(), 100)
+                .unwrap()
+                .is_empty()
+        );
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn unreadable_document_is_an_error_not_an_empty_connection_result() {
+        let d = tempdir("document-links-failure");
+        fs::write(d.join("target.md"), "target").unwrap();
+        fs::write(d.join("bad.md"), [0xff]).unwrap();
+        assert!(find_backlinks(&d, d.join("target.md").to_str().unwrap(), 100).is_err());
+        assert!(extract_document_edges(&d).is_err());
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn connection_read_budget_is_consumed_before_parsing_more_documents() {
+        let d = tempdir("document-links-budget");
+        let path = d.join("ref.md");
+        fs::write(&path, "1234").unwrap();
+        let mut remaining = 6;
+        assert_eq!(read_link_document(&path, &mut remaining).unwrap(), "1234");
+        assert_eq!(remaining, 2);
+        assert!(read_link_document(&path, &mut remaining)
+            .unwrap_err()
+            .to_string()
+            .contains("128 MiB"));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn empty_needle_is_empty_and_long_lines_clip() {
         let d = tempdir("clip");
         assert!(search_tree(&d, "  ", 10).unwrap().is_empty());
@@ -332,6 +522,92 @@ mod tests {
         assert!(l.contains("needle"));
         let _ = fs::remove_dir_all(&d);
     }
+
+    #[test]
+    fn search_reports_partial_reads_and_uses_editor_line_numbers() {
+        let d = tempdir("search-report-partial");
+        fs::write(d.join("a.md"), b"\xef\xbb\xbfhit\rhit\r\n").unwrap();
+        fs::write(d.join("b.md"), [0xff]).unwrap();
+        fs::write(d.join("c.markdown"), "x".repeat(17)).unwrap();
+        let report = search_report_with_limits(&d, "hit", 10, false, 16, 100).unwrap();
+        assert_eq!(
+            report
+                .hits
+                .iter()
+                .map(|hit| hit.line_no)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert!(report.hits.iter().all(|hit| hit.line == "hit"));
+        assert_eq!(report.files_read, 1);
+        assert_eq!(report.files_total, 3);
+        assert_eq!(
+            report
+                .issues
+                .iter()
+                .map(|issue| issue.code.as_str())
+                .collect::<Vec<_>>(),
+            vec!["encoding", "size"]
+        );
+        assert!(!report.truncated);
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn search_distinguishes_exact_result_cap_from_actual_truncation() {
+        let d = tempdir("search-report-cap");
+        fs::write(d.join("a.md"), "hit\nhit\n").unwrap();
+        let exact = search_report(&d, "hit", 2, false).unwrap();
+        assert_eq!(exact.hits.len(), 2);
+        assert!(!exact.truncated);
+        fs::write(d.join("b.md"), "hit").unwrap();
+        let extra = search_report(&d, "hit", 2, false).unwrap();
+        assert_eq!(extra.hits.len(), 2);
+        assert!(extra.truncated);
+        assert!(extra.issues.is_empty());
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn search_budget_does_not_return_partial_file_matches_as_complete() {
+        let d = tempdir("search-report-budget");
+        fs::write(d.join("a.md"), "hit").unwrap();
+        fs::write(d.join("b.md"), "hit later").unwrap();
+        let report = search_report_with_limits(&d, "hit", 10, false, 16, 7).unwrap();
+        assert_eq!(report.hits.len(), 1);
+        assert_eq!(report.files_read, 1);
+        assert_eq!(report.files_total, 2);
+        assert_eq!(report.issues.len(), 1);
+        assert_eq!(report.issues[0].code, "budget");
+        assert!(!report.truncated);
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn search_and_replace_share_hidden_file_and_depth_rules() {
+        let d = tempdir("search-report-inventory");
+        fs::write(d.join(".hidden.md"), "hit").unwrap();
+        fs::write(d.join("__hidden.md"), "hit").unwrap();
+        fs::write(d.join("visible.markdown"), "hit").unwrap();
+        let mut nested = d.clone();
+        for _ in 0..13 {
+            nested = nested.join("nested");
+        }
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join("too-deep.md"), "hit").unwrap();
+        let report = search_report(&d, "hit", 10, false).unwrap();
+        assert_eq!(report.hits.len(), 1);
+        assert!(report.hits[0].path.ends_with("visible.markdown"));
+        assert!(report.issues.iter().any(|issue| issue.code == "depth"));
+        let plan = prepare_replacement(&d, "hit", "changed", false).unwrap();
+        assert_eq!(plan.files.len(), 1);
+        assert_eq!(plan.files[0].path, report.hits[0].path);
+        assert_eq!(plan.skipped.len(), report.issues.len());
+        assert_eq!(fs::read_to_string(d.join(".hidden.md")).unwrap(), "hit");
+        assert!(search_report(&d.join("missing"), "hit", 10, false).is_err());
+        assert!(search_report(&d, &"a".repeat(1025), 10, false).is_err());
+        let _ = fs::remove_dir_all(d);
+    }
 }
 
 /// 작업 폴더 전체 찾아바꾸기 결과 — 파일별 교체 수.
@@ -342,87 +618,279 @@ pub struct ReplaceOutcome {
     pub count: usize,
 }
 
-/// 루트 아래 모든 .md에서 needle → replacement(대소문자 구분 없음 옵션).
-/// 각 파일은 md_core::io::write_doc_atomic 경로로 **원자적 저장**된다 —
-/// 문서 메타(BOM/CRLF)는 그대로 보존되고, 실패한 파일은 건너뛰고 계속한다.
-pub fn replace_all_tree(
+/// A reviewed replacement holds the original text until apply; no files are written here.
+pub struct ReplacementFile {
+    pub path: String,
+    pub before: String,
+    pub after: String,
+    pub meta: crate::io::DocMeta,
+    pub count: usize,
+}
+
+pub struct ReplacementPlan {
+    pub files: Vec<ReplacementFile>,
+    pub skipped: Vec<ReplaceFailure>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReplaceFailure {
+    pub path: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReplaceReport {
+    pub applied: Vec<ReplaceOutcome>,
+    pub failed: Vec<ReplaceFailure>,
+}
+
+pub fn prepare_replacement(
+    root: &Path,
+    needle: &str,
+    replacement: &str,
+    case_sensitive: bool,
+) -> std::io::Result<ReplacementPlan> {
+    fs::read_dir(root)?; // Invalid/unreadable roots are errors, not an empty successful search.
+    if needle.is_empty() {
+        return Err(std::io::Error::other("Enter a search term"));
+    }
+    let (paths, issues) = scan_search_files(root)?;
+    let mut plan = ReplacementPlan {
+        files: Vec::new(),
+        skipped: issues
+            .into_iter()
+            .map(|issue| ReplaceFailure {
+                path: issue.path,
+                message: issue.message,
+            })
+            .collect(),
+    };
+    let mut bytes = 0usize;
+    for path in paths {
+        let file = (|| -> Result<Option<ReplacementFile>, String> {
+            use std::io::Read;
+            let mut original = Vec::new();
+            fs::File::open(&path)
+                .map_err(|e| e.to_string())?
+                .take(4 * 1024 * 1024 + 1)
+                .read_to_end(&mut original)
+                .map_err(|e| e.to_string())?;
+            if original.len() > 4 * 1024 * 1024 {
+                return Err("File exceeds the 4 MiB replacement limit".into());
+            }
+            let doc = crate::io::decode_doc(original, &path).map_err(|e| e.to_string())?;
+            let (after, count) = replace_literal(&doc.text, needle, replacement, case_sensitive)
+                .map_err(|e| e.to_string())?;
+            if after == doc.text {
+                return Ok(None);
+            }
+            Ok(Some(ReplacementFile {
+                path: path.to_string_lossy().into_owned(),
+                before: doc.text,
+                after,
+                meta: doc.meta,
+                count,
+            }))
+        })();
+        match file {
+            Ok(Some(file)) => {
+                bytes = bytes
+                    .saturating_add(file.before.len())
+                    .saturating_add(file.after.len());
+                if bytes > 16 * 1024 * 1024 || plan.files.len() >= 500 {
+                    return Err(std::io::Error::other("Replacement preview is too large. Choose a smaller folder or a more specific search term."));
+                }
+                plan.files.push(file);
+            }
+            Ok(None) => {}
+            Err(message) => plan.skipped.push(ReplaceFailure {
+                path: path.to_string_lossy().into_owned(),
+                message,
+            }),
+        }
+    }
+    Ok(plan)
+}
+
+pub fn apply_replacement(
+    plan: ReplacementPlan,
+    mut before_write: impl FnMut(&ReplacementFile) -> std::io::Result<()>,
+) -> ReplaceReport {
+    let mut report = ReplaceReport {
+        applied: Vec::new(),
+        failed: plan.skipped,
+    };
+    for file in plan.files {
+        let result = before_write(&file).and_then(|()| {
+            crate::io::write_doc_checked(
+                Path::new(&file.path),
+                &file.after,
+                file.meta,
+                &crate::io::WriteExpectation::Match {
+                    text: file.before.clone(),
+                    meta: file.meta,
+                },
+            )
+            .map_err(std::io::Error::other)
+        });
+        match result {
+            Ok(()) => report.applied.push(ReplaceOutcome {
+                path: file.path,
+                count: file.count,
+            }),
+            Err(error) => report.failed.push(ReplaceFailure {
+                path: file.path,
+                message: error.to_string(),
+            }),
+        }
+    }
+    report
+}
+
+/// Matching, counts and replacement use the same original UTF-8 boundaries.
+fn literal_ranges(hay: &str, needle: &str, case_sensitive: bool) -> Vec<(usize, usize)> {
+    literal_ranges_limited(hay, needle, case_sensitive, usize::MAX)
+}
+
+fn literal_ranges_limited(
+    hay: &str,
+    needle: &str,
+    case_sensitive: bool,
+    limit: usize,
+) -> Vec<(usize, usize)> {
+    LiteralMatcher::new(needle, case_sensitive).ranges(hay, limit)
+}
+
+struct LiteralMatcher<'a> {
+    needle: &'a str,
+    case_sensitive: bool,
+    query: Vec<char>,
+    prefix: Vec<usize>,
+}
+
+fn same_lowercase(a: char, b: char) -> bool {
+    a.to_lowercase().eq(b.to_lowercase())
+}
+
+impl<'a> LiteralMatcher<'a> {
+    fn new(needle: &'a str, case_sensitive: bool) -> Self {
+        // Build once per workspace search, not once per line. Matching keeps the
+        // existing per-character lowercase equality and original UTF-8 offsets.
+        let query: Vec<char> = if case_sensitive {
+            Vec::new()
+        } else {
+            needle.chars().collect()
+        };
+        let mut prefix = vec![0usize; query.len()];
+        for i in 1..query.len() {
+            let mut matched = prefix[i - 1];
+            while matched > 0 && !same_lowercase(query[i], query[matched]) {
+                matched = prefix[matched - 1];
+            }
+            if same_lowercase(query[i], query[matched]) {
+                matched += 1;
+            }
+            prefix[i] = matched;
+        }
+        Self {
+            needle,
+            case_sensitive,
+            query,
+            prefix,
+        }
+    }
+
+    fn ranges(&self, hay: &str, limit: usize) -> Vec<(usize, usize)> {
+        if self.needle.is_empty() || limit == 0 {
+            return Vec::new();
+        }
+        if self.case_sensitive {
+            return hay
+                .match_indices(self.needle)
+                .take(limit)
+                .map(|(at, value)| (at, at + value.len()))
+                .collect();
+        }
+        if hay.len() < self.query.len() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let mut starts = std::collections::VecDeque::with_capacity(self.query.len());
+        let mut matched = 0;
+        for (at, ch) in hay.char_indices() {
+            starts.push_back(at);
+            if starts.len() > self.query.len() {
+                starts.pop_front();
+            }
+            while matched > 0 && !same_lowercase(ch, self.query[matched]) {
+                matched = self.prefix[matched - 1];
+            }
+            if same_lowercase(ch, self.query[matched]) {
+                matched += 1;
+            }
+            if matched == self.query.len() {
+                out.push((*starts.front().unwrap(), at + ch.len_utf8()));
+                if out.len() >= limit {
+                    break;
+                }
+                matched = 0; // Keep non-overlapping replacement/highlight semantics.
+                starts.clear();
+            }
+        }
+        out
+    }
+}
+
+fn replace_literal(
+    hay: &str,
+    needle: &str,
+    replacement: &str,
+    case_sensitive: bool,
+) -> std::io::Result<(String, usize)> {
+    let ranges = literal_ranges(hay, needle, case_sensitive);
+    let removed: usize = ranges.iter().map(|(from, to)| to - from).sum();
+    let output_size = hay
+        .len()
+        .saturating_sub(removed)
+        .saturating_add(ranges.len().saturating_mul(replacement.len()));
+    if output_size > 16 * 1024 * 1024 {
+        return Err(std::io::Error::other("Replacement output exceeds 16 MiB"));
+    }
+    let mut out = String::with_capacity(hay.len());
+    let mut start = 0;
+    let mut changed = 0;
+    for &(from, to) in &ranges {
+        if &hay[from..to] != replacement {
+            changed += 1;
+        }
+        out.push_str(&hay[start..from]);
+        out.push_str(replacement);
+        start = to;
+    }
+    out.push_str(&hay[start..]);
+    Ok((out, changed))
+}
+
+#[cfg(test)]
+fn case_insensitive_replace(hay: &str, needle: &str, replacement: &str) -> String {
+    replace_literal(hay, needle, replacement, false).unwrap().0
+}
+
+#[cfg(test)]
+fn replace_all_tree(
     root: &Path,
     needle: &str,
     replacement: &str,
     case_sensitive: bool,
 ) -> std::io::Result<Vec<ReplaceOutcome>> {
-    let mut out = Vec::new();
-    if needle.is_empty() {
-        return Ok(out);
+    let report = apply_replacement(
+        prepare_replacement(root, needle, replacement, case_sensitive)?,
+        |_| Ok(()),
+    );
+    if let Some(error) = report.failed.first() {
+        return Err(std::io::Error::other(error.message.clone()));
     }
-    let mut files = Vec::new();
-    collect_files(root, 0, 12, &mut files);
-    for path in files {
-        let Ok(original) = std::fs::read(&path) else {
-            continue;
-        };
-        let Ok(doc) = crate::io::decode_doc(original, &path) else {
-            continue;
-        };
-        let (hay, matched): (String, bool) = if case_sensitive {
-            (doc.text.clone(), doc.text.contains(needle))
-        } else {
-            // 대소문자 무시 교체 — 소문자 비교 후 원본 슬라이스 재조립.
-            (
-                doc.text.clone(),
-                doc.text.to_lowercase().contains(&needle.to_lowercase()),
-            )
-        };
-        if !matched {
-            continue;
-        }
-        let replaced = if case_sensitive {
-            doc.text.replace(needle, replacement)
-        } else {
-            case_insensitive_replace(&doc.text, needle, replacement)
-        };
-        if replaced != doc.text {
-            crate::io::write_doc_atomic(&path, &replaced, doc.meta)
-                .map_err(std::io::Error::other)?;
-            let count = count_replacements(&hay, needle, case_sensitive);
-            out.push(ReplaceOutcome {
-                path: path.to_string_lossy().into_owned(),
-                count,
-            });
-        }
-    }
-    Ok(out)
-}
-
-fn case_insensitive_replace(hay: &str, needle: &str, replacement: &str) -> String {
-    let hay_l = hay.to_lowercase();
-    let needle_l = needle.to_lowercase();
-    let mut out = String::with_capacity(hay.len());
-    let mut prev = 0usize;
-    while let Some(idx) = hay_l[prev..].find(&needle_l) {
-        let at = prev + idx;
-        out.push_str(&hay[prev..at]);
-        out.push_str(replacement);
-        prev = at + needle.chars().count().max(1);
-    }
-    out.push_str(&hay[prev.min(hay.len())..]);
-    out
-}
-
-fn count_replacements(hay: &str, needle: &str, case_sensitive: bool) -> usize {
-    if case_sensitive {
-        hay.matches(needle).count()
-    } else {
-        let hay_l = hay.to_lowercase();
-        let needle_l = needle.to_lowercase();
-        let mut n = 0;
-        let mut at = 0usize;
-        while let Some(idx) = hay_l[at..].find(&needle_l) {
-            n += 1;
-            at += idx + needle_l.len();
-        }
-        n
-    }
+    Ok(report.applied)
 }
 
 #[cfg(test)]
@@ -435,6 +903,125 @@ mod replace_tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn preview_counts_occurrences_without_writing_and_apply_reports_conflicts() {
+        let dir = tempdir("reviewed");
+        fs::write(dir.join("a.md"), "foo foo\n").unwrap();
+        fs::write(dir.join("b.md"), "foo\n").unwrap();
+        let plan = prepare_replacement(&dir, "foo", "bar", true).unwrap();
+        assert_eq!(plan.files.iter().map(|file| file.count).sum::<usize>(), 3);
+        assert_eq!(fs::read_to_string(dir.join("a.md")).unwrap(), "foo foo\n");
+        fs::write(dir.join("b.md"), "edited after preview").unwrap();
+        fs::write(dir.join("new.md"), "foo").unwrap();
+        let report = apply_replacement(plan, |_| Ok(()));
+        assert_eq!(report.applied.len(), 1);
+        assert_eq!(report.applied[0].count, 2);
+        assert_eq!(report.failed.len(), 1);
+        assert_eq!(fs::read_to_string(dir.join("a.md")).unwrap(), "bar bar\n");
+        assert_eq!(
+            fs::read_to_string(dir.join("b.md")).unwrap(),
+            "edited after preview"
+        );
+        assert_eq!(fs::read_to_string(dir.join("new.md")).unwrap(), "foo");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn backup_failure_leaves_document_unchanged() {
+        let dir = tempdir("backup-failure");
+        fs::write(dir.join("a.md"), "foo").unwrap();
+        let plan = prepare_replacement(&dir, "foo", "bar", true).unwrap();
+        let report = apply_replacement(plan, |_| Err(std::io::Error::other("disk full")));
+        assert!(report.applied.is_empty());
+        assert_eq!(report.failed[0].message, "disk full");
+        assert_eq!(fs::read_to_string(dir.join("a.md")).unwrap(), "foo");
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn unicode_case_matching_has_original_offsets_and_exact_counts() {
+        assert_eq!(literal_ranges("İ X x", "x", false), vec![(3, 4), (5, 6)]);
+        assert_eq!(
+            replace_literal("İ i I", "i", "x", false).unwrap(),
+            ("İ x x".into(), 2)
+        );
+        assert_eq!(
+            replace_literal("Foo foo", "foo", "foo", false).unwrap(),
+            ("foo foo".into(), 1)
+        );
+        let dir = tempdir("case-preview");
+        fs::write(dir.join("a.md"), "Foo\nfoo\n").unwrap();
+        assert_eq!(
+            search_tree_with_case(&dir, "Foo", 10, true).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            search_tree_with_case(&dir, "Foo", 10, false).unwrap().len(),
+            2
+        );
+        assert_eq!(
+            prepare_replacement(&dir, "Foo", "bar", true).unwrap().files[0].count,
+            1
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn prefix_matching_preserves_unicode_and_nonoverlapping_semantics() {
+        // Independent simple matcher records the existing per-character lowercase
+        // contract. It intentionally does not share the prefix table implementation.
+        fn reference(hay: &str, needle: &str) -> Vec<(usize, usize)> {
+            if needle.is_empty() {
+                return Vec::new();
+            }
+            let mut ranges = Vec::new();
+            let mut until = 0;
+            for (start, _) in hay.char_indices() {
+                if start < until {
+                    continue;
+                }
+                let mut input = hay[start..].char_indices();
+                let mut end = start;
+                if needle.chars().all(|expected| {
+                    input.next().is_some_and(|(offset, actual)| {
+                        end = start + offset + actual.len_utf8();
+                        actual.to_lowercase().eq(expected.to_lowercase())
+                    })
+                }) {
+                    ranges.push((start, end));
+                    until = end;
+                }
+            }
+            ranges
+        }
+        for hay in [
+            "ababababac",
+            "aaaaAa",
+            "가A가a가b",
+            "İ i I",
+            "ΣσςΣ",
+            "a\nA\n",
+            "🙂A🙂a",
+            "",
+        ] {
+            for query in ["ababac", "aa", "가a가b", "i", "İ", "Σ", "🙂a", "\n", ""] {
+                let expected = reference(hay, query);
+                assert_eq!(
+                    literal_ranges(hay, query, false),
+                    expected,
+                    "{hay:?} / {query:?}"
+                );
+                assert_eq!(
+                    literal_ranges_limited(hay, query, false, 1),
+                    expected.into_iter().take(1).collect::<Vec<_>>()
+                );
+            }
+        }
+        let text = format!("{}b", "a".repeat(16_384));
+        let query = format!("{}b", "A".repeat(1023));
+        assert_eq!(literal_ranges(&text, &query, false), vec![(15_361, 16_385)]);
     }
 
     #[test]
@@ -468,6 +1055,25 @@ mod replace_tests {
     }
 
     #[test]
+    fn case_insensitive_multibyte_needle_no_panic() {
+        // 한글 검색어 — 옛 구현이 prev를 chars().count()로 밀어 다음 슬라이스가
+        // 문자 경계 안(한글 1글자=3바이트)에 떨어져 패닉하던 회귀.
+        let out = case_insensitive_replace("한글과 한글", "한글", "글씨");
+        assert_eq!(out, "글씨과 글씨");
+        // 파일 경로(원자적 저장)에서도 동일하게 — 전체 바꾸기가 죽지 않는다.
+        let d = tempdir("ko");
+        fs::write(d.join("k.md"), "마크다운은 마크다운을 마크다운이라 한다\n").unwrap();
+        let outcomes = replace_all_tree(&d, "마크다운", "Markdown", false).unwrap();
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0].count, 3);
+        assert_eq!(
+            fs::read_to_string(d.join("k.md")).unwrap(),
+            "Markdown은 Markdown을 Markdown이라 한다\n"
+        );
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn crlf_and_bom_survive_replace() {
         let d = tempdir("meta");
         fs::write(d.join("a.md"), b"\xEF\xBB\xBFfoo\r\nbar\r\n").unwrap();
@@ -478,263 +1084,45 @@ mod replace_tests {
         );
         let _ = fs::remove_dir_all(&d);
     }
-
-    #[test]
-    fn update_wiki_links_propagates() {
-        let dir = std::env::temp_dir().join(format!("md-core-wiki-upd-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("a.md"),
-            "링크 [[b]] 와 [[b|표시]] 와 [[b#앵커]] 와 [[c]]\n",
-        )
-        .unwrap();
-        std::fs::write(dir.join("b.md"), "자기 참조 아님, [[a]]는 유지\n").unwrap();
-        std::fs::write(dir.join("fence.md"), "```\n[[b]]\n```\n[[b]]\n").unwrap();
-        let n = update_wiki_links(&dir, "b", "새이름").unwrap();
-        assert_eq!(n, 4);
-        let a = std::fs::read_to_string(dir.join("a.md")).unwrap();
-        assert!(a.contains("[[새이름]]"));
-        assert!(a.contains("[[새이름|표시]]"));
-        assert!(a.contains("[[새이름#앵커]]"));
-        assert!(a.contains("[[c]]"));
-        let b = std::fs::read_to_string(dir.join("b.md")).unwrap();
-        assert!(b.contains("[[a]]"));
-        let f = std::fs::read_to_string(dir.join("fence.md")).unwrap();
-        assert!(f.lines().nth(1).unwrap().contains("[[b]]"));
-        assert!(f.lines().nth(3).unwrap().contains("[[새이름]]"));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 }
 
-/// 고아 자원(이미지) 정보.
+/// 문서 간선 — 출발 파일 경로 → 실제 대상 파일 경로.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OrphanAsset {
-    /// 절대 경로.
-    pub path: String,
-    /// 크기(바이트).
-    pub size: u64,
-}
-
-/// 워크스페이스 루트의 assets/ 하위에서 .md 파일이 참조하지 않는 이미지 찾기.
-/// 참조 판정: 모든 .md 내용에서 파일명(또는 상대경로)이 나타나면 참조 중.
-pub fn find_orphan_assets(root: &Path) -> std::io::Result<Vec<OrphanAsset>> {
-    // 1. 모든 .md 파일의 내용을 합친다(큰 워크스페이스에서도 문자열 포함 검색이라 충분).
-    let mut all_text = String::new();
-    let mut files = Vec::new();
-    collect_files(root, 0, 12, &mut files);
-    for path in &files {
-        if let Ok(content) = fs::read_to_string(path) {
-            all_text.push_str(&content);
-            all_text.push('\n');
-        }
-    }
-    // 2. assets/ 하위의 이미지 파일을 나열.
-    let assets_dir = root.join("assets");
-    if !assets_dir.is_dir() {
-        return Ok(Vec::new());
-    }
-    let mut orphans = Vec::new();
-    let mut asset_files = Vec::new();
-    collect_files(&assets_dir, 0, 6, &mut asset_files);
-    for path in asset_files {
-        // 이미지 확장자만.
-        let ext = path
-            .extension()
-            .map(|e| e.to_string_lossy().to_lowercase())
-            .unwrap_or_default();
-        if !matches!(
-            ext.as_str(),
-            "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp"
-        ) {
-            continue;
-        }
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        if name.is_empty() || name.starts_with('.') {
-            continue;
-        }
-        // 참조 여부: 파일명이 어떤 .md에 나타나는가(경로 전체가 아닌 이름으로 —
-        // `![](assets/foo.png)`든 `![[foo.png]]`든 잡히게).
-        if all_text.contains(&name) {
-            continue;
-        }
-        let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        orphans.push(OrphanAsset {
-            path: path.to_string_lossy().into_owned(),
-            size,
-        });
-    }
-    // 큰 것부터.
-    orphans.sort_by(|a, b| b.size.cmp(&a.size));
-    Ok(orphans)
-}
-
-/// 위키링크 간선 — 출발 문서 → 대상 키.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WikiEdge {
+pub struct DocumentEdge {
     pub from: String,
     pub to: String,
 }
 
-/// 워크스페이스의 모든 .md에서 [[링크]]를 추출해 간선 목록으로.
-/// 대상 해석은 프런트가 wiki 인덱스로 수행(이름→경로).
-pub fn extract_wiki_edges(root: &Path) -> std::io::Result<Vec<WikiEdge>> {
-    let mut files = Vec::new();
-    collect_files(root, 0, 12, &mut files);
+/// Shared resolution with backlinks; exclude self, missing/outside targets and duplicates.
+pub fn extract_document_edges(root: &Path) -> std::io::Result<Vec<DocumentEdge>> {
+    let (tree, files) = crate::wiki_rename::inventory(root)?;
+    let index = crate::wiki_rename::index(&tree);
+    let inventory: HashSet<_> = files.iter().map(String::as_str).collect();
     let mut edges = Vec::new();
-    for path in files {
-        let content = match fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        let from = path.to_string_lossy().into_owned();
-        for line in content.lines() {
-            let t = line.trim_start();
-            if t.starts_with("```") || t.starts_with("~~~") {
-                continue; // 대략적 펜스 스킵(정확한 추적은 과함).
+    let mut remaining = 128 * 1024 * 1024;
+    for path in &files {
+        let content = read_link_document(Path::new(path), &mut remaining)?;
+        let dir = Path::new(path).parent().unwrap_or(root);
+        let mut seen = HashSet::new();
+        for target in crate::document_links::targets(&content).map_err(std::io::Error::other)? {
+            let Some(to) = resolve_document_link(&target.destination, &index, &inventory, dir)
+            else {
+                continue;
+            };
+            if to == path || !seen.insert(to) {
+                continue;
             }
-            for m in content_wiki_links(line) {
-                edges.push(WikiEdge {
-                    from: from.clone(),
-                    to: m,
-                });
+            if edges.len() >= 100_000 {
+                return Err(std::io::Error::other(
+                    "Document graph exceeds 100,000 connections. Open a smaller folder.",
+                ));
             }
+            edges.push(DocumentEdge {
+                from: path.clone(),
+                to: to.into(),
+            });
         }
     }
     Ok(edges)
-}
-
-/// 한 줄에서 [[키]] 패턴 추출 — 중첩 괄호 안은 건너뛴다(대상 키만).
-fn content_wiki_links(line: &str) -> Vec<String> {
-    let bytes = line.as_bytes();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i + 1 < bytes.len() {
-        if bytes[i] == b'[' && bytes[i + 1] == b'[' {
-            if let Some(close) = find_wiki_close(line, i + 2) {
-                let inner = &line[i + 2..close];
-                // |표시 분리(표시 텍스트 제거), #앵커 분리.
-                let target = inner.split('|').next().unwrap_or(inner);
-                let target = target.split('#').next().unwrap_or(target).trim();
-                if !target.is_empty()
-                    && !target.contains(char::is_whitespace)
-                    && !target.contains(']')
-                {
-                    out.push(target.to_string());
-                }
-                i = close + 1;
-            } else {
-                i += 2;
-            }
-        } else {
-            i += 1;
-        }
-    }
-    out
-}
-
-fn find_wiki_close(line: &str, from: usize) -> Option<usize> {
-    let bytes = line.as_bytes();
-    let mut depth = 0;
-    for i in from..bytes.len() {
-        if bytes[i] == b'[' {
-            depth += 1;
-        } else if bytes[i] == b']' {
-            if depth == 0 {
-                if i + 1 < bytes.len() && bytes[i + 1] == b']' {
-                    return Some(i);
-                }
-            } else {
-                depth -= 1;
-            }
-        }
-    }
-    None
-}
-
-/// 이름 변경 전파 — 워크스페이스의 [[from]](·[[from|표시]]·[[from#앵커]])를
-/// [[to]]로 고치고 원자적으로 저장(메타 보존). 갱신된 링크 수 반환.
-/// 대상은 정확히 일치하는 스템만(본문의 우연한 같은 단어는 건드리지 않음).
-pub fn update_wiki_links(root: &Path, from: &str, to: &str) -> std::io::Result<u32> {
-    let mut files = Vec::new();
-    collect_files(root, 0, 12, &mut files);
-    let mut total = 0u32;
-    for path in files {
-        let doc = match crate::io::read_doc(&path) {
-            Ok(d) => d,
-            Err(_) => continue,
-        };
-        let (text, meta) = (doc.text, doc.meta);
-        let mut out = String::with_capacity(text.len() + 64);
-        let mut changed = 0u32;
-        let mut in_fence = false;
-        let mut fence = "";
-        let mut first = true;
-        for line in text.split('\n') {
-            if !first {
-                out.push('\n');
-            }
-            first = false;
-            let t = line.trim_start();
-            if let Some(c) = t.chars().next() {
-                if (c == '`' || c == '~') && t.len() >= 3 && t.chars().all(|x| x == c) {
-                    if !in_fence {
-                        in_fence = true;
-                        fence = &t[..3];
-                    } else if &t[..3] == fence {
-                        in_fence = false;
-                    }
-                }
-            }
-            if in_fence || t.starts_with("```") || t.starts_with("~~~") {
-                out.push_str(line);
-                continue;
-            }
-            out.push_str(&replace_line_wiki_links(line, from, to, &mut changed));
-        }
-        if changed > 0 {
-            if let Err(e) = crate::io::write_doc_atomic(&path, &out, meta) {
-                return Err(std::io::Error::other(e.to_string()));
-            }
-            total += changed;
-        }
-    }
-    Ok(total)
-}
-
-/// 한 줄의 [[from…]] 대상만 to로 치환(표시·앵커는 보존).
-fn replace_line_wiki_links(line: &str, from: &str, to: &str, changed: &mut u32) -> String {
-    let bytes = line.as_bytes();
-    let mut out = String::with_capacity(line.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if i + 1 < bytes.len() && bytes[i] == b'[' && bytes[i + 1] == b'[' {
-            if let Some(close) = find_wiki_close(line, i + 2) {
-                let inner = &line[i + 2..close];
-                let target = inner.split('|').next().unwrap_or(inner);
-                let target = target.split('#').next().unwrap_or(target).trim();
-                if target == from {
-                    // 대상 부분만 교체 — 이후 |·# 그대로.
-                    let after = &inner[target.len()..];
-                    out.push_str("[[");
-                    out.push_str(to);
-                    out.push_str(after);
-                    out.push_str("]]");
-                    *changed += 1;
-                    i = close + 2;
-                    continue;
-                }
-            }
-        }
-        // 바이트 단위가 아니라 문자 단위로 전진(한글 등 멀티바이트 경계 보존).
-        let ch = line[i..].chars().next().unwrap_or('\u{0}');
-        out.push(ch);
-        i += ch.len_utf8();
-    }
-    out
 }

@@ -71,10 +71,28 @@ export const STYLE_PRESETS: StylePreset[] = [
   },
 ];
 
+/** 줄 폭(페이지 폭)의 확정 값 — 기준 글꼴(15px) 대비 실제 글꼴로 스케일.
+ *  줌(⌘+/−)은 글꼴 크기를 바꾸므로 폭을 그대로 두면 글자가 커질수록
+ *  줄당 글자 수가 줄어든다 — Word의 줌처럼 페이지가 함께 커지게 한다.
+ *  0(전체 폭)은 스케일 없이 "100%". */
+const LINE_WIDTH_BASE_FONT = 15;
+export function scaledLineWidth(lineWidth: number, fontPx: number): string {
+  if (lineWidth <= 0) return "100%";
+  return `${Math.round(lineWidth * (fontPx / LINE_WIDTH_BASE_FONT))}px`;
+}
+
 /** 스타일을 호스트 요소의 CSS 변수로 반영한다. */
-export function applyDocStyle(el: HTMLElement, style: DocStyle | null, globalFontSize: number): void {
+export function applyDocStyle(
+  el: HTMLElement,
+  style: DocStyle | null,
+  globalFontSize: number,
+  lineWidth: number,
+): void {
   const s = style ?? DEFAULT_DOC_STYLE;
-  el.style.setProperty("--md-font-size", `${s.fontSize > 0 ? s.fontSize : globalFontSize}px`);
+  const effectiveFont = s.fontSize > 0 ? s.fontSize : globalFontSize;
+  el.style.setProperty("--md-font-size", `${effectiveFont}px`);
+  // 문서별 글꼴 크기가 다르면 같은 줄 폭도 다른 measure가 된다 — 실효 글꼴로.
+  el.style.setProperty("--md-line-width", scaledLineWidth(lineWidth, effectiveFont));
   el.style.setProperty(
     "--md-line-height",
     s.lineHeight > 0 ? String(s.lineHeight) : "1.55",
@@ -95,19 +113,4 @@ export function applyDocStyle(el: HTMLElement, style: DocStyle | null, globalFon
     s.firstLineIndent ? "1.25em" : "0em",
   );
   el.style.setProperty("--md-text-align", s.textAlign);
-}
-
-/** 문서가 저장된 스타일을 갖고 있는가(전부 기본이면 저장할 게 없다). */
-export function isDefaultStyle(style: DocStyle): boolean {
-  return (
-    style.font === DEFAULT_DOC_STYLE.font &&
-    style.fontSize === 0 &&
-    style.lineHeight === 0 &&
-    style.paraSpace === "normal" &&
-    !style.accent &&
-    !style.firstLineIndent &&
-    style.textAlign === "left" &&
-    Object.keys(style.imageWidths ?? {}).length === 0 &&
-    Object.keys(style.tableWidths ?? {}).length === 0
-  );
 }

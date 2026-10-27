@@ -75,3 +75,31 @@ describe("tidyDocument", () => {
     expect(out).toContain("끝  \n"); // 두 칸 유지
   });
 });
+
+describe("tableFormat — 코드 펜스 보존", () => {
+  it("펜스 안 표 예시는 재정렬하지 않는다(저장 시 자동 정리 대상)", () => {
+    const doc = "설명:\n\n```markdown\n|a|b|\n|---|---|\n|1|2|\n```\n";
+    expect(formatAllTables(doc)).toBe(doc);
+  });
+
+  it("정보 문자열 펜스(rust 등)도 인식", () => {
+    const doc = "```rust\n|a|b|\n|---|---|\n```\n";
+    expect(formatAllTables(doc)).toBe(doc);
+  });
+
+  it("tidyDocument는 펜스 안 3줄+ 빈 줄을 붕괴하지 않는다", () => {
+    const inner = "line1\n\n\n\nline2"; // 코드 안 의도적 여백
+    const doc = `before\n\n\n\n\`\`\`\n${inner}\n\`\`\`\n\n\n\nafter\n`;
+    const out = tidyDocument(doc);
+    expect(out).toContain(inner);
+    expect(out).toContain("before\n\n```"); // 밖은 붕괴
+    expect(out).toContain("after\n"); // 밖은 정리
+  });
+
+  it("펜스 밖 빈 줄 붕괴·표 정렬은 계속 동작", () => {
+    const doc = "|a|b|\n|---|---|\n|1|2|\n\n\n\n끝\n";
+    const out = tidyDocument(doc);
+    expect(out).toContain("| a | b |");
+    expect(out).not.toMatch(/\n{3,}/);
+  });
+});

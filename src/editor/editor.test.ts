@@ -1,7 +1,7 @@
 // 에디터 조각 단위 테스트 — 수식 문법 노드, 표 파서, 검색 매칭.
 // @vitest-environment jsdom
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
@@ -13,9 +13,11 @@ import { languages } from "@codemirror/language-data";
 import { mathSyntax } from "./mathSyntax";
 import { parseTable, serializeTable } from "./widgets";
 import { computeMatches, updateMatchesForChanges } from "../search/searchCm";
-import { createDocState, guardedLineMove, headingFoldOf, listItemFoldOf } from "./cm";
+import { createDocState, guardedLineExtend, guardedLineMove, headingFoldOf, listItemFoldOf, setLinkClickHandler, setImageImportHandler } from "./cm";
+import { initBridge } from "../api";
+import { resolveLink } from "../links";
 import { sortLines, sortedLineTexts } from "./format";
-import { blockWidgetRangesBetween, __testing } from "./livePreview";
+import { blockWidgetRangesBetween, isRevealableBlockWidget, __testing } from "./livePreview";
 
 const parse = (doc: string) => {
   const state = EditorState.create({
@@ -37,6 +39,77 @@ const nodeNames = (doc: string): string[] => {
   });
   return names;
 };
+
+describe("위키링크 목적지 전달", () => {
+  it("파일명의 #/%와 제목의 퍼센트 표기를 URL 변환 뒤에도 보존한다", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const view = new EditorView({ parent: host, state: createDocState("본문", "read") });
+    const path = "/문서/100% #계획.md";
+    const anchor = "한글 %20 제목";
+    let destination: ReturnType<typeof resolveLink> | undefined;
+    setLinkClickHandler((url, baseDir) => { destination = resolveLink(url, baseDir); });
+    try {
+      const link = document.createElement("span");
+      link.className = "md-wikilink";
+      link.setAttribute("data-wiki-path", path);
+      link.setAttribute("data-wiki-anchor", anchor);
+      view.contentDOM.append(link);
+      link.dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }));
+      expect(destination).toEqual({ kind: "markdown", path, anchor });
+    } finally { setLinkClickHandler(null); view.destroy(); host.remove(); }
+  });
+});
+
+describe("붙여넣기 이벤트의 비동기 대상", () => {
+  it("이미지 이벤트의 File 객체를 그대로 가져오기 처리기에 넘긴다", () => {
+    const original = Object.getOwnPropertyDescriptor(window, "__TAURI_INTERNALS__");
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    initBridge();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const view = new EditorView({ parent: host, state: createDocState("본문", "edit") });
+    const file = new File(["captured"], "clipboard.png", { type: "image/png" });
+    const handle = vi.fn();
+    setImageImportHandler(handle);
+    try {
+      const event = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "clipboardData", { value: {
+        items: [{ kind: "file", type: "image/png", getAsFile: () => file }],
+        getData: () => "",
+      } });
+      view.contentDOM.dispatchEvent(event);
+      expect(handle).toHaveBeenCalledWith(view, file);
+      expect(event.defaultPrevented).toBe(true);
+      expect(view.state.doc.toString()).toBe("본문");
+    } finally {
+      setImageImportHandler(null);
+      view.destroy(); host.remove();
+      if (original) Object.defineProperty(window, "__TAURI_INTERNALS__", original);
+      else Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+      initBridge();
+    }
+  });
+
+  it("지연 HTML 변환은 같은 텍스트가 있는 다른 탭을 수정하지 않는다", () => {
+    vi.useFakeTimers();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const view = new EditorView({ parent: host, state: createDocState("", "edit") });
+    try {
+      const event = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "clipboardData", { value: {
+        items: [], getData: (type: string) => type === "text/plain" ? "selected" :
+          `<p><strong>selected</strong></p><!--${"x".repeat(512_001)}-->`,
+      } });
+      view.contentDOM.dispatchEvent(event);
+      expect(view.state.doc.toString()).toBe("selected");
+      view.setState(createDocState("selected", "edit"));
+      vi.advanceTimersByTime(20);
+      expect(view.state.doc.toString()).toBe("selected");
+    } finally { view.destroy(); host.remove(); vi.useRealTimers(); }
+  });
+});
 
 describe("mathSyntax (lezer 확장)", { retry: 1 }, () => {
   it("인라인 $…$를 InlineMath로 인식", () => {
@@ -538,6 +611,116 @@ describe("수직 이동 가드 — 블록 위젯 사이 줄 건너뛰기 방지"
     const mid = state.doc.line(5);
     const covered = blockWidgetRangesBetween(state, mid.from - 10, mid.to + 10);
     expect(covered.length).toBe(0); // 문장 줄 주변(빈 줄 포함)엔 위젯이 없다
+  });
+});
+
+describe("수직 이동 가드 — 원문 노출 위젯 정차(수평선·수식)", { retry: 1 }, () => {
+  beforeAll(() => {
+    const proto = Range.prototype as unknown as { getClientRects?: () => DOMRectList };
+    if (!proto.getClientRects) {
+      Object.defineProperty(Range.prototype, "getClientRects", {
+        value: () => [{ top: 0, bottom: 12, left: 0, right: 40, width: 40, height: 12 }],
+      });
+    }
+  });
+  // 1첫 줄 2빈 줄 3--- 4빈 줄 5끝 줄 — 3이 수평선 위젯에 덮인다.
+  const hrDoc = "첫 줄\n\n---\n\n끝 줄";
+  const hrView = async (mode: "edit" | "read" = "edit"): Promise<EditorView> => {
+    const v = new EditorView({ state: createDocState(hrDoc, mode), parent: document.body });
+    await new Promise((r) => setTimeout(r, 40));
+    return v;
+  };
+  const headLine = (view: EditorView): number => view.state.doc.lineAt(view.state.selection.main.head).number;
+
+  it("수평선 줄에 ↓가 멈춘다 — 커서가 오면 원문(---)이 나타난다", async () => {
+    const view = await hrView();
+    view.dispatch({ selection: { anchor: view.state.doc.line(1).from } });
+    expect(guardedLineMove(view, 1)).toBe(true);
+    expect(headLine(view)).toBe(2);
+    // 이전엔 2에서 ↓가 수평선을 건너뛰어 4로 갔다 — 이제 3에 멈춘다.
+    expect(guardedLineMove(view, 1)).toBe(true);
+    expect(headLine(view)).toBe(3);
+    await new Promise((r) => setTimeout(r, 40));
+    const line3 = view.state.doc.line(3);
+    expect(blockWidgetRangesBetween(view.state, line3.from, line3.to).length).toBe(0); // 원문 노출
+    expect(guardedLineMove(view, 1)).toBe(true);
+    expect(headLine(view)).toBe(4);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(blockWidgetRangesBetween(view.state, line3.from, line3.to).length).toBe(1); // 위젯 복귀
+    expect(guardedLineMove(view, -1)).toBe(true);
+    expect(headLine(view)).toBe(3); // ↑로도 수평선에 멈춘다
+    view.destroy();
+  });
+
+  it("수식 블록($$)도 정차지 — 블록 첫 줄에 멈춘다", async () => {
+    const doc = "첫\n\n$$\nx = 1\n$$\n\n끝"; // 3·4·5가 수식 위젯
+    const view = new EditorView({ state: createDocState(doc, "edit"), parent: document.body });
+    await new Promise((r) => setTimeout(r, 40));
+    view.dispatch({ selection: { anchor: view.state.doc.line(2).from } });
+    expect(guardedLineMove(view, 1)).toBe(true);
+    expect(headLine(view)).toBe(3);
+    view.destroy();
+  });
+
+  it("읽기 모드에선 여전히 건너뛴다 — 커서가 얹혀도 위젯이 안 물러난다", async () => {
+    const view = await hrView("read");
+    view.dispatch({ selection: { anchor: view.state.doc.line(2).from } });
+    expect(guardedLineMove(view, 1)).toBe(true);
+    expect(headLine(view)).toBe(4); // 3(수평선)을 건너뛴다
+    view.destroy();
+  });
+
+  it("⇧↓ 선택 확장도 수평선 줄에서 끊는다(앵커 고정)", async () => {
+    const view = await hrView();
+    const line1 = view.state.doc.line(1);
+    view.dispatch({ selection: { anchor: line1.from } });
+    expect(guardedLineExtend(view, 1)).toBe(true);
+    expect(view.state.selection.main.head).toBe(view.state.doc.line(2).from);
+    expect(guardedLineExtend(view, 1)).toBe(true);
+    expect(view.state.selection.main.anchor).toBe(line1.from);
+    expect(view.state.selection.main.head).toBe(view.state.doc.line(3).from);
+    view.destroy();
+  });
+
+  it("키 이벤트 경로 — ⇧↓도 가드가 defaultKeymap보다 우선한다", async () => {
+    const view = await hrView();
+    view.dispatch({ selection: { anchor: view.state.doc.line(2).from } });
+    view.contentDOM.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", shiftKey: true, bubbles: true, cancelable: true }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    expect(headLine(view)).toBe(3);
+    expect(view.state.selection.main.anchor).toBe(view.state.doc.line(2).from);
+    view.destroy();
+  });
+
+  it("수평선 클릭 — 커서가 --- 줄에 놓인다(클릭=편집)", async () => {
+    const view = await hrView();
+    const hr = view.dom.querySelector(".md-hr");
+    expect(hr).toBeTruthy();
+    hr!.dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(headLine(view)).toBe(3);
+    view.destroy();
+  });
+
+  it("헬퍼 필터 — 원문 노출 위젯은 제외, 표는 남는다", async () => {
+    const view = await hrView();
+    const line3 = view.state.doc.line(3);
+    expect(blockWidgetRangesBetween(view.state, line3.from - 5, line3.to + 5).length).toBe(1);
+    expect(
+      blockWidgetRangesBetween(view.state, line3.from - 5, line3.to + 5, (w) => !isRevealableBlockWidget(w))
+        .length,
+    ).toBe(0); // 수평선은 정차 가능 → 제외
+    view.destroy();
+    const tView = new EditorView({ state: createDocState("| a |\n|---|\n| 1 |", "edit"), parent: document.body });
+    await new Promise((r) => setTimeout(r, 40));
+    const tLine = tView.state.doc.line(2);
+    expect(
+      blockWidgetRangesBetween(tView.state, tLine.from - 5, tLine.to + 5, (w) => !isRevealableBlockWidget(w))
+        .length,
+    ).toBe(1); // 표는 셀 편집 전용 → 어느 필터에도 남는다
+    tView.destroy();
   });
 });
 

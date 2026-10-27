@@ -104,17 +104,34 @@ export function formatTableText(tableText: string): string | null {
 }
 
 /** 문서 전체의 표를 정리 — 표 블록(파이프 줄 연속)을 찾아 각각
- *  formatTableText 적용. 비표 줄은 그대로. 순수 함수(테스트 대상). */
+ *  formatTableText 적용. 비표 줄은 그대로. 순수 함수(테스트 대상).
+ *  코드 펜스 내부는 원문 그대로 — 마크다운 표 문법을 '설명하는' 문서의
+ *  예시 표가 저장 시마다 재정렬되는 일이 없게 한다(citations.ts와 같은
+ *  ^\s*(```|~~~) 접두 매치 — 정보 문자열 붙은 여는 펜스도 인식). */
 export function formatAllTables(text: string): string {
   const lines = text.split("\n");
   const out: string[] = [];
   let i = 0;
+  let fence = false;
+  const isFenceLine = (l: string): boolean => /^\s*(```|~~~)/.test(l);
   const isRow = (l: string): boolean => {
     const t = l.trim();
     return t.startsWith("|") && t.endsWith("|") && t.length > 1;
   };
   while (i < lines.length) {
-    if (isRow(lines[i]!)) {
+    const line = lines[i]!;
+    if (isFenceLine(line)) {
+      fence = !fence;
+      out.push(line);
+      i += 1;
+      continue;
+    }
+    if (fence) {
+      out.push(line);
+      i += 1;
+      continue;
+    }
+    if (isRow(line)) {
       let j = i;
       while (j < lines.length && isRow(lines[j]!)) j++;
       const block = lines.slice(i, j).join("\n");
@@ -122,7 +139,7 @@ export function formatAllTables(text: string): string {
       out.push(fmt ?? block);
       i = j;
     } else {
-      out.push(lines[i]!);
+      out.push(line);
       i += 1;
     }
   }
@@ -130,10 +147,41 @@ export function formatAllTables(text: string): string {
 }
 
 /** 문서 정리 — 3줄+ 빈 줄 → 1줄, 끝 연속 빈 줄 제거, 표 정렬.
- *  줄 끝 공백은 강제줄바꿈(두 칸)일 수 있어 건드리지 않는다. 순수 함수. */
+ *  줄 끝 공백은 강제줄바꿈(두 칸)일 수 있어 건드리지 않는다. 순수 함수.
+ *  빈 줄 붕괴·끝 정리는 펜스 밖에만 적용 — 코드 블록 안의 공백은
+ *  내용이다(YAML·아스키 아트의 의도적 여백). */
 export function tidyDocument(text: string): string {
   const tabled = formatAllTables(text);
-  const collapsed = tabled.replace(/\n{3,}/g, "\n\n");
-  const trimmedEnd = collapsed.replace(/\n+$/, "\n");
-  return trimmedEnd;
+  const lines = tabled.split("\n");
+  const out: string[] = [];
+  let fence = false;
+  let run = 0; // 펜스 밖 연속 빈 줄(1개 빈 줄까지만 유지)
+  const isFenceLine = (l: string): boolean => /^\s*(```|~~~)/.test(l);
+  for (const line of lines) {
+    if (isFenceLine(line)) {
+      fence = !fence;
+      run = 0;
+      out.push(line);
+      continue;
+    }
+    if (fence) {
+      out.push(line);
+      continue;
+    }
+    if (line === "") {
+      run += 1;
+      if (run <= 1) out.push(line);
+      continue;
+    }
+    run = 0;
+    out.push(line);
+  }
+  // 끝 연속 빈 줄 → 개행 정확히 1번(기존 replace(/\n+$/, "\n") 동작).
+  // 닫히지 않은 펜스(fence=true) 끝의 줄은 내용으로 본다.
+  if (!fence) {
+    const endsNl = tabled.endsWith("\n");
+    while (out.length > 0 && out[out.length - 1] === "") out.pop();
+    if (endsNl && out.length > 0) out.push("");
+  }
+  return out.join("\n");
 }

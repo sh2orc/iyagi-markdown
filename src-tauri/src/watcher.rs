@@ -1,18 +1,10 @@
-//! 파일 감시(notify). 열린 문서(부모 디렉터리 비재귀)와 워크스페이스 폴더
-//! (재귀)를 감시하고 `fs-event`로 프런트에 알린다.
-//!
-//! - 원자적 저장은 "임시 파일 생성 → rename"이라 파일 자체를 감시하면
-//!   rename 뒤 놓친다 — 그래서 문서는 **부모 디렉터리**를 감시하고 경로로 거른다.
-//! - 우리가 저장해 일어난 이벤트(1.5초 창)와 임시 파일(`.iyagi-tmp`)은 무시한다.
-//! - 같은 경로의 연속 이벤트는 150ms 안에 묶는다(저장 한 번이 mtime을
-//!   여러 번 건드리는 경우 대비).
-//! - 프런트는 탭/폴터 변화가 있을 때마다 **남아 있는 전체 목록**으로
-//!   `watch_paths`를 다시 부른다(선언적 동기화 — 개별 add/remove 추적이 없다).
+//! 창별 감시 범위를 합쳐 감시한다. 파일의 부모 폴더를 감시하므로 원자적
+//! 저장 뒤에도 감시가 이어진다. 이벤트는 마지막 변화까지 모아 전달하며,
+//! 자기 저장 판별은 프런트의 내용 비교에 맡긴다(시간 기반 유실 금지).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::sync::Mutex;
+use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
 
 use notify::Watcher;
@@ -20,162 +12,240 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 const DEBOUNCE: Duration = Duration::from_millis(150);
-const SELF_WRITE_WINDOW: Duration = Duration::from_millis(1500);
+const MAX_DELAY: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FsEvent {
     pub path: String,
-    /// changed | removed
     pub kind: String,
+}
+
+#[derive(Default)]
+struct Scope {
+    dirs: HashSet<PathBuf>,
+    recursive: HashSet<PathBuf>,
 }
 
 struct Inner {
     watcher: notify::RecommendedWatcher,
-    /// 비재귀로 감시 중인 디렉터리(문서 부모).
-    dirs: HashSet<PathBuf>,
-    /// 재귀 감시 중인 루트(워크스페이스).
-    recursive: HashSet<PathBuf>,
-    last_self_write: HashMap<PathBuf, Instant>,
-    last_emit: HashMap<PathBuf, Instant>,
+    owners: HashMap<String, Scope>,
+    /// 실제로 구독에 성공한 경로와 재귀 여부. 실패는 다음 동기화에서 재시도한다.
+    watched: HashMap<PathBuf, bool>,
 }
 
 pub struct WatcherState {
     inner: Mutex<Inner>,
 }
 
-/// 감시자를 필요한 시점(첫 watch_paths)에 만든다. AppHandle은 Send+Clone이라
-/// 이벤트 전달 스레드로 그대로 옮겨 이벤트를 emit한다.
-fn ensure(app: &AppHandle) {
-    if app.try_state::<WatcherState>().is_none() {
-        let app_for_thread = app.clone();
-        let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
-        let watcher = notify::recommended_watcher(move |res| {
-            let _ = tx.send(res);
-        })
-        .expect("파일 감시자를 만들 수 없습니다");
-        std::thread::spawn(move || {
-            for res in rx {
-                match res {
-                    Ok(ev) => forward(&app_for_thread, ev),
-                    Err(e) => tracing::debug!("감시 오류(무시): {e}"),
-                }
-            }
-        });
-        app.manage(WatcherState {
-            inner: Mutex::new(Inner {
-                watcher,
-                dirs: HashSet::new(),
-                recursive: HashSet::new(),
-                last_self_write: HashMap::new(),
-                last_emit: HashMap::new(),
-            }),
-        });
+struct PendingChange {
+    first: Instant,
+    last: Instant,
+}
+
+impl PendingChange {
+    fn deadline(&self) -> Instant {
+        (self.last + DEBOUNCE).min(self.first + MAX_DELAY)
     }
 }
 
-/// 감시 대상 갱신: files는 각각의 부모 디렉터리(비재귀), dirs는 재귀 감시.
-/// 목록에 없는 기존 감시는 해제한다.
-pub fn update_watch(app: &AppHandle, files: Vec<String>, dirs: Vec<String>) {
-    ensure(app);
+fn ensure(app: &AppHandle) -> Result<(), String> {
+    if app.try_state::<WatcherState>().is_some() {
+        return Ok(());
+    }
+    let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
+    let watcher = notify::recommended_watcher(move |res| {
+        let _ = tx.send(res);
+    })
+    .map_err(|e| e.to_string())?;
+    app.manage(WatcherState {
+        inner: Mutex::new(Inner {
+            watcher,
+            owners: HashMap::new(),
+            watched: HashMap::new(),
+        }),
+    });
+    let worker_app = app.clone();
+    std::thread::spawn(move || {
+        let mut pending: HashMap<PathBuf, PendingChange> = HashMap::new();
+        loop {
+            let timeout = pending
+                .values()
+                .map(PendingChange::deadline)
+                .min()
+                .map(|deadline| deadline.saturating_duration_since(Instant::now()));
+            let received = match timeout {
+                Some(wait) => rx.recv_timeout(wait),
+                None => rx.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected),
+            };
+            match received {
+                Ok(Ok(mut event)) => {
+                    // 읽기 자체가 다시 읽기를 유발하는 이벤트 순환을 막는다.
+                    if !matches!(event.kind, notify::EventKind::Access(_)) {
+                        if event.paths.is_empty() {
+                            // 감시 백엔드의 전체 재스캔 신호도 열린 문서까지 전달한다.
+                            if let Some(state) = worker_app.try_state::<WatcherState>() {
+                                event
+                                    .paths
+                                    .extend(state.inner.lock().unwrap().watched.keys().cloned());
+                            }
+                        }
+                        let now = Instant::now();
+                        for path in event.paths {
+                            if path
+                                .file_name()
+                                .is_some_and(|name| name.to_string_lossy().contains(".iyagi-tmp"))
+                            {
+                                continue;
+                            }
+                            pending
+                                .entry(path)
+                                .and_modify(|change| change.last = now)
+                                .or_insert(PendingChange {
+                                    first: now,
+                                    last: now,
+                                });
+                        }
+                    }
+                }
+                Ok(Err(error)) => tracing::warn!("파일 감시 오류: {error}"),
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+            let now = Instant::now();
+            let ready: Vec<PathBuf> = pending
+                .iter()
+                .filter(|(_, change)| change.deadline() <= now)
+                .map(|(path, _)| path.clone())
+                .collect();
+            for path in ready {
+                pending.remove(&path);
+                // remove→create(원자적 교체)·rename 이벤트의 마지막 상태로 판정.
+                // 권한 오류는 삭제로 단정하지 않는다.
+                let removed = std::fs::symlink_metadata(&path)
+                    .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound);
+                let payload = FsEvent {
+                    path: path.to_string_lossy().into_owned(),
+                    kind: if removed { "removed" } else { "changed" }.into(),
+                };
+                let _ = worker_app.emit("fs-event", payload);
+            }
+        }
+    });
+    Ok(())
+}
+
+fn desired_paths(owners: &HashMap<String, Scope>) -> HashMap<PathBuf, bool> {
+    let mut desired = HashMap::new();
+    for scope in owners.values() {
+        for dir in &scope.dirs {
+            desired.entry(dir.clone()).or_insert(false);
+        }
+        for dir in &scope.recursive {
+            desired.insert(dir.clone(), true);
+        }
+    }
+    desired
+}
+
+pub fn update_watch(
+    app: &AppHandle,
+    owner: String,
+    files: Vec<String>,
+    dirs: Vec<String>,
+) -> Result<(), String> {
+    ensure(app)?;
     let state = app.state::<WatcherState>();
     let mut inner = state.inner.lock().unwrap();
-
-    let mut new_dirs: HashSet<PathBuf> = files
+    let live = app.webview_windows();
+    inner.owners.retain(|label, _| live.contains_key(label));
+    inner.owners.insert(
+        owner,
+        Scope {
+            dirs: files
+                .iter()
+                .filter_map(|file| Path::new(file).parent().map(Path::to_path_buf))
+                .filter(|dir| !dir.as_os_str().is_empty())
+                .collect(),
+            recursive: dirs.into_iter().map(PathBuf::from).collect(),
+        },
+    );
+    let desired = desired_paths(&inner.owners);
+    // 같은 경로의 비재귀↔재귀 전환은 해제 후 등록한다. 새 구독을 지우지 않는다.
+    let obsolete: Vec<PathBuf> = inner
+        .watched
         .iter()
-        .map(|f| {
-            Path::new(f)
-                .parent()
-                .map(|p| p.to_path_buf())
-                .unwrap_or_default()
-        })
-        .filter(|p| !p.as_os_str().is_empty())
+        .filter(|(path, recursive)| desired.get(*path) != Some(*recursive))
+        .map(|(path, _)| path.clone())
         .collect();
-    let new_recursive: HashSet<PathBuf> = dirs.iter().map(PathBuf::from).collect();
-    new_dirs.retain(|d| !new_recursive.contains(d));
-
-    // 현재 목록을 꺼내 놓고(대여 분리) 증분을 계산한다.
-    let old_dirs = std::mem::take(&mut inner.dirs);
-    let old_recursive = std::mem::take(&mut inner.recursive);
-
-    for d in new_dirs.difference(&old_dirs) {
-        if let Err(e) = inner.watcher.watch(d, notify::RecursiveMode::NonRecursive) {
-            tracing::warn!("감시 추가 실패({}): {e}", d.display());
-        }
+    for path in obsolete {
+        let _ = inner.watcher.unwatch(&path);
+        inner.watched.remove(&path);
     }
-    for d in new_recursive.difference(&old_recursive) {
-        if let Err(e) = inner.watcher.watch(d, notify::RecursiveMode::Recursive) {
-            tracing::warn!("재귀 감시 추가 실패({}): {e}", d.display());
-        }
-    }
-    for d in old_dirs.difference(&new_dirs) {
-        if !new_recursive.contains(d) {
-            let _ = inner.watcher.unwatch(d);
-        }
-    }
-    for d in old_recursive.difference(&new_recursive) {
-        let _ = inner.watcher.unwatch(d);
-    }
-    inner.dirs = new_dirs;
-    inner.recursive = new_recursive;
-}
-
-/// 저장 직후 호출 — 이 경로의 자기 발생 이벤트를 잠시 무시한다.
-pub fn note_self_write(app: &AppHandle, path: &Path) {
-    if let Some(state) = app.try_state::<WatcherState>() {
-        state
-            .inner
-            .lock()
-            .unwrap()
-            .last_self_write
-            .insert(path.to_path_buf(), Instant::now());
-    }
-}
-
-fn forward(app: &AppHandle, ev: notify::Event) {
-    let kind = match ev.kind {
-        notify::EventKind::Remove(_) => "removed",
-        _ => "changed",
-    };
-    let state = match app.try_state::<WatcherState>() {
-        Some(s) => s,
-        None => return,
-    };
-    let mut inner = state.inner.lock().unwrap();
-    let now = Instant::now();
-    for path in ev.paths {
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        // 우리의 원자적 저장 임시 파일.
-        if name.contains(".iyagi-tmp") {
+    let mut failures = Vec::new();
+    for (path, recursive) in desired {
+        if inner.watched.get(&path) == Some(&recursive) {
             continue;
         }
-        // 자기 저장 이벤트인가?
-        if let Some(t) = inner.last_self_write.get(&path) {
-            if now.duration_since(*t) < SELF_WRITE_WINDOW {
-                continue;
-            }
-        }
-        // 디바운스.
-        if let Some(t) = inner.last_emit.get(&path) {
-            if now.duration_since(*t) < DEBOUNCE {
-                continue;
-            }
-        }
-        inner.last_emit.insert(path.clone(), now);
-        let payload = FsEvent {
-            path: path.to_string_lossy().into_owned(),
-            kind: kind.to_string(),
+        let mode = if recursive {
+            notify::RecursiveMode::Recursive
+        } else {
+            notify::RecursiveMode::NonRecursive
         };
-        tracing::debug!(path = %payload.path, kind = %payload.kind, "fs-event");
-        let _ = app.emit("fs-event", payload);
+        match inner.watcher.watch(&path, mode) {
+            Ok(()) => {
+                inner.watched.insert(path, recursive);
+            }
+            Err(error) => failures.push(format!("{}: {error}", path.display())),
+        }
     }
-    // 무한정 자라지 않게 주기적 청소.
-    if inner.last_emit.len() > 512 {
-        inner
-            .last_emit
-            .retain(|_, t| now.duration_since(*t) < Duration::from_secs(60));
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn debounce_delivers_last_change_without_indefinite_starvation() {
+        let first = Instant::now();
+        let mut change = PendingChange { first, last: first };
+        change.last = first + Duration::from_millis(100);
+        assert_eq!(change.deadline(), first + Duration::from_millis(250));
+        change.last = first + Duration::from_millis(950);
+        assert_eq!(change.deadline(), first + MAX_DELAY);
+    }
+
+    #[test]
+    fn each_window_retains_its_scope_and_recursive_mode_wins() {
+        let mut owners = HashMap::new();
+        owners.insert(
+            "main".into(),
+            Scope {
+                dirs: HashSet::from([PathBuf::from("/notes")]),
+                recursive: HashSet::new(),
+            },
+        );
+        owners.insert(
+            "doc-1".into(),
+            Scope {
+                dirs: HashSet::from([PathBuf::from("/other")]),
+                recursive: HashSet::from([PathBuf::from("/notes")]),
+            },
+        );
+        assert_eq!(desired_paths(&owners).get(Path::new("/notes")), Some(&true));
+        assert_eq!(
+            desired_paths(&owners).get(Path::new("/other")),
+            Some(&false)
+        );
+        owners.remove("doc-1");
+        assert_eq!(
+            desired_paths(&owners).get(Path::new("/notes")),
+            Some(&false)
+        );
     }
 }

@@ -40,6 +40,8 @@ const CM_BUILTINS = new Set([
   "cm-trailingSpace",
   "cm-foldPlaceholder",
   "cm-completionDetail",
+  "cm-completionLabel",
+  "cm-completionMatchedText",
   // 에디터 모듈이 CM 콘텐츠에 다는 자체 cm-* 장식(충돌 없는 고유 이름).
   "cm-focus-dim",
 ]);

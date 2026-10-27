@@ -1,171 +1,234 @@
-// 위키링크 자동완성 — "[[" 입력 시 워크스페이스 문서 목록. Obsidian·
-// [[로어링크]] 표준 흐름. 원문에는 선택한 [[이름]] 텍스트만 삽입된다(§4-1).
+// 위키링크 자동완성 — "[[" 입력 시 워크스페이스 문서 목록.
+// 표시명과 실제 대상은 분리하며 구문에 넣을 수 없는 이름은 Markdown 링크로 삽입한다.
 
 import {
   autocompletion,
   type Completion,
-  type CompletionContext,
+  CompletionContext,
   type CompletionResult,
 } from "@codemirror/autocomplete";
-import { languages } from "@codemirror/language-data";
+import { syntaxTree } from "@codemirror/language";
+import { EditorState } from "@codemirror/state";
+import { isolateHistory } from "@codemirror/commands";
+import { enclosingNode, literalContext as inLiteral, linkCompletionNodes as linkNodes } from "./completionContext";
+import { previewConfigField } from "./livePreview";
+import { parseWikiLink } from "./wiki";
+import { relPath } from "../paths";
+import { slugifyHeading } from "../links";
+import { updateInlineLink } from "./inlineLinkEdit";
 
 import { emojiCompletions } from "./emojiComplete";
-import { parseCiteDefs } from "./citations";
+import { slashCompletions } from "./slashMenu";
+import { citeCompletions } from "./citeComplete";
+import { fenceLanguageCompletions } from "./fenceComplete";
 
 /** 문서 목록 공급자 — App이 위키 인덱스에서 만들어 넣는다(경로|표시). */
 export interface WikiDoc {
-  /** 인덱스 키(표시·삽입에 쓰는 이름 — stem 또는 상대경로). */
+  /** Display/search label. The destination is independent of this label. */
   name: string;
   path: string;
+  /** Unambiguous wiki key; null means use an ordinary Markdown link. */
+  target?: string | null;
 }
 
 let docsProvider: () => WikiDoc[] = () => [];
 let tagsProvider: () => string[] = () => [];
+
+const tagExcludedNodes = new Set([...linkNodes, "WikiLink"]);
+
+function wikiPrefix(context: CompletionContext) {
+  if (context.state.readOnly || inLiteral(context.state, context.pos)) return null;
+  const before = context.matchBefore(/\[\[[^\[\]#|\n]*/);
+  if (!before) return null;
+  // A single closing bracket can make Lezer see an inner shortcut Link in
+  // "[[name]". Allow that node, but not an enclosing ordinary link or image.
+  let node: import("@lezer/common").SyntaxNode | null = syntaxTree(context.state).resolveInner(context.pos, -1);
+  for (; node; node = node.parent) if (linkNodes.has(node.name) && node.from < before.from) return null;
+  // Odd backslashes escape the opening delimiter.
+  const prefix = context.state.sliceDoc(context.state.doc.lineAt(before.from).from, before.from);
+  if ((/\\+$/.exec(prefix)?.[0].length ?? 0) % 2) return null;
+  return before;
+}
 
 /** 자동완성 목록 공급자 등록(App이 트리 갱신 때 다시 등록). */
 export function setWikiDocsProvider(fn: (() => WikiDoc[]) | null): void {
   docsProvider = fn ?? (() => []);
 }
 
-/** \ud0dc\uadf8 \ubaa9\ub85d \uacf5\uae09\uc790 \ub4f1\ub85d(App\uc774 \ubb38\uc11c \uc2a4\ucea8 \ud6c4 \uc124\uc815). */
+/** 태그 목록 공급자 등록(App이 문서 스캔 후 설정). */
 export function setTagListProvider(fn: (() => string[]) | null): void {
   tagsProvider = fn ?? (() => []);
 }
 
-/** "[@위치" — 문서 내 서지 키 후보(정의된 키만 — 끊긴 인용을 유도하지
- *  않는다). 닫는 ]까지 적용. 키는 현재 문서에서 직접 스캔(문서 단위 규약). */
-function citeCompletions(context: CompletionContext): CompletionResult | null {
-  const before = context.matchBefore(/\[@[^\][\n]*/);
-  if (!before) return null;
-  if (before.text.includes("]")) return null;
-  const typed = before.text.slice(2);
-  const keys = [...parseCiteDefs(context.state.doc.toString()).keys()];
-  if (keys.length === 0) return null;
-  const q = typed.toLowerCase();
-  const options: Completion[] = keys
-    .filter((k) => !q || k.toLowerCase().includes(q))
-    .slice(0, 20)
-    .map((k) => ({ label: k, apply: `${k}]`, type: "variable" }));
-  if (options.length === 0) return null;
-  return { from: before.from + 2, options, validFor: /^[^\][\n]*$/ };
-}
-
 /** "[[위치" 에서 문서 이름 후보. */
 function wikiCompletions(context: CompletionContext): CompletionResult | null {
-  const before = context.matchBefore(/\[\[[^\[\]\n]*/);
+  const before = wikiPrefix(context);
   if (!before) return null;
-  // 닫는 ]]까지 이미 있으면(완성된 링크 안) 추가 완성하지 않는다.
-  if (before.text.includes("]]")) return null;
   const typed = before.text.slice(2).toLowerCase();
   const docs = docsProvider();
   if (docs.length === 0) return null;
   const options: Completion[] = docs
-    .filter((d) => !typed || fuzzy(typed, d.name.toLowerCase()))
+    .filter((d) => !typed || fuzzy(typed, d.name) || fuzzy(typed, d.target ?? "") || fuzzy(typed, d.path))
     .slice(0, 30)
-    .map((d) => ({
+    .map((d): Completion => ({
       label: d.name,
-      // 닫는 괄호까지 넣고 커서를 ]] 앞에 — 타이핑 없이 바로 완성.
-      apply: `${d.name}]]`,
+      apply: (view, _completion, from, to) => {
+        if (from < 0 || to < from || to > view.state.doc.length) return;
+        const now = wikiPrefix(new CompletionContext(view.state, to, false, view));
+        if (!now || now.from !== from) return;
+        const current = docsProvider().find((candidate) => candidate.path === d.path);
+        if (!current) return;
+        const query = now.text.slice(2);
+        if (query && !fuzzy(query, current.name) && !fuzzy(query, current.target ?? "") && !fuzzy(query, current.path)) return;
+        const rest = view.state.sliceDoc(to, view.state.doc.lineAt(to).to);
+        const closing = /^[^\[\]\n]*\]\]?/.exec(rest);
+        let suffix = "", end = to;
+        if (closing) {
+          const body = closing[0].replace(/\]\]?$/, "");
+          const marker = body.search(/[#|]/);
+          if (marker >= 0) suffix = body.slice(marker);
+          end += closing[0].length;
+        }
+        const target = current.target === undefined ? current.name : current.target;
+        let insert: string;
+        if (target !== null) insert = `[[${target}${suffix}]]`;
+        else {
+          const { anchor, display } = parseWikiLink(`[[x${suffix}]]`);
+          const base = view.state.field(previewConfigField, false)?.baseDir ?? "";
+          const path = (base ? relPath(base, current.path) : current.path).split("/").map(encodeURIComponent).join("/");
+          const url = path + (anchor ? `#${encodeURIComponent(slugifyHeading(anchor))}` : "");
+          insert = updateInlineLink("[x]()", { text: display ?? current.name, url })!;
+        }
+        view.dispatch({ changes: { from, to: end, insert }, selection: { anchor: from + insert.length },
+          annotations: isolateHistory.of("full"), userEvent: "input.complete",
+        });
+      },
       detail: d.path,
       type: "text",
     }));
   if (options.length === 0) return null;
   return {
-    from: before.from + 2,
+    from: before.from,
     options,
-    validFor: /^[^\[\]\n]*$/,
+    filter: false,
+    update: (_result, _from, _to, next) => wikiCompletions(next),
   };
 }
 
 /** 서브시퀀스 매칭 — "노트마" → "노트/마케팅" 매칭용. */
 function fuzzy(query: string, text: string): boolean {
+  const chars = [...query.normalize("NFC").toLowerCase()];
   let qi = 0;
-  for (const ch of text) {
-    if (qi < query.length && ch === query[qi]) qi++;
+  for (const ch of text.normalize("NFC").toLowerCase()) {
+    if (qi < chars.length && ch === chars[qi]) qi++;
   }
-  return qi === query.length;
+  return qi === chars.length;
 }
+
+/** / 메뉴 아이콘 칸 — 슬래시 항목은 글리프 칩, 그 외 완성은 정렬 유지
+ *  스페이서(addToOptions는 전체 완성 패널에 적용되므로 형별 분기). */
+const slashIconSlot = {
+  position: 10,
+  render(completion: Completion) {
+    const el = document.createElement("div");
+    const sc = completion as import("./slashMenu").SlashCompletion;
+    el.className = sc.slashIcon ? "md-slash-icon" : "md-slash-spacer";
+    if (sc.slashIcon) el.textContent = sc.slashIcon;
+    return el;
+  },
+};
+
+/** / 메뉴 부제 — 항목 아래 한 줄 설명(Notion식 두 줄 행). */
+const slashSubSlot = {
+  position: 90,
+  render(completion: Completion) {
+    const sub = (completion as import("./slashMenu").SlashCompletion).slashSub;
+    if (!sub) return null;
+    const el = document.createElement("div");
+    el.className = "md-slash-sub";
+    el.textContent = sub;
+    return el;
+  },
+};
 
 export function wikiAutocompletion() {
-  return autocompletion({
-    override: [combinedMatcher],
-    activateOnTyping: true,
-    icons: false,
-    closeOnBlur: true,
-  });
+  return [
+    // Add our Markdown source alongside the native language sources. Let
+    // CodeMirror retain each source's ranges, updates, snippets and async
+    // cancellation instead of flattening them into a first-result adapter.
+    EditorState.languageData.of(() => [{ autocomplete: combinedMatcher }]),
+    // Native pointer/snippet application may dispatch directly, bypassing the
+    // keyboard command's read-only guard if the document was locked meanwhile.
+    EditorState.transactionFilter.of((tr) =>
+      tr.startState.readOnly && tr.docChanged && tr.isUserEvent("input.complete") ? [] : tr),
+    autocompletion({
+      activateOnTyping: true,
+      icons: false,
+      closeOnBlur: true,
+      addToOptions: [slashIconSlot, slashSubSlot],
+    }),
+  ];
 }
 
-/** "[[" wikilink + "#" tag + ":이모지" in one matcher (wikilink first). */
+/** Application Markdown candidates only; native language sources run independently. */
 export function combinedMatcher(context: CompletionContext): CompletionResult | null {
-  const wiki = wikiCompletions(context);
-  if (wiki) return wiki;
+  if (context.state.readOnly) return null;
+  const literal = inLiteral(context.state, context.pos);
+  if (literal) {
+    return literal === "FencedCode" ? fenceLanguageCompletions(context) : null;
+  }
+  // Even without a matching document, a slash inside an unfinished wiki path
+  // must not turn into a block insertion command.
+  if (wikiPrefix(context)) return wikiCompletions(context);
+  const slash = slashCompletions(context);
+  if (slash) return slash;
   const cite = citeCompletions(context);
   if (cite) return cite;
   const tag = tagCompletions(context);
   if (tag) return tag;
   const fence = fenceLanguageCompletions(context);
   if (fence) return fence;
-  const code = languageDataCompletions(context);
-  if (code) return code;
   return emojiCompletions(context);
-}
-
-/** 펜스 첫 줄 언어 완성 — "```py" 에서 python 등. @codemirror/language-data
- *  이름·별칭 기반(override가 기본 완성을 대체하므로 직접 제공). */
-function fenceLanguageCompletions(context: CompletionContext): CompletionResult | null {
-  const line = context.state.doc.lineAt(context.pos);
-  const m = /^(?:```|~~~)([\w#+.-]*)$/.exec(line.text.slice(0, context.pos - line.from));
-  if (!m) return null;
-  const q = m[1]!.toLowerCase();
-  if (q === "") return null;
-  const options = languages
-    .filter((d) => d.name.toLowerCase().startsWith(q) || d.alias.some((a) => a.toLowerCase().startsWith(q)))
-    .slice(0, 30)
-    .map((d) => ({ label: d.name, apply: d.name, detail: d.alias.slice(0, 4).join(", "), type: "text" }));
-  if (options.length === 0) return null;
-  return { from: context.pos - q.length, options, validFor: /^[\w#+.-]*$/ };
-}
-
-/** 중첩 코드 언어 완성(js 키워드 등) — override가 기본 소스를 대체하므로
- *  언어 데이터 소스를 직접 상의한다(없으면 펜스 안 완성이 전부 죽는다). */
-function languageDataCompletions(context: CompletionContext): CompletionResult | null {
-  const sources = context.state.languageDataAt<
-    (ctx: CompletionContext) => CompletionResult | null
-  >("autocomplete", context.pos);
-  for (const source of sources) {
-    try {
-      const result = source(context);
-      if (result) return result;
-    } catch {
-      /* 개별 소스 실패는 건너뛴다 */
-    }
-  }
-  return null;
 }
 
 /** "#pos" - workspace tag candidates (heading "#" excluded). */
 function tagCompletions(context: CompletionContext): CompletionResult | null {
+  if (enclosingNode(context.state, context.pos, tagExcludedNodes)) return null;
   const before = context.matchBefore(/#[\p{L}\p{N}_\-\/]*/u);
   if (!before) return null;
+  const line = context.state.doc.lineAt(before.from);
+  if (before.from > line.from && !/\s/.test(context.state.sliceDoc(before.from - 1, before.from))) return null;
   const typed = before.text.slice(1);
   if (typed.length === 0) return null;
   if (typed[0] === " ") return null;
-  if (/^\d/u.test(typed)) return null;
+  if (/^\p{N}/u.test(typed)) return null;
   const tags = tagsProvider();
   if (tags.length === 0) return null;
   const q = typed.toLowerCase();
   const options: Completion[] = tags
-    .filter((t) => !q || t.toLowerCase().includes(q))
+    .filter((t) => /^(?!\p{N})[\p{L}\p{N}_\-/]+$/u.test(t) && (!q || t.toLowerCase().includes(q)))
     .slice(0, 20)
-    .map((t) => ({
+    .map((t): Completion => ({
       label: t,
-      apply: t,
+      apply: (view, _completion, from, to) => {
+        if (view.state.readOnly || from < 0 || to < from || to > view.state.doc.length || inLiteral(view.state, to) || enclosingNode(view.state, to, tagExcludedNodes)) return;
+        const line = view.state.doc.lineAt(from);
+        if (from > line.from && !/\s/.test(view.state.sliceDoc(from - 1, from))) return;
+        const query = view.state.sliceDoc(from, to);
+        if (!/^#[\p{L}\p{N}_\-/]*$/u.test(query) || !tagsProvider().includes(t) ||
+            !t.toLowerCase().includes(query.slice(1).toLowerCase())) return;
+        const tail = /^[\p{L}\p{N}_\-/]*/u.exec(view.state.sliceDoc(to, view.state.doc.lineAt(to).to))![0];
+        view.dispatch({ changes: { from, to: to + tail.length, insert: `#${t}` }, selection: { anchor: from + t.length + 1 },
+          annotations: isolateHistory.of("full"), userEvent: "input.complete",
+        });
+      },
       type: "keyword",
     }));
   if (options.length === 0) return null;
   return {
-    from: before.from + 1,
+    from: before.from,
     options,
-    validFor: /^[\p{L}\p{N}_\-\/]*$/u,
+    filter: false,
+    update: (_result, _from, _to, next) => next.state.readOnly || inLiteral(next.state, next.pos) ? null : tagCompletions(next),
   };
 }

@@ -2,10 +2,11 @@
 // 폼으로. 메타 구동 기능(57·92·95차)의 발견성 — YAML 키를 몰라도 쓴다.
 // 저장은 원문의 FM 블록만 교체(나머지 불변, §4-2).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { isolateHistory } from "@codemirror/commands";
 
 import type { AppStore } from "../app/store";
-import { frontMatterMeta, upsertFrontMatter } from "../editor/frontmatter";
+import { frontMatterLen, frontMatterMeta, upsertFrontMatter } from "../editor/frontmatter";
 import type { Translate } from "../i18n";
 import { imeComposing } from "../app/ime";
 
@@ -15,56 +16,71 @@ interface Props {
   onClose: () => void;
 }
 
-export function FrontMatterDialog({ store, t, onClose }: Props): JSX.Element | null {
-  const tab = store.active;
-  const [title, setTitle] = useState("");
-  const [author, setAuthor] = useState("");
-  const [date, setDate] = useState("");
-  const [toc, setToc] = useState(false);
-  const [lof, setLof] = useState(false);
-  const [lot, setLot] = useState(false);
-  const [noCover, setNoCover] = useState(false);
-  const titleRef = useRef<HTMLInputElement | null>(null);
+function fields(text: string) {
+  const fm = frontMatterMeta(text);
+  return { title: fm?.title ?? "", author: fm?.author ?? "", date: fm?.date ?? "",
+    toc: !!fm?.toc, lof: !!fm?.lof, lot: !!fm?.lot, noCover: fm?.cover === false };
+}
 
-  useEffect(() => {
-    if (!tab) return;
-    const fm = frontMatterMeta(tab.state.doc.toString());
-    setTitle(fm?.title ?? "");
-    setAuthor(fm?.author ?? "");
-    setDate(fm?.date ?? "");
-    setToc(!!fm?.toc);
-    setLof(!!fm?.lof);
-    setLot(!!fm?.lot);
-    setNoCover(fm?.cover === false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab?.id]);
+export function FrontMatterDialog({ store, t, onClose }: Props): JSX.Element {
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const [target] = useState(() => {
+    const tab = store.active, view = store.view;
+    if (!tab || !view) return null;
+    const text = view.state.doc.toString();
+    return { tab, view, header: text.slice(0, frontMatterLen(text)), fields: fields(text) };
+  });
+  const [draft, setDraft] = useState(() => target?.fields ?? fields(""));
+  const [error, setError] = useState<string | null>(null);
+  const [discard, setDiscard] = useState(false);
+  const titleId = useId();
+  const titleRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     titleRef.current?.focus();
   }, []);
 
-  if (!tab) return null;
+  const targetProblem = !target || state.activeId !== target.tab.id || !state.tabs.includes(target.tab)
+    || store.view !== target.view ? t.fmTargetChanged
+    : target.view.state.readOnly ? t.fmReadOnly : null;
+  const dirty = target && (Object.keys(draft) as Array<keyof typeof draft>)
+    .some((key) => draft[key] !== target.fields[key]);
+  const cancel = () => { if (dirty) setDiscard(true); else onClose(); };
 
   const save = () => {
-    const view = store.view;
-    if (!view) return;
-    const next = upsertFrontMatter(view.state.doc.toString(), {
-      title: title.trim() || null,
-      author: author.trim() || null,
-      date: date.trim() || null,
-      toc,
-      lof,
-      lot,
-      cover: noCover ? false : null,
-    });
-    onClose();
-    if (next !== view.state.doc.toString()) {
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: next },
-        userEvent: "input.frontmatter",
-      });
+    if (!target || store.active !== target.tab || store.view !== target.view) {
+      setError(t.fmTargetChanged); return;
+    }
+    const view = target.view;
+    if (view.state.readOnly) { setError(t.fmReadOnly); return; }
+    const text = view.state.doc.toString();
+    const oldLength = frontMatterLen(text);
+    if (text.slice(0, oldLength) !== target.header) { setError(t.fmChanged); return; }
+    const patch: Record<string, string | boolean | null> = {};
+    for (const key of ["title", "author", "date"] as const) {
+      if (draft[key] !== target.fields[key]) patch[key] = draft[key].trim() || null;
+    }
+    for (const key of ["toc", "lof", "lot"] as const) {
+      if (draft[key] !== target.fields[key]) patch[key] = draft[key];
+    }
+    if (draft.noCover !== target.fields.noCover) patch.cover = draft.noCover ? false : null;
+    try {
+      const next = upsertFrontMatter(text, patch);
+      if (next !== text) {
+        // Keep the body outside the change range so selections, bookmarks and
+        // comment positions map through a metadata-only transaction.
+        const insertedLength = next.length - (text.length - oldLength);
+        view.dispatch({
+          changes: { from: 0, to: oldLength, insert: next.slice(0, insertedLength) },
+          annotations: isolateHistory.of("full"), userEvent: "input.frontmatter",
+        });
+        if (view.state.doc.toString() !== next) { setError(t.fmApplyFailed); return; }
+        store.toast(t.fmSaved);
+      }
+      onClose();
       view.focus();
-      store.toast(t.fmSaved);
+    } catch (cause) {
+      setError(`${t.fmApplyFailed} ${String(cause)}`);
     }
   };
 
@@ -75,8 +91,8 @@ export function FrontMatterDialog({ store, t, onClose }: Props): JSX.Element | n
     </label>
   );
 
-  const ko = store.state.settings.language === "ko";
-  // 텍스트 입력에서 Enter=저장(다른 대화상자와 같은 규약), Esc는 App 글로벌.
+  const ko = state.settings.language === "ko";
+  // 텍스트 입력에서 Enter=저장. Esc/배경/취소는 동일한 입력 보존 경로.
   const onFieldKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (imeComposing(e)) return; // IME 조합 중 키는 IME가 소비(한글 Esc·Enter 새기기 방지)
     if (e.key === "Enter") {
@@ -90,52 +106,68 @@ export function FrontMatterDialog({ store, t, onClose }: Props): JSX.Element | n
       className="overlay modal-overlay"
       role="dialog"
       aria-modal="true"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      aria-labelledby={titleId}
+      onClick={(e) => e.target === e.currentTarget && cancel()}
+      onKeyDown={(event) => {
+        if (imeComposing(event)) return;
+        if (event.key === "Escape") {
+          event.preventDefault(); event.stopPropagation();
+          if (discard) setDiscard(false); else cancel();
+        }
+      }}
     >
       <div className="modal fm-dialog">
-        <div className="modal-title">{t.fmTitle}</div>
+        <div className="modal-title" id={titleId}>{t.fmTitle}
+          {target && <span className="modal-file-name">{target.tab.path ? target.tab.title : t.untitled}</span>}
+        </div>
         <label className="settings-label">
           {t.fmDocTitle}
           <input
             ref={titleRef}
-            value={title}
+            value={draft.title}
             placeholder={ko ? "3분기 보고서" : "Q3 report"}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => setDraft({ ...draft, title: e.target.value })}
             onKeyDown={onFieldKey}
           />
         </label>
         <label className="settings-label">
           {t.fmAuthor}
           <input
-            value={author}
+            value={draft.author}
             placeholder={ko ? "홍길동" : "Jane Doe"}
-            onChange={(e) => setAuthor(e.target.value)}
+            onChange={(e) => setDraft({ ...draft, author: e.target.value })}
             onKeyDown={onFieldKey}
           />
         </label>
         <label className="settings-label">
           {t.fmDate}
           <input
-            value={date}
+            value={draft.date}
             placeholder="2026-10-13"
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(e) => setDraft({ ...draft, date: e.target.value })}
             onKeyDown={onFieldKey}
           />
         </label>
         <div className="fm-toggles">
-          {check(t.fmNoCover, noCover, setNoCover, t.fmNoCoverHint)}
-          {check(t.fmToc, toc, setToc, t.fmTocHint)}
-          {check(t.fmLof, lof, setLof, t.fmLofHint)}
-          {check(t.fmLot, lot, setLot, t.fmLotHint)}
+          {check(t.fmNoCover, draft.noCover, (noCover) => setDraft({ ...draft, noCover }), t.fmNoCoverHint)}
+          {check(t.fmToc, draft.toc, (toc) => setDraft({ ...draft, toc }), t.fmTocHint)}
+          {check(t.fmLof, draft.lof, (lof) => setDraft({ ...draft, lof }), t.fmLofHint)}
+          {check(t.fmLot, draft.lot, (lot) => setDraft({ ...draft, lot }), t.fmLotHint)}
         </div>
+        {(targetProblem || error) && <p className="comment-error" role="alert">{targetProblem || error}</p>}
+        {discard ? <div className="comment-error" role="alert">
+          <p>{t.fmDiscardPrompt}</p>
+          <button className="btn" onClick={() => { setDiscard(false); titleRef.current?.focus(); }}>{t.commentKeepEditing}</button>
+          <button className="btn btn-plain" onClick={onClose}>{t.commentDiscard}</button>
+        </div> :
         <div className="modal-actions">
-          <button className="btn btn-primary" onClick={save}>
+          <button className="btn btn-primary" disabled={!!targetProblem} onClick={save}>
             {t.save}
           </button>
-          <button className="btn btn-plain" onClick={onClose}>
+          <button className="btn btn-plain" onClick={cancel}>
             {t.cancel}
           </button>
-        </div>
+        </div>}
       </div>
     </div>
   );

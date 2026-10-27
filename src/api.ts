@@ -1,10 +1,26 @@
 // Tauri 명령 래퍼. 브라우저(vite dev 단독)에서는 안전하게 실패한다 —
 // 순수 로직 모듈(store·links 등)은 이 파일을 import하지 않고,
 // 컴포넌트/App 레벨에서만 쓴다(단위 테스트 가능성 유지).
+import type { InvokeArgs, InvokeOptions } from "@tauri-apps/api/core";
 
 export interface DocMeta {
   hadBom: boolean;
   crlf: boolean;
+}
+
+export interface UserTemplateInfo { id: string; name: string; description: string; version: number }
+export interface UserTemplate extends UserTemplateInfo { content: string }
+export interface UserTemplateList { revision: number; templates: UserTemplateInfo[] }
+export interface UserTemplateInput { id: string; name: string; description: string; content: string; expectedVersion: number | null }
+export interface TemplateArchive { format: "iyagi-markdown-templates"; version: 1; templates: Array<{ name: string; description: string; content: string }> }
+export type WorkspaceHistoryAction = { kind: "record" | "remove"; path: string } | { kind: "clear" };
+
+export interface TrashDocument {
+  root: string;
+  path: string;
+  canonicalRoot: string;
+  stamp: string;
+  size: number;
 }
 
 export interface LoadedDoc {
@@ -19,12 +35,47 @@ export interface WriteOutcome {
   size: number;
 }
 
+export type WriteExpectation =
+  | { kind: "match"; text: string; meta: DocMeta }
+  | { kind: "missing" }
+  | { kind: "overwrite" };
+
+export function isWriteConflict(error: unknown): error is { code: "conflict" | "removed"; message: string } {
+  return typeof error === "object" && error !== null &&
+    "code" in error && (error.code === "conflict" || error.code === "removed") &&
+    "message" in error && typeof error.message === "string";
+}
+
 export interface TreeNode {
   kind: "dir" | "file";
   name: string;
   path: string;
   stem?: string;
   children?: TreeNode[];
+}
+
+export interface WorkspaceScan {
+  tree: TreeNode[];
+  issues: Array<{ path: string; code: "read" | "encoding" | "depth" | "limit"; message: string }>;
+}
+
+/** Both endpoints are resolved document paths in the scanned workspace. */
+export interface DocumentEdge {
+  from: string;
+  to: string;
+}
+
+export interface MissingLink {
+  kind: "wiki" | "file";
+  name: string;
+  from: number;
+  line: number;
+  createPath: string | null;
+}
+export interface LinkInspection {
+  links: MissingLink[];
+  issues: Array<{ path: string; code: string; message: string }>;
+  checked: number;
 }
 
 export interface Settings {
@@ -77,12 +128,59 @@ export interface Settings {
   exportHeader: boolean;
 }
 
+export interface DocComment {
+  id: number;
+  lineNo: number;
+  text: string;
+  createdAt: number;
+  resolved: boolean;
+}
+
+export type CommentExpectation = Pick<DocComment, "text" | "resolved">;
+
+export interface BookmarkSnapshot {
+  lines: number[];
+  text: string;
+  revision: number;
+}
+
+export interface BaselineSnapshot {
+  text: string | null;
+  revision: number;
+}
+
+export interface FavoritesSnapshot {
+  revision: number;
+  paths: string[];
+}
+
+export interface SettingsSnapshot {
+  revision: number;
+  settings: Settings;
+}
+
 export interface SessionTab {
   path: string | null;
+  /** 파일 경로와 별개인 창·탭별 초안 키. 구버전 세션은 생략할 수 있다. */
+  draftKey?: string | null;
   mode: "edit" | "read" | "source";
   cursor: number;
   scroll: number;
 }
+
+/** 작성 초안 — 저장되지 않은 편집 내용의 임시저장(drafts.db). */
+export interface Draft {
+  key: string;
+  path: string | null;
+  content: string;
+  cursor: number;
+  scroll: number;
+  updatedAt: number;
+  baseText?: string | null;
+  meta?: DocMeta | null;
+}
+
+export type DraftInfo = Pick<Draft, "key" | "path" | "updatedAt">;
 
 export interface WindowRect {
   x: number;
@@ -116,6 +214,11 @@ export interface RecentEntry {
   name: string;
 }
 
+export interface RecentSnapshot {
+  revision: number;
+  entries: RecentEntry[];
+}
+
 /** 워크스페이스 전체 검색 결과(줄 조각) — Rust search_tree와 같은 모양. */
 export interface SearchHit {
   path: string;
@@ -124,11 +227,50 @@ export interface SearchHit {
   line: string;
 }
 
+export interface SearchReport {
+  hits: SearchHit[];
+  issues: Array<{ path: string; code: string; message: string }>;
+  truncated: boolean;
+  filesRead: number;
+  filesTotal: number;
+}
+
+export interface PendingRename {
+  id: number;
+  root: string;
+  from: string;
+  to: string;
+  ready: boolean;
+  error: string | null;
+}
+
+export interface ReplacementPreview {
+  id: number;
+  files: Array<{ path: string; count: number; before: string; after: string }>;
+  skipped: Array<{ path: string; message: string }>;
+}
+
+export interface ReplacementReport {
+  applied: Array<{ path: string; count: number }>;
+  failed: Array<{ path: string; message: string }>;
+}
+
 /** 버전 기록 스냅숏(저장이 교체한 이전 상태) — Rust snapshots.rs와 같은 모양. */
 export interface SnapshotInfo {
   /** 에포크 밀리초. */
   ts: number;
   size: number;
+}
+
+export interface OrphanAsset {
+  path: string;
+  size: number;
+  stamp: string;
+}
+
+export interface AssetTrashReport {
+  moved: string[];
+  failed: Array<{ path: string; message: string }>;
 }
 
 export interface PdfOptions {
@@ -143,7 +285,18 @@ export interface DocxManifest {
   math: Record<string, string>;
   diagrams: Record<string, string>;
   /** 문서별 스타일(폰트·크기) — DOCX 기본 서체에 반영. */
-  style?: { font: "system" | "serif" | "round" | "mono"; sizePt: number };
+  style?: {
+    font: "system" | "serif" | "round" | "mono";
+    sizePt: number;
+    lineHeight?: number;
+    firstLineIndent?: boolean;
+    textAlign?: "left" | "center" | "right" | "justify";
+    accent?: string | null;
+    pageNumbers?: boolean;
+    highlight?: string | null;
+  };
+  imageWidths?: Record<string, number>;
+  tableWidths?: Record<string, number[]>;
   /** 프런트매터 메타 — core.xml(dc:title·dc:creator). */
   title?: string;
   author?: string;
@@ -206,33 +359,37 @@ export function isInApp(): boolean {
   return inApp;
 }
 
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+async function invoke<T>(cmd: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> {
   if (!inApp) throw new Error(`이 명령은 앱 안에서만 쓸 수 있습니다: ${cmd}`);
   tauri ??= await import("@tauri-apps/api/core");
-  return tauri.invoke<T>(cmd, args);
+  return tauri.invoke<T>(cmd, args, options);
 }
 
 export const api = {
   appReady: () => invoke<void>("app_ready"),
-  exitConfirmed: () => invoke<void>("exit_confirmed"),
+  quitReply: (requestId: number, approved: boolean) =>
+    invoke<boolean>("quit_reply", { requestId, approved }),
+  quitPending: () => invoke<number | null>("quit_pending"),
   logError: (message: string) => invoke<void>("log_error", { message }),
   appInfo: () => invoke<AppInfo>("app_info"),
   takePendingFiles: () => invoke<string[]>("take_pending_files"),
   readDocument: (path: string) => invoke<LoadedDoc>("read_document", { path }),
-  writeDocument: (path: string, text: string, meta: DocMeta) =>
-    invoke<WriteOutcome>("write_document", { path, text, meta }),
+  writeDocument: (path: string, text: string, meta: DocMeta, expected: WriteExpectation) =>
+    invoke<WriteOutcome>("write_document", { path, text, meta, expected }),
   readFileBytes: (path: string) => invoke<number[]>("read_file_bytes", { path }),
-  scanWorkspace: (root: string) => invoke<TreeNode[]>("scan_workspace", { root }),
-  searchWorkspace: (root: string, query: string) =>
-    invoke<SearchHit[]>("search_workspace", { root, query }),
-  replaceWorkspace: (root: string, needle: string, replacement: string, caseSensitive: boolean) =>
-    invoke<Array<{ path: string; count: number }>>("replace_workspace", {
+  scanWorkspace: (root: string) => invoke<WorkspaceScan>("scan_workspace", { root }),
+  searchWorkspace: (root: string, query: string, caseSensitive = false) =>
+    invoke<SearchReport>("search_workspace", { root, query, caseSensitive }),
+  previewReplacement: (root: string, needle: string, replacement: string, caseSensitive: boolean) =>
+    invoke<ReplacementPreview>("preview_replacement", {
       root,
       needle,
       replacement,
       caseSensitive,
     }),
+  applyReplacement: (id: number) => invoke<ReplacementReport>("apply_replacement", { id }),
   snapshotList: (path: string) => invoke<SnapshotInfo[]>("snapshot_list", { path }),
+  snapshotBackup: (path: string, text: string) => invoke<void>("snapshot_backup", { path, text }),
   backlinks: (root: string, path: string) =>
     invoke<SearchHit[]>("backlinks", { root, path }),
   speakStart: (text: string, rate: number, voice: string) =>
@@ -241,15 +398,38 @@ export const api = {
   speakStop: () => invoke<void>("speak_stop"),
   speakStatus: () => invoke<boolean>("speak_status"),
   snapshotRead: (path: string, ts: number) => invoke<string>("snapshot_read", { path, ts }),
-  getSettings: () => invoke<Settings>("get_settings"),
-  setSettings: (settings: Settings) => invoke<void>("set_settings", { settings }),
+  getSettings: () => invoke<SettingsSnapshot>("get_settings"),
+  patchSettings: (patch: Partial<Settings>) => invoke<SettingsSnapshot>("patch_settings", { patch }),
   getSession: () => invoke<SessionState | null>("get_session"),
   saveSession: (session: SessionState) => invoke<void>("save_session", { session }),
-  getRecent: () => invoke<RecentEntry[]>("get_recent"),
-  clearRecent: () => invoke<void>("clear_recent"),
+  // 웹 모드에는 초안 저장소가 없다. 읽기는 실제 값이 필요하므로 실패한다.
+  draftSave: (draft: Draft) => (inApp ? invoke<void>("draft_save", { draft }) : Promise.resolve()),
+  draftLoad: (key: string) => invoke<Draft | null>("draft_load", { key }),
+  draftClear: (key: string) => (inApp ? invoke<void>("draft_clear", { key }) : Promise.resolve()),
+  draftList: () => (inApp ? invoke<DraftInfo[]>("draft_list") : Promise.resolve([])),
+  getRecent: () => inApp ? invoke<RecentSnapshot>("get_recent") : Promise.resolve({ revision: 0, entries: [] }),
+  getFavorites: () => inApp ? invoke<FavoritesSnapshot>("get_favorites") : Promise.resolve({ revision: 0, paths: [] }),
+  getWorkspaceHistory: () => inApp ? invoke<RecentSnapshot>("get_workspace_history") : Promise.resolve({ revision: 0, entries: [] }),
+  updateWorkspaceHistory: (action: WorkspaceHistoryAction) => invoke<RecentSnapshot>("update_workspace_history", { action }),
+  listUserTemplates: () => inApp ? invoke<UserTemplateList>("list_user_templates") : Promise.resolve({ revision: 0, templates: [] }),
+  getUserTemplate: (id: string) => invoke<UserTemplate>("get_user_template", { id }),
+  putUserTemplate: (input: UserTemplateInput) => invoke<UserTemplate>("put_user_template", { input }),
+  deleteUserTemplate: (id: string, expectedVersion: number) => invoke<void>("delete_user_template", { id, expectedVersion }),
+  readTemplateArchive: (path: string) => invoke<TemplateArchive>("read_template_archive", { path }),
+  exportTemplateArchive: (outPath: string, ids: string[], expectedRevision: number) => invoke<void>("export_template_archive", { outPath, ids, expectedRevision }),
+  importTemplateArchive: (entries: UserTemplateInput[]) => invoke<number>("import_template_archive", { entries }),
+  setFavorite: (path: string, present: boolean) => invoke<FavoritesSnapshot>("set_favorite", { path, present }),
+  moveFavorite: (path: string, direction: "up" | "down", expectedRevision: number) =>
+    invoke<FavoritesSnapshot>("move_favorite", { path, direction, expectedRevision }),
+  recordRecent: (path: string) => inApp ? invoke<RecentSnapshot>("record_recent", { path }) : Promise.resolve({ revision: 0, entries: [] }),
+  removeRecent: (path: string) => inApp ? invoke<RecentSnapshot>("remove_recent", { path }) : Promise.resolve({ revision: 0, entries: [] }),
+  clearRecent: () => inApp ? invoke<RecentSnapshot>("clear_recent") : Promise.resolve({ revision: 0, entries: [] }),
   setAssetScope: (path: string, recursive: boolean) =>
     invoke<void>("set_asset_scope", { path, recursive }),
-  watchPaths: (files: string[], dirs: string[]) => invoke<void>("watch_paths", { files, dirs }),
+  // 파일 감시도 앱 밖에선 대상이 없다 — 웹 모드에서 매 탭 열림마다
+  // '외부 변경 감시 실패' 에러 알림이 화면에 떴다(콘솔이 아니라 UI 노이즈).
+  watchPaths: (files: string[], dirs: string[]) =>
+    inApp ? invoke<void>("watch_paths", { files, dirs }) : Promise.resolve(),
   exportPdf: (html: string, options: PdfOptions, outPath: string) =>
     invoke<void>("export_pdf", { html, options, outPath }),
   exportDocx: (markdown: string, manifest: DocxManifest, outPath: string, baseDir: string) =>
@@ -269,39 +449,55 @@ export const api = {
   writeExportFile: (path: string, contents: string) =>
     invoke<void>("write_export_file", { path, contents }),
   revealInFinder: (path: string) => invoke<void>("reveal_in_finder", { path }),
-  fileRename: (from: string, to: string) => invoke<void>("file_rename", { from, to }),
+  fileRename: (from: string, to: string, root: string | null) => invoke<string[]>("file_rename", { from, to, root }),
   fileDuplicate: (path: string) => invoke<string>("file_duplicate", { path }),
+  reviewDocumentTrash: (root: string, path: string) => invoke<TrashDocument>("review_document_trash", { root, path }),
+  trashDocument: (reviewed: TrashDocument) => invoke<void>("trash_document", { reviewed }),
   newFileIn: (dir: string) => invoke<string>("new_file_in", { dir }),
-  updateWikiLinks: (root: string, from: string, to: string) =>
-    invoke<number>("update_wiki_links", { root, from, to }),
+  newFolderIn: (root: string, dir: string, name: string) => invoke<string>("new_folder_in", { root, dir, name }),
+  pendingRenames: () => invoke<PendingRename[]>("pending_renames"),
+  finishRenameReview: (id: number, discard = false) => invoke<void>("finish_rename_review", { id, discard }),
+  previewWikiRename: (id: number) => invoke<ReplacementPreview>("preview_wiki_rename", { id }),
   openInNewWindow: (path: string) => invoke<void>("open_in_new_window", { path }),
-  saveClipboardImage: (dir: string) => invoke<string>("save_clipboard_image", { dir }),
-  wikiEdges: (root: string) =>
-    invoke<Array<{ from: string; to: string }>>("wiki_edges", { root }),
-  findOrphanImages: (root: string) =>
-    invoke<Array<{ path: string; size: number }>>("find_orphan_images", { root }),
-  deleteOrphanImages: (paths: string[]) =>
-    invoke<number>("delete_orphan_images", { paths }),
+  saveImageBytes: (dir: string, mime: string, bytes: Uint8Array) =>
+    invoke<string>("save_image_bytes", bytes, {
+      headers: { "x-image-directory": encodeURIComponent(dir), "x-image-type": mime },
+    }),
+  documentEdges: (root: string) =>
+    invoke<DocumentEdge[]>("document_edges", { root }),
+  inspectLinks: (root: string, source: string | null, text: string) =>
+    invoke<LinkInspection>("inspect_links", { root, source, text }),
+  createLinkDocument: (root: string, source: string | null, kind: MissingLink["kind"], name: string) =>
+    invoke<string>("create_link_document", { root, source, kind, name }),
+  findOrphanImages: (root: string, buffers: string[]) =>
+    invoke<OrphanAsset[]>("find_orphan_images", { root, buffers }),
+  deleteOrphanImages: (root: string, assets: OrphanAsset[], buffers: string[]) =>
+    invoke<AssetTrashReport>("delete_orphan_images", { root, assets, buffers }),
   importImage: (src: string, dir: string) => invoke<string>("import_image", { src, dir }),
-  docStyleGet: (path: string) => invoke<string | null>("doc_style_get", { path }),
-  bookmarkList: (path: string) => invoke<number[]>("bookmark_list", { path }),
+  docStyleGet: (path: string) => inApp ? invoke<string | null>("doc_style_get", { path }) : Promise.resolve(null),
+  bookmarkList: (path: string) => invoke<BookmarkSnapshot>("bookmark_list", { path }),
   /** 문서 메모(줄 앵커 사이드카 — 원문 불변). */
   commentList: (path: string) =>
-    invoke<Array<{ id: number; lineNo: number; text: string; createdAt: number; resolved: boolean }>>("comment_list", { path }),
+    invoke<DocComment[]>("comment_list", { path }),
   commentAdd: (path: string, lineNo: number, text: string) =>
     invoke<number>("comment_add", { path, lineNo, text }),
-  commentUpdate: (id: number, text: string) => invoke<void>("comment_update", { id, text }),
-  commentResolve: (id: number, resolved: boolean) => invoke<void>("comment_resolve", { id, resolved }),
-  commentRemove: (id: number) => invoke<void>("comment_remove", { id }),
+  commentUpdate: (path: string, id: number, text: string, expected: CommentExpectation) =>
+    invoke<void>("comment_update", { path, id, text, expected }),
+  commentResolve: (path: string, id: number, resolved: boolean, expected: CommentExpectation) =>
+    invoke<void>("comment_resolve", { path, id, resolved, expected }),
+  commentRemove: (path: string, id: number, expected: CommentExpectation) =>
+    invoke<void>("comment_remove", { path, id, expected }),
   commentReanchor: (path: string, updates: Array<[number, number]>) =>
     invoke<void>("comment_reanchor", { path, updates }),
-  baselineGet: (path: string) => invoke<string | null>("baseline_get", { path }),
-  baselineSet: (path: string, text: string) => invoke<void>("baseline_set", { path, text }),
-  baselineClear: (path: string) => invoke<void>("baseline_clear", { path }),
-  bookmarkAdd: (path: string, lineNo: number) => invoke<void>("bookmark_add", { path, lineNo }),
-  bookmarkRemove: (path: string, lineNo: number) => invoke<void>("bookmark_remove", { path, lineNo }),
+  baselineGet: (path: string) => invoke<BaselineSnapshot>("baseline_get", { path }),
+  baselineWrite: (path: string, text: string | null, expected: { text: string | null }) =>
+    invoke<BaselineSnapshot>("baseline_write", { path, text, expected }),
+  bookmarkSet: (path: string, lineNo: number, present: boolean, expectedText: string) =>
+    invoke<BookmarkSnapshot>("bookmark_set", { path, lineNo, present, expectedText }),
+  bookmarkReplace: (path: string, text: string, lines: number[], expected: Pick<BookmarkSnapshot, "text" | "lines">) =>
+    invoke<BookmarkSnapshot>("bookmark_replace", { path, text, lines, expected }),
   docStyleSet: (path: string, styleJson: string) =>
-    invoke<void>("doc_style_set", { path, styleJson }),
+    inApp ? invoke<void>("doc_style_set", { path, styleJson }) : Promise.resolve(),
   docStyleClear: (path: string) => invoke<void>("doc_style_clear", { path }),
   openLogsDir: () => invoke<void>("open_logs_dir"),
 };
@@ -315,24 +511,79 @@ export interface FsEvent {
 
 export type Unlisten = () => void;
 
+// 이벤트 수신은 앱 안에서만 의미가 있다 — 웹 모드(브라우저 개발 미리보기)에서
+// @tauri-apps/api/event의 listen은 __TAURI_INTERNALS__ 없이 동기 throw하고,
+// 호출부(App keep)가 catch하지 않아 미처리 기각으로 콘솔을 오염시켰다. no-op 반환.
 export async function onFsEvent(handler: (e: FsEvent) => void): Promise<Unlisten> {
+  if (!inApp) return () => {};
   events ??= await import("@tauri-apps/api/event");
   return events.listen<FsEvent>("fs-event", (ev) => handler(ev.payload));
 }
 
 export async function onMenu(handler: (id: string) => void): Promise<Unlisten> {
+  if (!inApp) return () => {};
   events ??= await import("@tauri-apps/api/event");
   return events.listen<string>("menu", (ev) => handler(ev.payload));
 }
 
 export async function onOpenFiles(handler: (paths: string[]) => void): Promise<Unlisten> {
+  if (!inApp) return () => {};
   events ??= await import("@tauri-apps/api/event");
   return events.listen<string[]>("open-files", (ev) => handler(ev.payload));
 }
 
-export async function onSettingsChanged(handler: (s: Settings) => void): Promise<Unlisten> {
+export async function onSettingsChanged(handler: (s: SettingsSnapshot) => void): Promise<Unlisten> {
+  if (!inApp) return () => {};
   events ??= await import("@tauri-apps/api/event");
-  return events.listen<Settings>("settings-changed", (ev) => handler(ev.payload));
+  return events.listen<SettingsSnapshot>("settings-changed", (ev) => handler(ev.payload));
+}
+
+export async function onPendingRenamesChanged(handler: () => void): Promise<Unlisten> {
+  if (!inApp) return () => {};
+  events ??= await import("@tauri-apps/api/event");
+  return events.listen("pending-renames-changed", () => handler());
+}
+
+export async function onBookmarksChanged(handler: (path: string) => void): Promise<Unlisten> {
+  if (!inApp) return () => {};
+  events ??= await import("@tauri-apps/api/event");
+  return events.listen<string>("bookmarks-changed", (event) => handler(event.payload));
+}
+
+export async function onBaselineChanged(handler: (path: string) => void): Promise<Unlisten> {
+  if (!inApp) return () => {};
+  events ??= await import("@tauri-apps/api/event");
+  return events.listen<string>("baseline-changed", (event) => handler(event.payload));
+}
+
+export async function onCommentsChanged(handler: (path: string) => void): Promise<Unlisten> {
+  if (!inApp) return () => {};
+  events ??= await import("@tauri-apps/api/event");
+  return events.listen<string>("comments-changed", (event) => handler(event.payload));
+}
+
+export async function onRecentChanged(handler: (snapshot: RecentSnapshot) => void): Promise<Unlisten> {
+  if (!inApp) return () => {};
+  events ??= await import("@tauri-apps/api/event");
+  return events.listen<RecentSnapshot>("recent-changed", (event) => handler(event.payload));
+}
+
+export async function onFavoritesChanged(handler: (snapshot: FavoritesSnapshot) => void): Promise<Unlisten> {
+  if (!inApp) return () => {};
+  events ??= await import("@tauri-apps/api/event");
+  return events.listen<FavoritesSnapshot>("favorites-changed", (event) => handler(event.payload));
+}
+
+export async function onUserTemplatesChanged(handler: (revision: number) => void): Promise<Unlisten> {
+  if (!inApp) return () => {};
+  events ??= await import("@tauri-apps/api/event");
+  return events.listen<number>("user-templates-changed", (event) => handler(event.payload));
+}
+
+export async function onWorkspaceHistoryChanged(handler: (snapshot: RecentSnapshot) => void): Promise<Unlisten> {
+  if (!inApp) return () => {};
+  events ??= await import("@tauri-apps/api/event");
+  return events.listen<RecentSnapshot>("workspace-history-changed", (event) => handler(event.payload));
 }
 
 // — 대화상자(plugin-dialog) —
@@ -361,6 +612,13 @@ export async function pickOpenFolder(): Promise<string | null> {
   if (!inApp) return null;
   const dialog = await import("@tauri-apps/plugin-dialog");
   const picked = await dialog.open({ directory: true, multiple: false });
+  return typeof picked === "string" ? picked : null;
+}
+
+export async function pickTemplateArchive(): Promise<string | null> {
+  if (!inApp) return null;
+  const dialog = await import("@tauri-apps/plugin-dialog");
+  const picked = await dialog.open({ multiple: false, filters: [{ name: "IYAGI Templates", extensions: ["json"] }] });
   return typeof picked === "string" ? picked : null;
 }
 

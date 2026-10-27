@@ -3,8 +3,10 @@
 // 순수 함수 — HTML 후처리와 테스트가 공유.
 
 /** 표 다음 <p>: 캡션</p>을 <figure><table…/><figcaption>표 N — 캡션</figcaption></figure>로.
- *  빈 줄 하나까지 허용(markdown-it이 표와 문단 사이에 줄바꿈을 남길 수 있음). */
-export function applyTableCaptions(html: string): string {
+ *  빈 줄 하나까지 허용(markdown-it이 표와 문단 사이에 줄바꿈을 남길 수 있음).
+ *  라벨은 내보내기 언어를 따른다(기본 한국어 — 목차 라벨과 같은 규칙). */
+export function applyTableCaptions(html: string, lang: "ko" | "en" = "ko"): string {
+  const label = lang === "en" ? "Table" : "표";
   let n = 0;
   return html.replace(
     /(<table\b[\s\S]*?<\/table>)(\s*)<p>:\s*([\s\S]*?)<\/p>/g,
@@ -12,7 +14,7 @@ export function applyTableCaptions(html: string): string {
       const text = cap.trim();
       if (!text) return `${table}${gap}<p>:</p>`;
       n += 1;
-      return `<figure class="tbl-fig" id="tbl-${n}">${table}<figcaption>표 ${n} — ${cap}</figcaption></figure>`;
+      return `<figure class="tbl-fig" id="tbl-${n}">${table}<figcaption>${label} ${n} — ${cap}</figcaption></figure>`;
     },
   );
 }

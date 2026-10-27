@@ -13,6 +13,10 @@ describe("relPath", () => {
   it("상위로 올라가는 경로", () => {
     expect(relPath("/w/docs", "/w/img.png")).toBe("../img.png");
     expect(relPath("/w/docs/sub", "/w/img.png")).toBe("../../img.png");
+    // 루트 바로 밑 파일 — 후행 빈 세그먼트 정규화(예전엔 "../a.md"가 나왔다).
+    expect(relPath("/", "/a.md")).toBe("a.md");
+    expect(relPath("/", "/sub/a.md")).toBe("sub/a.md");
+    expect(relPath("/w/docs/", "/w/docs/a.md")).toBe("a.md");
   });
 
   it("공통 없으면 위로 타고 간다(루트만 공유)", () => {

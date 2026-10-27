@@ -1,8 +1,9 @@
 //! EPUB 3 내보내기 — 최소 유효 패키지(mimetype·container·OPF·nav·챕터·CSS).
 //! 콘텐츠(XHTML 본문)는 호출자가 넘기고 여기서는 조립과 zip만
 //! (DOCX와 같은 원칙: 바깥 쪽 변환은 프런트가, 포장은 Rust가).
-//! 1단계(이 모듈): 단일/다중 챕터 + 목차. 이미지·표지·챕터 자동 분할은 다음 단계.
+//! 이미지·표지 임베딩과 임시 파일을 통한 원자적 출력을 포함한다.
 
+use md_core::links::percent_decode;
 use std::io::Write;
 use std::path::Path;
 
@@ -44,95 +45,80 @@ fn has_scheme(url: &str) -> bool {
     url.split('/').next().unwrap_or("").contains(':')
 }
 
-/// %XX 퍼센트 디코딩(이미지 경로 정규화용 최소 구현).
-fn percent_decode(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out: Vec<u8> = Vec::with_capacity(b.len());
-    let hex = |c: u8| -> Option<u8> {
-        match c {
-            b'0'..=b'9' => Some(c - b'0'),
-            b'a'..=b'f' => Some(c - b'a' + 10),
-            b'A'..=b'F' => Some(c - b'A' + 10),
-            _ => None,
-        }
-    };
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%' && i + 2 < b.len() {
-            if let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2])) {
-                out.push((h << 4) | l);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(b[i]);
-        i += 1;
+fn image_media(ext: &str) -> Option<&'static str> {
+    match ext {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "svg" => Some("image/svg+xml"),
+        "webp" => Some("image/webp"),
+        "bmp" => Some("image/bmp"),
+        _ => None,
     }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// 챕터 본문의 로컬 이미지 src를 zip 내부 images/ 경로로 재작성한 본문 반환.
 /// 읽은 파일은 files에 (href, media-type, bytes)로 쌓는다 — 같은 경로는 한 번만.
-/// 원격(data:·http:·mailto:)·앵커는 그대로 두고, 읽기 실패 경로도 원본 유지.
+/// 원격/데이터 URI·앵커는 유지한다. 로컬 이미지 실패는 불완전한 책을 저장하지 않는다.
 fn embed_body_images(
     body: &str,
     base_dir: &str,
     seen: &mut std::collections::HashMap<String, String>,
     files: &mut Vec<(String, String, Vec<u8>)>,
-) -> String {
+) -> Result<String, String> {
+    const PREFIX: &str =
+        "<body xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">";
+    let wrapped = format!("{PREFIX}{body}</body>");
+    let doc = roxmltree::Document::parse(&wrapped)
+        .map_err(|e| format!("EPUB: 잘못된 XHTML 본문: {e}"))?;
     let src = crate::ImageSource::new(base_dir.to_string());
     let mut out = String::with_capacity(body.len());
-    let mut rest = body;
-    while let Some(at) = rest.find("src=\"") {
-        let start = at + 5;
-        let Some(rel) = rest[start..].find('"') else {
-            break;
+    let mut at = 0;
+    for node in doc
+        .descendants()
+        .filter(|node| node.has_tag_name(("http://www.w3.org/1999/xhtml", "img")))
+    {
+        let Some(attr) = node.attribute_node("src") else {
+            continue;
         };
-        let end = start + rel;
-        out.push_str(&rest[..start]);
-        let url = &rest[start..end];
-        let tail = &rest[end..];
-        let local = !has_scheme(url) && !url.starts_with('#');
-        let decoded = percent_decode(&url.replace('\\', "/"));
-        // 중복 판정은 어휘 정규화된 절대경로 — "assets/a.png"와 "./assets/a.png"가 같은 파일로.
-        let resolved = if local {
-            Some(src.resolve(&decoded).to_string_lossy().into_owned())
+        let url = attr.value().trim();
+        if url.is_empty() || has_scheme(url) || url.starts_with('#') || url.starts_with("//") {
+            continue;
+        }
+        let (path, fragment) = url
+            .split_once('#')
+            .map_or((url, ""), |(p, _)| (p, &url[p.len()..]));
+        let path = path.split('?').next().unwrap_or(path);
+        let decoded = percent_decode(path).replace('\\', "/");
+        let resolved = src.resolve(&decoded).to_string_lossy().into_owned();
+        let href = if let Some(href) = seen.get(&resolved) {
+            href.clone()
         } else {
-            None
-        };
-        let rewritten = if !local {
-            None
-        } else if let Some(href) = resolved.as_ref().and_then(|r| seen.get(r)) {
-            Some(href.clone())
-        } else {
-            let ext = std::path::Path::new(&decoded)
+            let ext = Path::new(&decoded)
                 .extension()
                 .and_then(|e| e.to_str())
                 .map(|e| e.to_ascii_lowercase())
-                .unwrap_or_else(|| "png".into());
-            let media = match ext.as_str() {
-                "jpg" | "jpeg" => "image/jpeg",
-                "gif" => "image/gif",
-                "svg" => "image/svg+xml",
-                "webp" => "image/webp",
-                "bmp" => "image/bmp",
-                _ => "image/png",
-            };
-            src.read(&decoded).map(|bytes| {
-                let href = format!("images/img{}.{ext}", files.len() + 1);
-                seen.insert(resolved.unwrap_or_default(), href.clone());
-                files.push((href.clone(), media.to_string(), bytes));
-                href
-            })
+                .unwrap_or_default();
+            let media = image_media(&ext)
+                .ok_or_else(|| format!("EPUB: 지원하지 않는 이미지 형식: {decoded}"))?;
+            let bytes = std::fs::read(&resolved)
+                .map_err(|e| format!("EPUB: 이미지를 읽을 수 없습니다: {decoded}: {e}"))?;
+            let href = format!("images/img{}.{ext}", files.len() + 1);
+            seen.insert(resolved, href.clone());
+            files.push((href.clone(), media.to_string(), bytes));
+            href
         };
-        match rewritten {
-            Some(href) => out.push_str(&href),
-            None => out.push_str(url),
-        }
-        rest = tail;
+        // Replace the whole source attribute: its range remains exact even when
+        // whitespace around '=' exceeds roxmltree's compact value-range limit.
+        let range = attr.range();
+        let start = range.start - PREFIX.len();
+        let end = range.end - PREFIX.len();
+        out.push_str(&body[at..start]);
+        out.push_str(&format!("src=\"{}\"", esc(&format!("{href}{fragment}"))));
+        at = end;
     }
-    out.push_str(rest);
-    out
+    out.push_str(&body[at..]);
+    Ok(out)
 }
 
 fn esc(s: &str) -> String {
@@ -209,6 +195,7 @@ fn now_iso() -> String {
 }
 
 fn xhtml_doc(title: &str, lang: &str, body: &str) -> String {
+    let lang = esc(lang);
     format!(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\" lang=\"{lang}\" xml:lang=\"{lang}\"><head><meta charset=\"utf-8\"/><title>{}</title><link rel=\"stylesheet\" type=\"text/css\" href=\"style.css\"/></head><body>{body}</body></html>",
         esc(title)
@@ -220,7 +207,27 @@ pub fn export_epub(opts: &EpubOptions, out: &Path) -> Result<(), String> {
     if opts.chapters.is_empty() {
         return Err("EPUB: 챕터가 없습니다".into());
     }
-    let file = std::fs::File::create(out).map_err(|e| e.to_string())?;
+    let mut names = std::collections::HashSet::new();
+    for chapter in &opts.chapters {
+        let name = &chapter.file;
+        if !name.ends_with(".xhtml")
+            || name == "nav.xhtml"
+            || name == "cover.xhtml"
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+            || !names.insert(name)
+        {
+            return Err(format!("EPUB: 잘못되었거나 중복된 챕터 파일명: {name}"));
+        }
+    }
+    md_core::io::write_file_atomic(out, |file| {
+        write_epub(opts, file).map_err(std::io::Error::other)
+    })
+    .map_err(|e| e.to_string())
+}
+
+fn write_epub(opts: &EpubOptions, file: &mut std::fs::File) -> Result<(), String> {
     let mut zip = zip::ZipWriter::new(file);
     let stored: zip::write::SimpleFileOptions =
         zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
@@ -232,7 +239,7 @@ pub fn export_epub(opts: &EpubOptions, out: &Path) -> Result<(), String> {
     zip.write_all(b"application/epub+zip")
         .map_err(|e| e.to_string())?;
 
-    let add = |zip: &mut zip::ZipWriter<std::fs::File>, name: &str, data: &str| {
+    let add = |zip: &mut zip::ZipWriter<&mut std::fs::File>, name: &str, data: &str| {
         zip.start_file(name, deflated).map_err(|e| e.to_string())?;
         zip.write_all(data.as_bytes()).map_err(|e| e.to_string())
     };
@@ -257,41 +264,36 @@ pub fn export_epub(opts: &EpubOptions, out: &Path) -> Result<(), String> {
     let mut cover_spine = String::new();
     let mut cover_nav_first = String::new();
     if let Some(cp) = &opts.cover_path {
-        if let Ok(bytes) = std::fs::read(cp) {
-            let ext = std::path::Path::new(cp)
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| e.to_ascii_lowercase())
-                .unwrap_or_else(|| "png".into());
-            let media = match ext.as_str() {
-                "jpg" | "jpeg" => "image/jpeg",
-                "gif" => "image/gif",
-                "svg" => "image/svg+xml",
-                "webp" => "image/webp",
-                _ => "image/png",
-            };
-            zip.start_file("OEBPS/cover-image", deflated)
-                .map_err(|e| e.to_string())?;
-            zip.write_all(&bytes).map_err(|e| e.to_string())?;
-            cover_manifest = format!(
-                "\n<item id=\"cover-image\" href=\"cover-image\" media-type=\"{media}\" properties=\"cover-image\"/>\
+        let bytes = std::fs::read(cp)
+            .map_err(|e| format!("EPUB: 표지 이미지를 읽을 수 없습니다: {cp}: {e}"))?;
+        let ext = Path::new(cp)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .unwrap_or_default();
+        let media = image_media(&ext)
+            .ok_or_else(|| format!("EPUB: 지원하지 않는 표지 이미지 형식: {cp}"))?;
+        zip.start_file("OEBPS/cover-image", deflated)
+            .map_err(|e| e.to_string())?;
+        zip.write_all(&bytes).map_err(|e| e.to_string())?;
+        cover_manifest = format!(
+            "\n<item id=\"cover-image\" href=\"cover-image\" media-type=\"{media}\" properties=\"cover-image\"/>\
 \n<item id=\"coverpage\" href=\"cover.xhtml\" media-type=\"application/xhtml+xml\"/>"
-            );
-            cover_spine = "<itemref idref=\"coverpage\"/>".to_string();
-            let cover_body = format!(
-                "<div class=\"cover-page\"><img src=\"cover-image\" alt=\"{}\"/></div>",
-                esc(&opts.title)
-            );
-            cover_nav_first = format!(
-                "<li><a href=\"cover.xhtml\">{}</a></li>\n",
-                esc(&opts.title)
-            );
-            add(
-                &mut zip,
-                "OEBPS/cover.xhtml",
-                &xhtml_doc(&opts.title, &opts.language, &cover_body),
-            )?;
-        }
+        );
+        cover_spine = "<itemref idref=\"coverpage\"/>".to_string();
+        let cover_body = format!(
+            "<div class=\"cover-page\"><img src=\"cover-image\" alt=\"{}\"/></div>",
+            esc(&opts.title)
+        );
+        cover_nav_first = format!(
+            "<li><a href=\"cover.xhtml\">{}</a></li>\n",
+            esc(&opts.title)
+        );
+        add(
+            &mut zip,
+            "OEBPS/cover.xhtml",
+            &xhtml_doc(&opts.title, &opts.language, &cover_body),
+        )?;
     }
 
     // nav.xhtml — EPUB3 목차.
@@ -339,7 +341,7 @@ pub fn export_epub(opts: &EpubOptions, out: &Path) -> Result<(), String> {
         .chapters
         .iter()
         .map(|c| embed_body_images(&c.body, &opts.base_dir, &mut img_seen, &mut img_files))
-        .collect();
+        .collect::<Result<_, _>>()?;
     for (c, body) in opts.chapters.iter().zip(&bodies) {
         add(
             &mut zip,
@@ -533,9 +535,9 @@ mod tests {
 
         let mut o = opts();
         o.base_dir = dir.to_string_lossy().into_owned();
-        // 같은 파일의 다른 표기 2회(중복 제거 확인) + 원격/데이터(그대로) + 없는 경로.
+        // 같은 파일의 다른 표기 2회(중복 제거 확인) + 원격/데이터(그대로).
         o.chapters[0].body = "<p><img src=\"assets/pic.png\" alt=\"a\"/><img src=\"./assets/pic.png\" alt=\"b\"/></p>".into();
-        o.chapters[1].body = "<p><img src=\"https://x/y.png\"/><img src=\"data:image/png;base64,AAAA\"/><img src=\"assets/photo.jpg\"/><img src=\"assets/none.png\"/></p>".into();
+        o.chapters[1].body = "<p><img src=\"https://x/y.png\"/><img src=\"data:image/png;base64,AAAA\"/><img src=\"assets/photo.jpg\"/></p>".into();
         let out = tmp("images");
         export_epub(&o, &out).unwrap();
 
@@ -554,8 +556,6 @@ mod tests {
         assert!(ch2.contains("src=\"https://x/y.png\""));
         assert!(ch2.contains("src=\"data:image/png;base64,AAAA\""));
         assert!(ch2.contains("src=\"images/img2.jpg\""));
-        // 읽기 실패 경로는 원본 유지.
-        assert!(ch2.contains("src=\"assets/none.png\""));
         // 매니페스트 등록.
         let opf = read_entry(&out, "OEBPS/content.opf");
         assert!(
@@ -579,5 +579,80 @@ mod tests {
         assert!(!has_scheme("assets/pic.png"));
         assert!(!has_scheme("pic.png"));
         assert!(!has_scheme("#anchor"));
+    }
+
+    #[test]
+    fn malformed_or_missing_content_preserves_existing_export() {
+        let dir = tmp("preserve").with_extension("test-dir");
+        std::fs::create_dir(&dir).unwrap();
+        let out = dir.join("book.epub");
+        export_epub(&opts(), &out).unwrap();
+        let before = std::fs::read(&out).unwrap();
+        let mut invalid = opts();
+        invalid.chapters[0].body = "<p>unclosed".into();
+        assert!(export_epub(&invalid, &out).unwrap_err().contains("XHTML"));
+        assert_eq!(std::fs::read(&out).unwrap(), before);
+        invalid.chapters[0].body = "<img src=\"missing/never-created.png\"/>".into();
+        invalid.base_dir = out
+            .with_extension("absent-dir")
+            .to_string_lossy()
+            .into_owned();
+        assert!(export_epub(&invalid, &out)
+            .unwrap_err()
+            .contains("never-created.png"));
+        assert_eq!(std::fs::read(&out).unwrap(), before);
+        invalid = opts();
+        invalid.cover_path = Some(
+            out.with_extension("missing-cover.png")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        assert!(export_epub(&invalid, &out).unwrap_err().contains("표지"));
+        assert_eq!(std::fs::read(&out).unwrap(), before);
+        for name in [
+            "../escape.xhtml",
+            "nav.xhtml",
+            "cover.xhtml",
+            "chapter2.xhtml",
+            "bad\".xhtml",
+        ] {
+            invalid = opts();
+            invalid.chapters[0].file = name.into();
+            assert!(export_epub(&invalid, &out).is_err());
+            assert_eq!(std::fs::read(&out).unwrap(), before);
+        }
+        assert!(!std::fs::read_dir(out.parent().unwrap()).unwrap().any(|e| e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".iyagi-tmp-")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn image_rewriting_uses_xml_attributes_and_decoded_paths() {
+        let dir = std::env::temp_dir().join(format!("md-export-xml-images-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("a & 한글.svg"),
+            b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+        )
+        .unwrap();
+        let body = "<!-- <img src=\"missing.png\"/> -->\
+            <p data-src=\"missing.png\">src=\"missing.png\"</p>\
+            <img src = 'a%20&amp;%20%ED%95%9C%EA%B8%80.svg#view'/>\
+            <img src=\"./a%20%26%20한글.svg\"/>\
+            <img src=\"//example.org/image.png\"/>";
+        let mut seen = std::collections::HashMap::new();
+        let mut files = Vec::new();
+        let rewritten =
+            embed_body_images(body, dir.to_str().unwrap(), &mut seen, &mut files).unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(rewritten.contains("src=\"images/img1.svg#view\""));
+        assert!(rewritten.contains("src=\"images/img1.svg\""));
+        assert!(rewritten.contains("data-src=\"missing.png\""));
+        assert!(rewritten.contains("<!-- <img src=\"missing.png\"/> -->"));
+        assert!(rewritten.contains("src=\"//example.org/image.png\""));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

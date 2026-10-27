@@ -22,6 +22,8 @@
 // 읽기 모드는 같은 장식을 항상 켠다.
 
 import { syntaxTree } from "@codemirror/language";
+import { inlineLinkParts } from "./inlineLinkEdit";
+import { imageSource } from "./documentImages";
 import type { SyntaxNode } from "@lezer/common";
 import { EditorState, Facet, Range, StateEffect, StateField } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
@@ -34,19 +36,19 @@ import {
   WidgetType,
 } from "@codemirror/view";
 
-import { lexicallyClean, percentDecode, resolveLink } from "../links";
+import { resolveLink } from "../links";
 import { isPageBreakLine } from "./pagebreak";
 import { formattingMarkRanges } from "./fmMarks";
-import { citeDisplay, citeNumbering, citeRegExp, isCiteDefLine, type CitationNumbering } from "./citations";
+import { citeDisplay, citationNumberingForDocument, citationsInRange, isCiteDefLine } from "./citations";
 import { parseWikiLink, resolveWikiLink } from "./wiki";
 import { mdTableKey } from "./tableKey";
 import { sentenceSpans } from "./writing";
 import { phrases } from "../app/phrases";
 import {
-  BulletWidget,
+  BulletWidget, CalloutWidget, calloutKeyOf,
   DiagramWidget,
   FrontMatterWidget,
-  WikiLinkWidget,
+  WikiLinkWidget, EmbedWidget,
   HRuleWidget,
   ImageWidget,
   MathWidget,
@@ -102,6 +104,36 @@ export const previewConfigField = StateField.define<PreviewConfig>({
 });
 
 /** 두 프리뷰 설정이 내용까지 같은가(캐시 폐기 여부 판정용). */
+/// 인용 바로 양쪽에 같은 강조 마커(`**`·`*`·`***`·`__`·`_`·`~~`)가 정확히
+/// 붙어 있으면 마커 길이와 태그를 돌려준다. CommonMark 플랭킹 규칙상
+/// `**[@key]**글자`는 Strong으로 파싱되지 않아(닫는 마커 앞이 문장부호
+/// `]`, 뒤가 글자) 마커가 리터럴로 남는다 — 한국어 붙여쓰기에서 항상 그렇다.
+function citeEmphasisWrap(
+  doc: EditorState["doc"],
+  from: number,
+  to: number,
+): { tags: string[]; len: number } | null {
+  const line = doc.lineAt(from);
+  if (to > line.to) return null;
+  const text = line.text;
+  const start = from - line.from;
+  const end = to - line.from;
+  const open = text[start - 1];
+  if (open !== "*" && open !== "_" && open !== "~") return null;
+  let s = start;
+  while (s > 0 && text[s - 1] === open) s--;
+  const len = start - s;
+  // ~ 는 취소선이 2글자뿐, *·_ 런은 1..3글자만.
+  if (open === "~" ? len !== 2 : len < 1 || len > 3) return null;
+  // 앞이 같은 글자로 더 이어지거나(****) 이스케이프면 그대로 둔다.
+  if (s > 0 && (text[s - 1] === open || text[s - 1] === "\\")) return null;
+  // 닫는 런이 같은 글자·같은 길이로 바로 뒤에 와야 한다.
+  for (let i = 0; i < len; i++) if (text[end + i] !== open) return null;
+  if (text[end + len] === open) return null;
+  const tags = open === "~" ? ["strike"] : len === 1 ? ["em"] : len === 2 ? ["strong"] : ["strong", "em"];
+  return { tags, len };
+}
+
 function previewConfigEquals(a: PreviewConfig | undefined, b: PreviewConfig): boolean {
   if (!a) return false;
   if (
@@ -269,12 +301,10 @@ const NO_RANGES: readonly { from: number; to: number }[] = [];
 /** 한 청크 [chunkFrom, chunkTo)의 장식을 계산한다.
  *  노드의 장식은 그 노드가 시작하는 청크가 발급한다(경계 규칙 덕에 정확히 한
  *  번). 이전 청크에서 시작해 걸친 노드는 내려만 간다. */
-// 인용 번호부여 캐시 — 문서(Text) 객체별 1회 전체 스캔(편집으로만 미스).
-const citeCache = new WeakMap<object, CitationNumbering>();
-
 function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range<Decoration>[] {
   const ranges: Range<Decoration>[] = [];
   const doc = view.state.doc;
+  const citations = () => citationNumberingForDocument(doc);
   const behavior = view.state.facet(previewBehavior);
   const config = view.state.field(previewConfigField);
   const { baseDir, remoteImages, showImages, theme, imageWidths, bookmarks, tableWidths, commentLines = [], longSentenceMarks = false, longSentenceMin = 60, formattingMarks = false } = config;
@@ -286,9 +316,21 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
   if (behavior === "reveal") {
     const sel = view.state.selection;
     for (const range of sel.ranges) {
-      const from = doc.lineAt(range.from).number;
-      const to = doc.lineAt(range.to).number;
-      for (let n = from; n <= to; n++) revealed.add(n);
+      // 선택 '범위 전체'가 아니라 양 끝줄만 노출한다 — ⌘A나 문단을 넘는
+      // 드래그가 렌더링을 통째로 원문으로 바꿔 버리는 것을 막는다(Typora
+      // 관례: 선택은 렌더링 위 하이라이트로 보이고, 원문 노출은 커서가
+      // 그 블록 '안'에 있어 편집하려는 때만). 빈 선택(커서)은 양 끝이
+      // 같은 줄이라 기존 동작이 그대로 유지되고, 끝이 블록 안에 닿으면
+      // isRevealed 겹침 판정으로 그 블록 전체가 노출된다(편집 진입 보존).
+      // 문서 경계(0·문서 끝)에 닿은 선택 끝점은 노출에서 뺀다 — ⌘A가
+      // 문서 첫 블록(프런트매터 등)을 끝점 닿음만으로 원문으로 푸는 일이
+      // 없게. 문서 맨 앞의 커서(빈 선택)는 여전히 첫 줄을 노출한다.
+      if (range.empty) {
+        revealed.add(doc.lineAt(range.head).number);
+        continue;
+      }
+      if (range.from > 0) revealed.add(doc.lineAt(range.from).number);
+      if (range.to < doc.length) revealed.add(doc.lineAt(range.to).number);
     }
     if (view.composing && sel.main.head === sel.main.to) {
       // 조합 중 — 캐럿 줄 확실히 노출.
@@ -313,16 +355,28 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
   // 인라인 요소(**…**·`…`·링크 등)는 커서·선택이 **그 스팬 자체**(±1자)에
   // 닿을 때만 원문을 노출한다(Typora 모델). 줄 단위 노출보다 정교해 편집 중에도
   // Word처럼 보인다 — 같은 줄을 편집해도 볼드 마커는 숨겨진 채로 유지된다.
+  // '닿음'은 선택의 끝점(커서·선택 경계)이 스팬 ±1 안에 놓인 것만 친다 —
+  // ⌘A나 드래그가 마크를 '지나쳐'만 가도 원문이 드러나는 일을 막는다
+  // (선택은 렌더링 위 하이라이트, 40차 노출 집합과 같은 의미론).
   const selRanges = behavior === "reveal" ? view.state.selection.ranges : NO_RANGES;
   const isTouched = (from: number, to: number): boolean =>
-    selRanges.some((r) => from <= r.to + 1 && to >= r.from - 1);
+    selRanges.some((r) => {
+      const touches = (p: number): boolean => from <= p + 1 && to >= p - 1;
+      return touches(r.from) || touches(r.to);
+    });
 
   // 블록 마커(#들·Setext 밑줄)는 커서가 닿는다고 보이지 않는다 — 선택이
   // 마커를 완전히 감쌀 때만(줄 처음부터 쓸어 담을 때) 원문 노출.
   // 클릭해 본문을 편집할 때 #가 튀어나오는 것을 막는다(2026-10-13 사용자
   // 보고 — 텍스트 편집에 마커는 불필요, 수준 변경은 도구모음 H1/H2).
+  // 단, 감쌈의 '끝'이 줄 끝(전체 줄 선택)이나 문서 끝(⌘A)까지 닿으면 마커
+  // 노출로 보지 않는다 — 선택은 렌더링 위 하이라이트로 쓰고, 마커를 보려면
+  // 줄 시작에서 부분적으로 감싸거나 소스 모드(⌘/)로(40차 의미론).
   const coversMarks = (from: number, to: number): boolean =>
-    view.state.selection.ranges.some((r) => r.from <= from && r.to >= to);
+    view.state.selection.ranges.some((r) => {
+      if (!(r.from <= from && r.to >= to)) return false;
+      return r.to < doc.lineAt(from).to;
+    });
 
   const addLineClasses = (from: number, to: number, cls: string, skipFirst = false) => {
     const first = doc.lineAt(from).number;
@@ -334,16 +388,11 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
     }
   };
 
-  const absPath = (src: string): string => {
-    if (/^(https?:|data:|file:|#)/i.test(src)) return src;
-    const decoded = percentDecode(src).replace(/\\/g, "/");
-    if (decoded.startsWith("/")) return lexicallyClean(decoded);
-    return lexicallyClean(`${baseDir}/${decoded}`);
-  };
-
   // 청크 창만 slice한다 — 문서 전체 toString은 큰 문서에서 프레임을 태운다.
   const slice = (from: number, to: number): string => doc.sliceString(from, to);
   const codeRanges: [number, number][] = [];
+  // 콜아웃으로 판정된 인용문 범위 — 자식 QuoteMark 숨김 판정에 쓴다(pre-order라 부모가 먼저 온다).
+  const calloutRanges: [number, number][] = [];
 
   try {
     syntaxTree(view.state).iterate({
@@ -437,7 +486,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
       if (line.from >= chunkTo) break;
       if (codeRanges.some(([cf, ct]) => line.from >= cf && line.from <= ct)) continue;
       // 서지 정의 줄([@key]: …) — 각주 정의와 같은 어감(흐리게).
-      if (isCiteDefLine(line.text)) {
+      if (isCiteDefLine(line.text) && citations().definitionLines.has(line.number)) {
         ranges.push(Decoration.line({ class: "md-cite-def" }).range(line.from));
         continue;
       }
@@ -465,25 +514,20 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
     {
       const chunkStr0 = doc.sliceString(chunkFrom, chunkTo);
       if (chunkStr0.includes("[@")) {
-        let numbering = citeCache.get(doc);
-        if (!numbering) {
-          numbering = citeNumbering(doc.sliceString(0));
-          citeCache.set(doc, numbering);
-        }
-        const re = citeRegExp();
-        let m: RegExpExecArray | null;
-        while ((m = re.exec(chunkStr0))) {
-          const from = chunkFrom + m.index;
-          const to = from + m[0].length;
-          if (codeRanges.some(([cf, ct]) => from >= cf && from <= ct)) continue;
-          const display = citeDisplay(m[1], m[2], numbering);
+        const numbering = citations();
+        for (const { from, to, key, suffix } of citationsInRange(numbering, chunkFrom, chunkTo)) {
+          const display = citeDisplay(key, suffix, numbering);
           if (display === null) {
             // 정의 없는 인용 — 원문 그대로, 흐린 붉은 표시(끊긴 링크와 같은 규약).
             ranges.push(Decoration.mark({ class: "md-cite-broken" }).range(from, to));
             continue;
           }
-          if (coversMarks(from, to)) continue;
-          const def = numbering.defs.get(m[1]);
+          // 인용 바로 양쪽의 같은 강조 마커(`**[@key]**글자`)는 플랭킹
+          // 규칙 때문에 파싱이 안 된다 — 마커까지 삼켜 위젯에 강조를 건다.
+          const wrap = citeEmphasisWrap(doc, from, to);
+          const covered = wrap ? { from: from - wrap.len, to: to + wrap.len } : { from, to };
+          if (coversMarks(covered.from, covered.to)) continue;
+          const def = numbering.defs.get(key);
           // 클릭 → 서지 정의 줄로 이동(Word Ctrl+클릭과 같은 어감).
           const defLine = def?.line ?? null;
           const jump = defLine === null ? null : () => {
@@ -491,7 +535,8 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
             view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
           };
           ranges.push(
-            replace({ widget: new CiteWidget(display, def?.entry ?? "", jump) }).range(from, to),
+            replace({ widget: new CiteWidget(display, def?.entry ?? "", jump, wrap?.tags ?? []) })
+              .range(covered.from, covered.to),
           );
         }
       }
@@ -505,6 +550,31 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
         const heading = /^(ATX|Setext)Heading([1-6])$/.exec(name);
         if (heading) {
           const level = heading[2];
+          if (heading[1] === "Setext") {
+            // 밑줄 판정은 HeaderMark 자식 범위로 — 줄 원문엔 인용구 마커
+            // ("> ---")가 붙어 정규식이 못 걷어내, 인용구 안에서만 제목이
+            // 되는 구멍이 있었다(2026-10-24 검토). 마크는 대시/등호 순수 범위.
+            const underlineMark = node.lastChild;
+            const underlineText =
+              underlineMark && underlineMark.name === "HeaderMark"
+                ? slice(underlineMark.from, underlineMark.to)
+                : doc.lineAt(to).text.trim();
+            // 이 앱에서 밑줄형 제목은 제목이 아니다(2026-10-21 방침 — 제목은
+            // #/## 로만. - 입력이 앞 줄을 H2로, = 입력이 H1으로 만드는 일이
+            // 없다). 대시 밑줄 --- 은 수평선: 내용 줄은 문단, 밑줄은 구분선
+            // 위젯으로 렌더. 나머지(대시 1-2·= 어떤 개수)는 원문 그대로.
+            // 타이핑 가드(cm.ts)가 문서를 정규화하지 못한 외부·붙여넣기
+            // 문서도 같은 모습으로 보인다.
+            if (/^-{3,}$/.test(underlineText)) {
+              const lastLine = doc.lineAt(to);
+              if (lastLine.from > from) addLineClasses(from, lastLine.from - 1, "md-para");
+              if (!isRevealed(lastLine.from, to)) {
+                ranges.push(replace({ widget: new HRuleWidget(), block: true }).range(lastLine.from, to));
+              }
+              return;
+            }
+            if (/^[-=]+$/.test(underlineText)) return;
+          }
           addLineClasses(from, to, `md-h${level}`);
           if (heading[1] === "ATX") {
             const mark = node.firstChild;
@@ -590,7 +660,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
           return;
         }
 
-        // — 링크·이미지(원문 정규식 기반 — 자식 구조 규격에 의존하지 않는다) —
+        // — 링크·이미지(이미지는 편집·뷰어와 같은 구문 경계를 사용) —
         if (name === "Link" || name === "Image") {
           if (coversMarks(from, to)) return;
           const text = slice(from, to);
@@ -599,13 +669,13 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
             if (doc.lineAt(from).text.trim().startsWith("!")) {
               addLineClasses(from, from, "md-img-line");
             }
-            const m = /^!\[([^\]]*)\]\(\s*<?([^)>]*?)>?((?:\s+"[^"]*")?)\s*\)$/.exec(text);
-            if (m) {
-              const src2 = absPath(m[2].trim());
+            const parts = inlineLinkParts(text);
+            if (parts) {
+              const src2 = imageSource(parts.url, baseDir);
               const w: WidgetType = new ImageWidget(
                 src2,
-                m[1],
-                m[3]?.trim().replace(/^"|"$/g, "") || null,
+                parts.text,
+                parts.title,
                 { remoteImages, showImages },
                 imageWidths[src2],
               );
@@ -660,6 +730,21 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
           ranges.push(
             replace({
               widget: new WikiLinkWidget(display ?? target, resolved, anchor),
+            }).range(from, to),
+          );
+          return;
+        }
+
+        // — 노트 임베드 ![[이름]] — 대상 문서 원문을 카드로(커서가 닿으면 원문).
+        if (name === "Embed") {
+          const raw = slice(from, to).replace(/^!/, "");
+          const { name: target, display } = parseWikiLink(raw);
+          const resolved = resolveWikiLink(target, baseDir, config.wikiIndex);
+          if (coversMarks(from, to)) return;
+          ranges.push(
+            replace({
+              widget: new EmbedWidget(display ?? target, resolved),
+              block: true,
             }).range(from, to),
           );
           return;
@@ -722,10 +807,34 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
 
         // — 인용 —
         if (name === "Blockquote") {
+          // 콜아웃 — 인용문 첫 줄이 `[!유형](+/-)? 제목`이면 카드로 꾸민다.
+          // 원문은 그대로 인용문이라 다른 렌더러에서 무해하게 강등된다.
+          const first = doc.lineAt(from);
+          const callout = /^>\s{0,3}\[!([\w-]+)\]([+-])?(?=\s|$)/.exec(first.text);
+          if (callout) {
+            const key = calloutKeyOf(callout[1]!);
+            calloutRanges.push([from, to]);
+            addLineClasses(from, to, `md-quote md-callout md-callout-${key}`);
+            // 마커(> [!유형](+/-)) → 아이콘 위젯. 커서가 닿으면 원문 노출.
+            const markTo = first.from + callout[0].length;
+            if (!coversMarks(first.from, markTo)) {
+              ranges.push(replace({ widget: new CalloutWidget(key) }).range(first.from, markTo));
+            }
+            // 같은 줄의 나머지는 제목 — 굵게 표시(원문 불변, 마크 장식만).
+            if (markTo < first.to && first.text.slice(callout[0].length).trim()) {
+              ranges.push(Decoration.mark({ class: "md-callout-title" }).range(markTo, first.to));
+            }
+            return;
+          }
           addLineClasses(from, to, "md-quote");
           return;
         }
         if (name === "QuoteMark") {
+          // 콜아웃 안의 > 표시는 카드를 위해 숨긴다(커서가 닿으면 원문).
+          if (calloutRanges.some(([cf, ct]) => from >= cf && to <= ct)) {
+            if (!coversMarks(from, to)) ranges.push(replace({}).range(from, to));
+            return;
+          }
           if (!coversMarks(from, to)) ranges.push(replace({ class: "md-quotemark" }).range(from, to));
           return;
         }
@@ -1089,9 +1198,9 @@ export function findLinkAt(
       if (found) return false;
       if (node.name === "Link" && pos >= node.from && pos <= node.to) {
         const raw = state.doc.sliceString(node.from, node.to);
-        const m = /^\[([\s\S]*)\]\(\s*<?([^)>]*?)>?\s*\)$/.exec(raw);
-        if (m) {
-          found = { url: m[2], text: m[1], from: node.from, to: node.to };
+        const parts = inlineLinkParts(raw);
+        if (parts) {
+          found = { url: parts.url, text: parts.text, from: node.from, to: node.to };
           return false;
         }
       }
@@ -1114,9 +1223,9 @@ export function findImageAt(
       if (found) return false;
       if (node.name === "Image" && pos >= node.from && pos <= node.to) {
         const raw = state.doc.sliceString(node.from, node.to);
-        const m = /^!\[([\s\S]*)\]\(\s*<?([^\s)>]*?)>?(?:\s+"[^"]*")?\s*\)$/.exec(raw);
-        if (m) {
-          found = { alt: m[1], url: m[2], from: node.from, to: node.to };
+        const parts = inlineLinkParts(raw);
+        if (parts) {
+          found = { alt: parts.text, url: parts.url, from: node.from, to: node.to };
           return false;
         }
       }
@@ -1157,16 +1266,33 @@ export function blockWidgetRangesBetween(
   state: EditorState,
   from: number,
   to: number,
+  filter?: (widget: unknown) => boolean,
 ): Array<{ from: number; to: number }> {
   const out: Array<{ from: number; to: number }> = [];
   const cursor = state.field(decorationField).iter(from);
   while (cursor.value) {
     if (cursor.from > to) break;
     const spec = (cursor.value as unknown as { spec?: { widget?: unknown; block?: boolean } }).spec;
-    if (spec?.widget && spec.block) out.push({ from: cursor.from, to: cursor.to });
+    if (spec?.widget && spec.block && (!filter || filter(spec.widget))) {
+      out.push({ from: cursor.from, to: cursor.to });
+    }
     cursor.next();
   }
   return out;
+}
+
+/** 커서(선택)가 오면 원문으로 물러나는 블록 위젯 — buildDecorations에서
+ *  isRevealed 가드가 있는 종류다(수평선·수식 블록·머메이드·프론트매터).
+ *  ↑↓·⇧↑↓ 이동 가드가 이 위젯 줄에 커서를 얹을 수 있는 근거: 얹히면
+ *  위젯이 사라지고 원문이 나타나 편집된다. 표는 셀 클릭 편집 전용이라
+ *  커서가 못 얹히는 게 맞다(제외). */
+export function isRevealableBlockWidget(widget: unknown): boolean {
+  return (
+    widget instanceof DiagramWidget ||
+    widget instanceof FrontMatterWidget ||
+    widget instanceof HRuleWidget ||
+    widget instanceof MathWidget
+  );
 }
 
 export const __testing = {

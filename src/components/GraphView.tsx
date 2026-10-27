@@ -1,10 +1,11 @@
-// 그래프 뷰 — 문서 노드 + 위키링크 간선을 SVG로 렌더.
+// 그래프 뷰 — 문서 노드 + 해석된 문서 간선을 SVG로 렌더.
 // 간단한 힘 기반 배치(3~4회 반복) — 대규모 그래프는 원형 폴백.
 // 노드 크기 = 연결 수(차수), 활성 문서는 강조.
 // 줌(휠, 커서 고정)·팬(배경 드래그)·더블클릭 리셋 — 노드 밀집 대비.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import type { DocumentEdge } from "../api";
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
 
@@ -13,8 +14,11 @@ interface Props {
   t: Translate;
   onClose: () => void;
   onOpen: (path: string) => void;
-  /** Rust wiki_edges 결과(from 경로 → to 키). 없으면 빈 그래프. */
-  wikiLinks?: Array<{ from: string; to: string }>;
+  /** Rust document_edges 결과. 양 끝점 모두 실제 파일 경로. */
+  links?: DocumentEdge[];
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
 }
 
 interface GraphNode {
@@ -32,9 +36,8 @@ interface GraphEdge {
   to: string;
 }
 
-/** 그래프 데이터 — 위키링크 인덱스(스토어)에서.
- *  간선: 문서 A가 [[B]]를 참조하면 A→B 간선. */
-function buildGraph(store: AppStore, wikiLinks?: Array<{ from: string; to: string }>): { nodes: GraphNode[]; edges: GraphEdge[] } {
+/** 대상 해석은 백링크와 동일한 서버 스캔에서 수행한다. */
+export function buildGraph(store: AppStore, links?: DocumentEdge[]): { nodes: GraphNode[]; edges: GraphEdge[] } {
   const tree = store.state.tree;
   const edges: GraphEdge[] = [];
   const nodeSet = new Set<string>();
@@ -53,37 +56,15 @@ function buildGraph(store: AppStore, wikiLinks?: Array<{ from: string; to: strin
   };
   walk(tree);
 
-  // 간선: 위키링크가 실제 파일을 가리키는 것만.
-  // wikiIndex: Map<key, paths[]> — key에서 경로로 매핑.
-  const byStem = new Map<string, string[]>();
-  for (const n of nodeSet) {
-    const stem = nameOf.get(n) ?? "";
-    const arr = byStem.get(stem) ?? [];
-    arr.push(n);
-    byStem.set(stem, arr);
-  }
-  // 실제 위키링크 간선 — Rust wiki_edges가 문서 내용에서 [[키]]를 추출.
-  // 키를 경로로 해석: stem 또는 상대경로 매칭.
+  // 삭제/폴더 변경 후 늦은 결과에서도 현재 트리에 있는 양 끝점만 표시한다.
   const fileList = [...nodeSet];
-  const keyToPaths = new Map<string, string[]>();
-  for (const p of fileList) {
-    const name = nameOf.get(p) ?? "";
-    const stem = name.replace(/\.(md|markdown)$/i, "");
-    for (const key of [stem, name]) {
-      const arr = keyToPaths.get(key) ?? [];
-      arr.push(p);
-      keyToPaths.set(key, arr);
-    }
-  }
-  if (wikiLinks) {
-    for (const e of wikiLinks) {
-      const targets = keyToPaths.get(e.to) ?? [];
-      for (const t of targets) {
-        if (e.from !== t && nodeSet.has(e.from) && nodeSet.has(t)) {
-          edges.push({ from: e.from, to: t });
-        }
-      }
-    }
+  const seen = new Set<string>();
+  for (const link of links ?? []) {
+    if (link.to === link.from || !nodeSet.has(link.from) || !nodeSet.has(link.to)) continue;
+    const key = JSON.stringify([link.from, link.to]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    edges.push({ from: link.from, to: link.to });
   }
 
   // 차수 계산.
@@ -155,7 +136,9 @@ export function nearestNodeInDirection(
 }
 
 /** 간단 힘 기반 배치 — 4회 반복(좌표는 px). */
-function layout(nodes: GraphNode[], edges: GraphEdge[], iterations = 4): void {
+export function layout(nodes: GraphNode[], edges: GraphEdge[], iterations = 4): void {
+  // Large workspaces keep their O(n) circular positions instead of O(n²) repulsion.
+  if (nodes.length > 250) return;
   const byId = new Map(nodes.map((n) => [n.id, n]));
   for (let iter = 0; iter < iterations; iter++) {
     // 척력(모든 쌍이 멀어지려는 힘).
@@ -204,7 +187,7 @@ function layout(nodes: GraphNode[], edges: GraphEdge[], iterations = 4): void {
   }
 }
 
-export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.Element | null {
+export function GraphView({ store, t, onClose, onOpen, links, loading = false, error = null, onRetry }: Props): JSX.Element | null {
   const [selected, setSelected] = useState<string | null>(null);
   // 로빙 tabindex — 화살표로 노드 간 이동, Enter로 열기(리스트 키보드 규약의 SVG 판).
   const [focused, setFocused] = useState<string | null>(null);
@@ -214,10 +197,10 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
   const svgRef = useRef<SVGSVGElement | null>(null);
   const panRef = useRef<{ cx: number; cy: number; tx: number; ty: number } | null>(null);
   const { nodes, edges } = useMemo(() => {
-    const g = buildGraph(store, wikiLinks);
+    const g = buildGraph(store, links);
     if (g.nodes.length > 2) layout(g.nodes, g.edges);
     return g;
-  }, [store, store.state.tree]);
+  }, [store, store.state.tree, links]);
 
   const activePath = store.active?.path ?? null;
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
@@ -238,13 +221,25 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
     return { x: p.x, y: p.y };
   };
 
-  const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
-    e.preventDefault();
-    const c = toLocal(e.clientX, e.clientY);
-    if (!c) return;
-    // 커서 지점 고정 줌 — 수식은 zoomAt(키보드 줌과 공용).
-    setView(zoomAt(view.k, view.tx, view.ty, c.x, c.y, e.deltaY < 0 ? 1.15 : 1 / 1.15));
-  };
+  // 휠 줌 — 네이티브 비수동 리스너로. React onWheel은 루트에서 passive 등록이라
+  // preventDefault가 무시된다(콘솔 개입 경고 + 스크롤 가능 조상이 있으면 같이 굴러감).
+  // setView 콜백 폼으로 최신 뷰 상태를 읽는다(리스너 등록 시점 클로저와 무관).
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const onWheelNative = (e: WheelEvent): void => {
+      e.preventDefault();
+      const c = toLocal(e.clientX, e.clientY);
+      if (!c) return;
+      // 커서 지점 고정 줌 — 수식은 zoomAt(키보드 줌과 공용).
+      setView((v) => zoomAt(v.k, v.tx, v.ty, c.x, c.y, e.deltaY < 0 ? 1.15 : 1 / 1.15));
+    };
+    svg.addEventListener("wheel", onWheelNative, { passive: false });
+    return () => svg.removeEventListener("wheel", onWheelNative);
+    // toLocal은 ref 기반(getScreenCTM)이라 안정. 노드가 비어 svg가 늦게
+    // 마운트되는 경우도 덮는다(노드 0 → 렌더 후 재부착).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes.length === 0, loading, error]);
 
   const onPanStart = (e: React.PointerEvent<SVGSVGElement>) => {
     if ((e.target as Element).closest(".graph-node")) return;
@@ -268,11 +263,13 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
   // 마운트 시 첫 노드 포커스 — 화살표 탐색이 열자마자 동작(모달 자체 포커스
   // 규약의 SVG 판 — 로빙 시작점). ref 콜백은 이펙트보다 먼저 채워진다.
   useEffect(() => {
-    const first = nodes[0];
-    if (first) nodeEls.current.get(first.id)?.focus();
-    // 마운트 시 1회 — 이후 노드 집합이 바뀌어도(워크스페이스 갱신) 유지.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (loading || error) return;
+    const first = nodes.find((node) => node.id === focused) ?? nodes[0];
+    if (first) {
+      if (focused !== first.id) setFocused(first.id);
+      nodeEls.current.get(first.id)?.focus();
+    }
+  }, [loading, error, nodes, focused]);
 
   const onSvgKey = (e: React.KeyboardEvent<SVGSVGElement>): void => {
     const dirs: Record<string, [-1 | 0 | 1, -1 | 0 | 1]> = {
@@ -308,19 +305,24 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
   };
 
   return (
-    <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay modal-overlay" role="dialog" aria-modal="true" aria-labelledby="document-graph-title"
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="graph-frame">
         <div className="print-head">
-          <span className="print-title">{t.graphTitle}</span>
+          <span id="document-graph-title" className="print-title">{t.graphTitle}</span>
           <span className="graph-count">
-            {nodes.length} {t.graphDocs} · {edges.length} {t.graphLinks}
+            {nodes.length} {t.graphDocs}{!loading && !error && <> · {edges.length} {t.graphLinks}</>}
           </span>
           <button className="btn btn-plain" onClick={onClose}>
             {t.close}
           </button>
         </div>
+        {!loading && !error && nodes.length > 250 && <p className="graph-layout-note">{t.graphLargeLayout}</p>}
         <div className="graph-body">
-          {nodes.length === 0 ? (
+          {loading ? <div className="palette-empty" role="status">{t.loading}</div>
+          : error ? <div className="palette-empty" role="alert"><p>{t.wikiLoadFailed}: {error}</p>
+            <button className="btn" onClick={onRetry}>{t.wsRetry}</button></div>
+          : nodes.length === 0 ? (
             <div className="palette-empty">{t.wsSearchNoFolder}</div>
           ) : (
             <svg
@@ -329,7 +331,6 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
               className="graph-svg"
               width="100%"
               height="100%"
-              onWheel={onWheel}
               onPointerDown={onPanStart}
               onPointerMove={onPanMove}
               onPointerUp={() => {
@@ -406,7 +407,7 @@ export function GraphView({ store, t, onClose, onOpen, wikiLinks }: Props): JSX.
             </svg>
           )}
         </div>
-        {selected && (
+        {!loading && !error && selected && byId.has(selected) && (
           <div className="graph-detail">
             <button className="btn btn-primary" onClick={() => onOpen(selected)}>
               {byId.get(selected)?.name}

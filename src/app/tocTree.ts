@@ -1,7 +1,7 @@
 // 목차 트리 — 플랫 제목을 부모-자식 트리로, 접기 상태에서 보이는 항목 계산.
 // 순수 함수 — TocPanel 렌더와 테스트가 공유한다.
 
-import type { Heading } from "../links";
+import { slugifyHeading, type Heading } from "../links";
 
 export interface TocNode {
   heading: Heading;
@@ -71,9 +71,9 @@ export function ancestorSlugs(roots: TocNode[], slug: string): Set<string> {
 
 /** 제목 필터 — 대소문자 무시 부분 일치. 빈 쿼리는 null(필터 아님). */
 export function filterHeadings(headings: Heading[], q: string): Heading[] | null {
-  const query = q.trim().toLowerCase();
+  const query = q.trim().normalize("NFC").toLowerCase();
   if (!query) return null;
-  return headings.filter((h) => h.text.toLowerCase().includes(query));
+  return headings.filter((h) => h.text.normalize("NFC").toLowerCase().includes(query));
 }
 
 /** 위치의 제목 경로(조상 체인) — 상태 줄 브레드크럼. 스택으로 수준 유지. */
@@ -92,8 +92,9 @@ export function duplicateHeadings(headings: Heading[]): Array<{ text: string; po
   const seen = new Map<string, number>();
   const out: Array<{ text: string; pos: number }> = [];
   for (const h of headings) {
-    const n = (seen.get(h.slug) ?? 0) + 1;
-    seen.set(h.slug, n);
+    const key = slugifyHeading(h.text);
+    const n = (seen.get(key) ?? 0) + 1;
+    seen.set(key, n);
     if (n === 2) out.push({ text: h.text, pos: h.pos });
   }
   return out;

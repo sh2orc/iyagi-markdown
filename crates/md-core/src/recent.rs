@@ -20,6 +20,45 @@ pub struct RecentList {
     entries: Vec<RecentEntry>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct RecentSnapshot {
+    pub revision: u64,
+    pub entries: Vec<RecentEntry>,
+}
+
+/// 실행 중 순번은 창 간 늦은 응답을 구분한다. 파일에는 기존 목록 형식을 유지한다.
+pub struct RecentState {
+    list: RecentList,
+    revision: u64,
+}
+
+impl RecentState {
+    pub fn new(list: RecentList) -> Self {
+        Self { list, revision: 0 }
+    }
+    pub fn snapshot(&self) -> RecentSnapshot {
+        RecentSnapshot {
+            revision: self.revision,
+            entries: self.list.entries.clone(),
+        }
+    }
+    pub fn update(
+        &mut self,
+        path: &Path,
+        change: impl FnOnce(&mut RecentList),
+    ) -> std::io::Result<RecentSnapshot> {
+        let mut next = self.list.clone();
+        change(&mut next);
+        if next != self.list {
+            // 기록 실패 시 메모리도 이전 목록을 유지한다.
+            next.save(path)?;
+            self.list = next;
+            self.revision += 1;
+        }
+        Ok(self.snapshot())
+    }
+}
+
 impl RecentList {
     pub fn new() -> Self {
         Self::default()
@@ -70,7 +109,11 @@ impl RecentList {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        std::fs::write(path, serde_json::to_vec_pretty(self).unwrap_or_default())
+        // 원자적 저장(tmp+rename) — 설정·세션·스냅숏과 같은 규약. 평범한
+        // fs::write는 도중 크래시 시 잘린 JSON을 남기고, load는 그걸
+        // 조용히 기본값(빈 목록)으로 삼켜 최근 문서가 통째로 사라진다.
+        crate::io::write_bytes_atomic(path, &serde_json::to_vec_pretty(self).unwrap_or_default())
+            .map_err(|e| std::io::Error::other(e.to_string()))
     }
 }
 
@@ -121,5 +164,59 @@ mod tests {
         std::fs::write(&p, "{not json").unwrap();
         assert_eq!(RecentList::load(&p), RecentList::default());
         let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn failed_clear_preserves_memory_and_revision() {
+        let path = rp("blocked-save");
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        let mut list = RecentList::new();
+        list.push("/a.md");
+        let mut state = RecentState::new(list);
+        assert!(state
+            .update(&path, |list| *list = RecentList::new())
+            .is_err());
+        assert_eq!(state.snapshot().revision, 0);
+        assert_eq!(state.snapshot().entries[0].path, "/a.md");
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn revision_changes_only_after_persisting_a_new_list() {
+        let path = rp("revision");
+        let mut state = RecentState::new(RecentList::new());
+        assert_eq!(
+            state
+                .update(&path, |list| {
+                    list.push("/a.md");
+                })
+                .unwrap()
+                .revision,
+            1
+        );
+        assert_eq!(
+            state
+                .update(&path, |list| {
+                    list.push("/a.md");
+                })
+                .unwrap()
+                .revision,
+            1
+        );
+        let renamed = state
+            .update(&path, |list| {
+                list.remove("/a.md");
+                list.push("/b.md");
+            })
+            .unwrap();
+        assert_eq!(renamed.revision, 2);
+        assert_eq!(RecentList::load(&path).entries()[0].path, "/b.md");
+        let cleared = state
+            .update(&path, |list| *list = RecentList::new())
+            .unwrap();
+        assert_eq!(cleared.revision, 3);
+        assert!(RecentList::load(&path).entries().is_empty());
+        std::fs::remove_file(path).unwrap();
     }
 }

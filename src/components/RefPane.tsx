@@ -146,6 +146,10 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
           title: tab.path ? tab.title : "untitled",
           baseDir,
           theme: store.state.theme,
+          // 이미지·표 폭 사이드카도 본문 미리보기와 동일하게(누락 시 참조
+          // 페인에서만 폭 조절 결과가 안 보임).
+          imageWidths: tab.docStyle?.imageWidths ?? {},
+          tableWidths: tab.docStyle?.tableWidths ?? {},
           style: {
             font: tab.docStyle?.font ?? "system",
             sizePt: tab.docStyle && tab.docStyle.fontSize > 0 ? tab.docStyle.fontSize : 11,

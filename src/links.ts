@@ -1,6 +1,9 @@
 // 링크·경로 해석 — crates/md-core/src/links.rs와 같은 규칙.
 // 양쪽이 일치하는지는 코퍼스 테스트(links.test.ts ↔ Rust 테스트)로 검증한다.
 // Tauri 의존 없이 순수하게 유지한다(단위 테스트·내보내기 공용).
+import { GFM, parser } from "@lezer/markdown";
+import { frontMatterLen } from "./editor/frontmatter";
+import { mathSyntax } from "./editor/mathSyntax";
 
 export type LinkTarget =
   | { kind: "external"; url: string }
@@ -38,8 +41,23 @@ export function percentDecode(s: string): string {
   try {
     return decodeURIComponent(s);
   } catch {
-    // 고립된 %만 이스케이프해 다시 시도.
-    return decodeURIComponent(s.replace(/%(?![0-9a-fA-F]{2})/g, "%25"));
+    // Match Rust's byte decoder, including malformed UTF-8 replacement characters.
+    // Invalid percent escapes remain literal; an incomplete encoded sequence cannot
+    // throw through editor rendering, link navigation, or image previews.
+    const bytes = new TextEncoder().encode(s);
+    const out = new Uint8Array(bytes.length);
+    const hex = (b: number) => b >= 48 && b <= 57 ? b - 48
+      : b >= 65 && b <= 70 ? b - 55 : b >= 97 && b <= 102 ? b - 87 : -1;
+    let used = 0;
+    for (let i = 0; i < bytes.length; i++) {
+      if (bytes[i] === 37 && i + 2 < bytes.length) {
+        const high = hex(bytes[i + 1]), low = hex(bytes[i + 2]);
+        if (high >= 0 && low >= 0) { out[used++] = high * 16 + low; i += 2; continue; }
+      }
+      out[used++] = bytes[i];
+    }
+    // Preserve an encoded BOM inside a URL, as String::from_utf8_lossy does.
+    return new TextDecoder("utf-8", { ignoreBOM: true }).decode(out.subarray(0, used));
   }
 }
 
@@ -58,7 +76,7 @@ export function resolveLink(link: string, baseDir: string): LinkTarget {
   const anchor = hashIdx >= 0 ? percentDecode(trimmed.slice(hashIdx + 1)) : null;
   if (filePart === "") return { kind: "anchor", id: anchor ?? "" };
 
-  if (trimmed.includes("://") || lower.startsWith("data:") || lower.startsWith("javascript:")) {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
     return { kind: "other", url: trimmed };
   }
   const decoded = percentDecode(filePart).replace(/\\/g, "/");
@@ -81,6 +99,21 @@ export function slugifyHeading(text: string): string {
   return slug || "section";
 }
 
+/** Reserve every emitted ID, including suffixes that another title can produce. */
+export function createHeadingSlugger(): (text: string) => string {
+  const next = new Map<string, number>();
+  const used = new Set<string>();
+  return (text) => {
+    const base = slugifyHeading(text);
+    let n = next.get(base) ?? 0;
+    let candidate = n === 0 ? base : `${base}-${n}`;
+    while (used.has(candidate)) candidate = `${base}-${++n}`;
+    next.set(base, n + 1);
+    used.add(candidate);
+    return candidate;
+  };
+}
+
 /** 문서의 모든 제목에 슬러그를 붙인다. 중복은 GitHub처럼 `-1` 접미로 구분. */
 export interface Heading {
   level: number;
@@ -88,54 +121,100 @@ export interface Heading {
   slug: string;
   /** 제목 줄의 첫 글자 위치(문서 오프셋) — TOC 클릭 스크롤용. */
   pos: number;
+  /** Container headings can be navigated to, but cannot be moved as root sections. */
+  movable?: boolean;
 }
 
-/** 원문 텍스트에서 제목을 뽑는다(코드 블록 안의 # 은 무시).
- *  에디터가 없는 경로(내보내기 앵커 계산 등)에서도 쓴다. */
-export function collectHeadings(text: string): Heading[] {
-  const seen = new Map<string, number>();
-  const out: Heading[] = [];
-  let inFence = false;
-  let fence = "";
-  let pos = 0;
-  for (const line of text.split("\n")) {
-    const lineStart = pos;
-    pos += line.length + 1;
-    const trimmed = line.trimStart();
-    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
-      const marker = trimmed.slice(0, 3);
-      if (!inFence) {
-        inFence = true;
-        fence = marker;
-      } else if (marker === fence && trimmed.replace(/`|~/g, "").length === 0) {
-        inFence = false;
-      }
-      continue;
-    }
-    if (inFence) continue;
-    const m = /^(#{1,6})\s+(.*)$/.exec(trimmed);
-    if (m) {
-      const text = m[2].replace(/\s+#+\s*$/, "").trim();
-      const base = slugifyHeading(text);
-      const n = seen.get(base) ?? 0;
-      seen.set(base, n + 1);
-      const slug = n === 0 ? base : `${base}-${n}`;
-      out.push({ level: m[1].length, text, slug, pos: lineStart });
-    }
+const headingParser = parser.configure([GFM, mathSyntax]);
+
+/** 내보내기용 setext 정규화 — 밑줄형 제목 짝(text\n--- · text\n===)에 빈
+ *  줄을 넣어 문단+수평선으로 만든다. 에디터 방침(2026-10-21 '제목은 #/##
+ *  로만')을 comrak(CommonMark) 내보내기까지 일관되게 — 타이핑 가드가 못
+ *  미치는 붙여넣기·오래된 문서 경로를 흡수한다. 인용구 짝은 인용구를
+ *  유지하는 빈 인용 줄(>)을 넣는다. 코드 블록 속 ---/=== 는 트리가 이미
+ *  제외하므로 오탐 없다. 입력은 프런트매터를 뺀 본문. 순수 함수(테스트 대상).
+ *  insertLines: 원본 본문 기준, 빈 줄이 새로 들어간 직전의 밑줄 줄 번호들
+ *  (1-based) — 내보내기 코멘트 줄번호 보정에 쓴다. */
+export function normalizeUnderlineRules(text: string): { text: string; insertLines: number[] } {
+  const inserts: Array<{ pos: number; insert: string; line: number }> = [];
+  headingParser.parse(text).iterate({
+    enter(ref) {
+      if (!/^SetextHeading[12]$/.test(ref.name)) return;
+      const marks = ref.node.getChildren("HeaderMark");
+      const mark = marks[marks.length - 1];
+      if (!mark) return false;
+      const lineStart = text.lastIndexOf("\n", mark.from - 1) + 1;
+      const qm = /^(?:>[ \t]?)+/.exec(text.slice(lineStart, mark.from));
+      const blank = qm ? qm[0].replace(/[ \t]+$/, "") + "\n" : "\n";
+      inserts.push({
+        pos: lineStart,
+        insert: blank,
+        line: text.slice(0, lineStart).split("\n").length,
+      });
+      return false;
+    },
+  });
+  let out = text;
+  for (let i = inserts.length - 1; i >= 0; i--) {
+    const ins = inserts[i];
+    out = out.slice(0, ins.pos) + ins.insert + out.slice(ins.pos);
   }
+  return { text: out, insertLines: inserts.map((i) => i.line) };
+}
+
+/** Parse real ATX/Setext headings while preserving original UTF-16 offsets. */
+export function collectHeadings(text: string): Heading[] {
+  const slugFor = createHeadingSlugger();
+  const out: Heading[] = [];
+  const offset = frontMatterLen(text);
+  const body = text.slice(offset);
+  headingParser.parse(body).iterate({
+    enter(ref) {
+      const match = /^(ATX|Setext)Heading([1-6])$/.exec(ref.name);
+      if (!match) return;
+      const marks = ref.node.getChildren("HeaderMark");
+      if (!marks.length) return false;
+      const atx = match[1] === "ATX";
+      // 밑줄형 setext(text\n--- · text\n===)는 이 앱의 제목이 아니다
+      // (2026-10-21 방침 — 제목은 #/## 로만. 렌더가 제목이 아니므로 TOC에도
+      // 올리지 않는다).
+      if (!atx && /^[-=]+$/.test(body.slice(marks[0].from, marks[0].to))) return false;
+      const from = atx ? marks[0].to : ref.from;
+      const to = atx ? (marks[1]?.from ?? ref.to) : body.lastIndexOf("\n", marks[0].from - 1);
+      const quotes: Array<{ from: number; to: number }> = [];
+      const pending = [ref.node];
+      while (pending.length) {
+        const node = pending.pop()!;
+        if (node.name === "QuoteMark" && node.from >= from && node.to <= to) quotes.push(node);
+        for (let child = node.firstChild; child; child = child.nextSibling) pending.push(child);
+      }
+      let raw = "", at = from;
+      for (const quote of quotes.sort((a, b) => a.from - b.from)) {
+        raw += body.slice(at, quote.from);
+        at = quote.to;
+      }
+      raw += body.slice(at, to);
+      const title = raw.split(/\r?\n/).map((line) => line.trim()).join("\n").trim();
+      const slug = slugFor(title);
+      const absolute = offset + ref.from;
+      out.push({ level: Number(match[2]), text: title, slug,
+        pos: text.lastIndexOf("\n", absolute - 1) + 1,
+        movable: ref.node.parent?.name === "Document" });
+      return false;
+    },
+  });
   return out;
 }
 
-/** 제목들에서 마크다운 목차를 만든다 — 들여쓰기는 단계별 2칸, 앵커는
- *  collectHeadings의 GitHub식 슬러그(중복 -1 접미 포함). 프론트매터는
- *  미리 뗀 텍스트를 넘길 것(호출자 책임). 순수 함수. */
+/** Build valid one-line TOC links, including multiline Setext titles. */
 export function tocMarkdown(headings: Heading[]): string {
   if (headings.length === 0) return "";
   // 최상위 단계를 목록 뿌리로(문서가 h2부터 시작하면 h2가 루트).
   const root = Math.min(...headings.map((h) => h.level));
   const lines = headings.map((h) => {
     const indent = "  ".repeat(Math.max(0, h.level - root));
-    return `${indent}- [${h.text}](#${h.slug})`;
+    const label = h.text.replace(/\s*\n\s*/g, " ").replace(/[\\[\]<>]/g, "\\$&");
+    return `${indent}- [${label}](#${h.slug})`;
   });
   return lines.join("\n");
 }

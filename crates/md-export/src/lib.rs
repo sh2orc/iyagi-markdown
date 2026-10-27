@@ -3,6 +3,8 @@
 
 pub mod citations;
 pub mod docx;
+mod docx_comments;
+mod docx_lists;
 pub mod epub;
 pub mod mathml2omml;
 pub mod svg2dml;
@@ -46,9 +48,28 @@ impl ImageSource {
         }
     }
 
-    /// 경로(절대 또는 base_dir 상대)의 바이트. 없으면 None.
-    pub fn read(&self, path: &str) -> Option<Vec<u8>> {
-        std::fs::read(self.resolve(path)).ok()
+    /// Markdown image URL → local path. Decode exactly once, after separating
+    /// query/fragment so encoded `%23` and `%3F` remain filename characters.
+    /// Remote, data, file and other schemes are not local filesystem paths.
+    pub fn resolve_url(&self, url: &str) -> Option<PathBuf> {
+        let url = url.trim();
+        if url.starts_with("//") {
+            return None;
+        }
+        let path = url.split(['?', '#']).next()?;
+        if path.is_empty() {
+            return None;
+        }
+        match md_core::links::resolve(path, &self.base_dir) {
+            md_core::links::LinkTarget::Asset { path }
+            | md_core::links::LinkTarget::Markdown { path, .. } => Some(path),
+            _ => None,
+        }
+    }
+
+    /// 로컬 이미지 URL의 바이트. 미지원 URL·읽기 실패는 None.
+    pub fn read(&self, url: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.resolve_url(url)?).ok()
     }
 }
 
@@ -64,4 +85,52 @@ fn lexical_clean(path: &std::path::Path) -> PathBuf {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_urls_decode_once_and_ignore_nonlocal_targets() {
+        let source = ImageSource::new("/workspace/docs".into());
+        for (url, expected) in [
+            (
+                "./assets/a%20b.png?v=2#preview",
+                "/workspace/docs/assets/a b.png",
+            ),
+            ("../a%23b%3Fc%2520.SVG#shape", "/workspace/a#b?c%20.SVG"),
+            ("/shared/%ED%95%9C%EA%B8%80.png", "/shared/한글.png"),
+            (
+                " assets\\drawing.svg?version=1 ",
+                "/workspace/docs/assets/drawing.svg",
+            ),
+            ("a%zz.png", "/workspace/docs/a%zz.png"),
+        ] {
+            assert_eq!(
+                source.resolve_url(url),
+                Some(PathBuf::from(expected)),
+                "{url}"
+            );
+        }
+        for url in [
+            "",
+            "  ",
+            "#preview",
+            "?download=1",
+            "//server/image.png",
+            "https://server/image.png",
+            "HTTP://server/image.png",
+            "data:image/png;base64,abc",
+            "file:///shared/image.png",
+            "custom+image:picture.png",
+        ] {
+            assert_eq!(source.resolve_url(url), None, "{url}");
+        }
+        // Raw filesystem paths (used after EPUB URL decoding) keep literal '%'.
+        assert_eq!(
+            source.resolve("assets/a%20b.png"),
+            PathBuf::from("/workspace/docs/assets/a%20b.png")
+        );
+    }
 }

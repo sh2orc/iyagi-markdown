@@ -59,3 +59,48 @@ describe("표 셀 제자리 편집(Word식)", { retry: 2 }, () => {
     view.destroy();
   });
 });
+
+describe("블록 위젯 클릭 = 선택 해제(⌘A 뒤 표 클릭)", { retry: 2 }, () => {
+  const DOC2 = `# 제목
+
+**굵게:**
+
+| a | b |
+|---|---|
+| 1 | 2 |
+`;
+  const strongMarksHidden = (view: EditorView): boolean =>
+    !Array.from(view.contentDOM.querySelectorAll(".cm-line")).some((l) =>
+      /^(#|\*\*)/.test(l.textContent ?? ""),
+    );
+
+  it("전체 선택 뒤 표 셀 클릭 — CM 선택이 접히고 렌더링은 그대로 유지된다", async () => {
+    const view = new EditorView({ state: createDocState(DOC2, "edit"), parent: document.body });
+    await new Promise((r) => setTimeout(r, 120));
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } });
+    await new Promise((r) => setTimeout(r, 60));
+    // ⌘A는 렌더링 째 선택한다(40~42차 의미론) — 원문 마커가 풀리지 않는다.
+    expect(strongMarksHidden(view)).toBe(true);
+    const td = cells()[1][0];
+    click(td);
+    await new Promise((r) => setTimeout(r, 60));
+    const sel = view.state.selection;
+    expect(sel.ranges.length).toBe(1);
+    expect(sel.main.empty).toBe(true);
+    expect(sel.main.head).toBe(DOC2.indexOf("| a"));
+    expect(strongMarksHidden(view)).toBe(true);
+    // 셀 편집(클릭=편집)은 그대로 시작한다.
+    expect(cells()[1][0].classList.contains("md-cell-editing")).toBe(true);
+    view.destroy();
+  });
+
+  it("빈 선택(커서)이면 표 클릭이 커서를 옮기지 않는다(기존 동작 유지)", async () => {
+    const view = new EditorView({ state: createDocState(DOC2, "edit"), parent: document.body });
+    await new Promise((r) => setTimeout(r, 120));
+    view.dispatch({ selection: { anchor: 3 } });
+    click(cells()[1][0]);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(view.state.selection.main.head).toBe(3);
+    view.destroy();
+  });
+});

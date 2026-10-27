@@ -188,6 +188,13 @@ export function showLinkPreview(x: number, y: number, title: string, body: strin
     const rich = document.createElement("div");
     rich.className = "link-preview-rich";
     rich.innerHTML = html;
+    // 렌더 결과의 <a>는 미리보기 장식일 뿐 — 팝오버는 에디터 밖이라 링크
+    // 처리기가 없고, 클릭이 그냥 흘러가면 메인 웹뷰가 외부 사이트로 통째로
+    // 내비게이션한다. 열기는 본문 링크 경로(링크 힌트·컨텍스트 메뉴)로.
+    for (const a of Array.from(rich.querySelectorAll("a"))) {
+      a.addEventListener("click", (e) => e.preventDefault());
+      a.addEventListener("auxclick", (e) => e.preventDefault());
+    }
     popover.append(rich);
   } else {
     if (title) {

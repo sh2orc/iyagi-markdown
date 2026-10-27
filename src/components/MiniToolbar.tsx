@@ -1,7 +1,7 @@
 // 선택 미니 서식 바(Word 시그니처) — 텍스트를 선택하면 선택 영역 위에 뜬다.
 // 모든 동작은 원문 텍스트 편집(§4-1). 스크롤하면 접히고 다음 선택에 다시 뜬다.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
@@ -18,7 +18,6 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
   const state = store.getSnapshot();
   const view = store.view;
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
-  const hostRef = useRef<HTMLDivElement | null>(null);
   /** 링크 편집 대화상자 위치(커서가 링크 안일 때 ✎). */
   const [linkEditPos, setLinkEditPos] = useState<number | null>(null);
   const [hidden, setHidden] = useState(false);
@@ -53,7 +52,11 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
   try {
     const a = view.coordsAtPos(sel.from);
     const b = view.coordsAtPos(sel.to);
-    const host = hostRef.current?.parentElement;
+    // 기준 컨테이너 — 에디터가 살아 있는 한 항상 존재하는 .editor-area.
+    // 예전 hostRef.current?.parentElement는 ref가 .mini-tb 자신에게 붙어
+    // 첫 렌더(마운트 전)에 null → pos=null → 영원히 마운트 못 하는 순환이었다
+    // (선택 서식 바가 아예 뜨지 않던 실버그).
+    const host = view.dom.closest(".editor-area");
     if (a && b && host) {
       const rect = host.getBoundingClientRect();
       pos = {
@@ -87,7 +90,7 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
 
   return (
     <>
-    <div ref={hostRef} className="mini-tb" style={{ top: pos.top, left: pos.left }}>
+    <div className="mini-tb" style={{ top: pos.top, left: pos.left }}>
       <button className="mtb-btn" aria-label={t.tbBold} title={t.tbBold} onMouseDown={(e) => e.preventDefault()} onClick={() => run(fmt.toggleBold)}>
         <b>B</b>
       </button>
@@ -107,7 +110,13 @@ export function MiniToolbar({ store, t }: Props): JSX.Element | null {
         🔗
       </button>
       {tab?.marks.link && (
-        <button className="mtb-btn" aria-label={t.ctxEditLink} title={t.ctxEditLink} onClick={() => setLinkEditPos(pos ? view!.state.selection.main.from : null)}>
+        <button
+          className="mtb-btn"
+          aria-label={t.ctxEditLink}
+          title={t.ctxEditLink}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => setLinkEditPos(view!.state.selection.main.from)}
+        >
           ✎
         </button>
       )}

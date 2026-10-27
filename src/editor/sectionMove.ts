@@ -13,10 +13,10 @@ export interface SectionRange {
  *  섹션 앞의 빈 줄은 포함하지 않는다(이동 뒤 줄 잔여 최소화). */
 export function sectionRange(headings: Heading[], idx: number, docLength: number): SectionRange | null {
   const h = headings[idx];
-  if (!h) return null;
+  if (!h || h.movable === false) return null;
   let end = docLength;
   for (let i = idx + 1; i < headings.length; i++) {
-    if (headings[i]!.level <= h.level) {
+    if (headings[i]!.movable !== false && headings[i]!.level <= h.level) {
       end = headings[i]!.pos;
       break;
     }
@@ -35,8 +35,9 @@ export function moveSection(
   if (srcIdx === dstIdx || srcIdx < 0 || dstIdx < 0) return null;
   const src = sectionRange(headings, srcIdx, docLength);
   const dst = headings[dstIdx];
-  if (!src || !dst) return null;
+  if (!src || !dst || dst.movable === false) return null;
   const dstPos = dst.pos;
+  if (dstPos === src.to) return null; // already immediately before the destination
   // 목적지가 src 범위 안(자기 섹션 내부)이면 무의미.
   if (dstPos > src.from && dstPos < src.to) return null;
   // 삽입 위치가 src 삭제로 밀리면 보정.
@@ -44,8 +45,25 @@ export function moveSection(
   return { from: src.from, to: src.to, insertAt, cursor: insertAt };
 }
 
-/** 섹션 텍스트(이동용) — 끝의 빈 줄들을 잘라 이동 잔여를 남기지 않는다. */
-export function trimSectionForMove(text: string): { text: string; cut: number } {
-  const m = /\s+$/.exec(text);
-  return { text: text.slice(0, m?.index ?? text.length), cut: m ? m[0].length : 0 };
+/** Move using original offsets. Preserve bytes and add only needed block separators. */
+export function sectionMoveChanges(headings: Heading[], srcIdx: number, dstIdx: number, doc: string) {
+  const move = moveSection(headings, srcIdx, dstIdx, doc.length);
+  if (!move) return null;
+  const at = headings[dstIdx].pos;
+  const block = doc.slice(move.from, move.to);
+  const separator = (left: string, right: string): string => {
+    if (!left || !right) return "";
+    const trailing = left.match(/\n*$/)?.[0].length ?? 0;
+    const leading = right.match(/^\n*/)?.[0].length ?? 0;
+    return "\n".repeat(Math.max(0, 2 - trailing - leading));
+  };
+  const gap = separator(doc.slice(0, move.from), doc.slice(move.to));
+  const prefix = separator(doc.slice(0, at), block);
+  const suffix = separator(block, doc.slice(at));
+  const changes = [
+    { from: move.from, to: move.to, insert: gap },
+    { from: at, to: at, insert: prefix + block + suffix },
+  ].sort((a, b) => a.from - b.from);
+  return { changes, cursor: move.insertAt + (at > move.from ? gap.length : 0) + prefix.length };
 }
+

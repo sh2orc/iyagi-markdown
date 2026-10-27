@@ -94,23 +94,17 @@ describe("wikiLinksToMarkdown", () => {
   });
 });
 
-// 자동완성 매칭(37차) — 순수 로직.
-import { describe as d2, expect as e2, it as t2 } from "vitest";
-
-d2("위키링크 자동완성 매칭", () => {
-  // fuzzy는 wikiComplete 내부 — 동일 규칙을 여기서 재현 검증(내보내지 않음).
-  const fuzzy = (query: string, text: string): boolean => {
-    let qi = 0;
-    for (const ch of text) {
-      if (qi < query.length && ch === query[qi]) qi++;
-    }
-    return qi === query.length;
-  };
-  t2("서브시퀀스 — 노트마 → 노트/마케팅", () => {
-    e2(fuzzy("노트마", "노트/마케팅")).toBe(true);
-    e2(fuzzy("노트마", "회의록")).toBe(false);
-  });
-  t2("빈 쿼리는 전부 매치", () => {
-    e2(fuzzy("", "아무거나")).toBe(true);
+describe("명시적인 루트 파일 경로 위키링크", () => {
+  it("동명 문서와 다른 확장자를 분리한다", () => {
+    const index = buildWikiIndex([
+      { kind: "file", name: "memo.md", stem: "memo", path: "/w/memo.md" },
+      { kind: "file", name: "memo.markdown", stem: "memo", path: "/w/memo.markdown" },
+      { kind: "dir", name: "notes", path: "/w/notes", children: [
+        { kind: "file", name: "memo.md", stem: "memo", path: "/w/notes/memo.md" },
+      ] },
+    ]);
+    expect(resolveWikiLink("/memo.markdown", "/w/notes", index)).toBe("/w/memo.markdown");
+    expect(resolveWikiLink("/notes/memo.md", "/w", index)).toBe("/w/notes/memo.md");
+    expect(resolveWikiLink("memo", "/w/notes", index)).toBe("/w/notes/memo.md");
   });
 });

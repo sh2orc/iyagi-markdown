@@ -20,7 +20,9 @@ export function tsvToTable(text: string): string {
   const lines = text.replace(/\r\n?/g, "\n").split("\n").filter((l) => l.trim() !== "");
   if (lines.length === 0) return "";
   const rows = lines.map((l) => l.split("\t"));
-  const cols = Math.max(...rows.map((r) => r.length));
+  // 스프레드 Math.max(...arr)는 인자 한도(~10만)가 있어 대량 엑셀 붙여넣기에서
+  // 죽는다 — reduce로.
+  const cols = rows.reduce((m, r) => Math.max(m, r.length), 0);
   const norm = rows.map((r) => {
     const out = r.map(escCell);
     while (out.length < cols) out.push("");

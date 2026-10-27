@@ -43,4 +43,20 @@ describe("diffLines", () => {
     expect(diffSummary(diffLines("", "a"))).toEqual({ added: 1, removed: 1 });
     expect(diffSummary(diffLines("a", ""))).toEqual({ added: 1, removed: 1 });
   });
+
+  it("큰 문서의 중복·재정렬도 양쪽 원문을 정확히 재구성한다", () => {
+    const lines = Array.from({ length: 2_100 }, (_, i) => `line ${i % 17}`);
+    const before = ["start", ...lines, "end"].join("\n");
+    const after = ["start", "inserted", ...lines.slice(1), lines[0], "end"].join("\n");
+    const ops = diffLines(before, after);
+    expect(ops.filter((op) => op.kind !== "add").map((op) => op.text).join("\n")).toBe(before);
+    expect(ops.filter((op) => op.kind !== "del").map((op) => op.text).join("\n")).toBe(after);
+  });
+
+  it("긴 문서의 끝부분 변경을 생략 안내나 가짜 추가 줄로 대체하지 않는다", () => {
+    const prefix = Array.from({ length: 12_100 }, (_, i) => `line ${i}`).join("\n");
+    const ops = diffLines(`${prefix}\nold`, `${prefix}\nnew`);
+    expect(diffSummary(ops)).toEqual({ added: 1, removed: 1 });
+    expect(ops.filter((op) => op.kind !== "del").map((op) => op.text).join("\n")).toBe(`${prefix}\nnew`);
+  });
 });

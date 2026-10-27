@@ -2,8 +2,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { moveSection, sectionRange, trimSectionForMove } from "./sectionMove";
-import type { Heading } from "../links";
+import { moveSection, sectionMoveChanges, sectionRange } from "./sectionMove";
+import { collectHeadings, type Heading } from "../links";
+import { EditorState } from "@codemirror/state";
 
 const H = (level: number, text: string, pos: number): Heading => ({
   level,
@@ -53,12 +54,33 @@ describe("moveSection", () => {
   });
 });
 
-describe("trimSectionForMove", () => {
-  it("끝 공백 잘라 이동 잔여 없게", () => {
-    expect(trimSectionForMove("# B\n내용\n\n\n")).toEqual({
-      text: "# B\n내용",
-      cut: 3,
-    });
-    expect(trimSectionForMove("# B\n내용").cut).toBe(0);
+describe("sectionMoveChanges", () => {
+  const apply = (doc: string, from: number, to: number) => {
+    const result = sectionMoveChanges(collectHeadings(doc), from, to, doc)!;
+    const state = EditorState.create({ doc }).update({ changes: result.changes, selection: { anchor: result.cursor } }).state;
+    return { text: state.doc.toString(), cursor: state.selection.main.head };
+  };
+  it("많은 빈 줄과 Markdown 줄바꿈 공백을 잘라내지 않고 이동한다", () => {
+    const a = "# A\nfirst  \n\n\n\n", b = "# B\nsecond\n\n", c = "# C\nthird  \n";
+    const result = apply(a + b + c, 0, 2);
+    expect(result.text).toBe(b + a + c);
+    expect(result.cursor).toBe(b.length);
+  });
+  it("개행 없는 마지막 섹션도 제목 경계를 유지한다", () => {
+    const result = apply("# A\n\nbody\n\n# Last\nend  ", 1, 0);
+    expect(result.text).toBe("# Last\nend  \n\n# A\n\nbody\n\n");
+    expect(result.cursor).toBe(0);
+  });
+  it("컨테이너 제목을 섹션 경계나 이동 대상으로 삼지 않는다", () => {
+    const doc = "# A\n\n> # quoted\n\n# B\n\nbody\n";
+    const headings = collectHeadings(doc);
+    expect(sectionRange(headings, 0, doc.length)).toEqual({ from: 0, to: doc.indexOf("# B") });
+    expect(sectionMoveChanges(headings, 1, 2, doc)).toBeNull();
+    expect(sectionMoveChanges(headings, 2, 1, doc)).toBeNull();
+    expect(apply(doc, 2, 0).text).toContain("# A\n\n> # quoted\n\n");
+  });
+  it("인접한 다음 제목 앞에 이미 있는 섹션은 바꾸지 않는다", () => {
+    const doc = "# A\n\nbody\n\n# B\n";
+    expect(sectionMoveChanges(collectHeadings(doc), 0, 1, doc)).toBeNull();
   });
 });

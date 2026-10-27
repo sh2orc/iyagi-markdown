@@ -1,11 +1,9 @@
-// 버전 기록 패널 — 저장이 교체한 이전 상태들(스냅숏 사이드카)을 보여 주고
-// 되돌린다(Obsidian file recovery·Notion 버전 기록). 되돌리기는 버퍼만 바꾼다
-// — 사용자가 저장(⌘S)해야 확정된다(실수로 원문까지 즉시 덮지 않게).
-
-import { useEffect, useMemo, useRef, useState } from "react";
+// 목록·미리보기·복원이 선택한 시각을 공유하며 복원 전 버퍼를 반드시 보존한다.
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { api, isInApp, type SnapshotInfo } from "../api";
 import type { AppStore } from "../app/store";
+import { imeComposing } from "../app/ime";
 import { diffLines, diffSummary } from "../editor/diff";
 import type { Translate } from "../i18n";
 
@@ -13,8 +11,10 @@ interface Props {
   store: AppStore;
   t: Translate;
   onClose: () => void;
-  onRestore: (text: string) => void;
+  onRestored: () => void;
 }
+
+const PREVIEW_LIMIT = 200_000;
 
 function relTime(t: Translate, ts: number): string {
   const min = Math.round((Date.now() - ts) / 60_000);
@@ -27,183 +27,200 @@ function relTime(t: Translate, ts: number): string {
   return new Date(ts).toLocaleString();
 }
 
-export function VersionsPanel({ store, t, onClose, onRestore }: Props): JSX.Element | null {
-  const path = store.active?.path ?? null;
-  const [list, setList] = useState<SnapshotInfo[] | null>(null);
-  const [sel, setSel] = useState(-1);
-  const [preview, setPreview] = useState<string | null>(null);
+export function VersionsPanel({ store, t, onClose, onRestored }: Props): JSX.Element {
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  // 패널을 연 뒤 탭이 바뀌어도 기록의 대상을 바꾸지 않는다.
+  const [target] = useState(() => {
+    const tab = store.active;
+    return { id: tab?.id, path: tab?.path ?? null, title: tab?.title ?? t.untitled };
+  });
+  const tab = state.tabs.find((item) => item.id === target.id);
+  const targetValid = !!tab && tab.path === target.path && state.activeId === target.id;
+  const locked = !!target.id && store.lockedTabIds.has(target.id);
+  const [items, setItems] = useState<SnapshotInfo[] | null>(null);
+  const [selectedTs, setSelectedTs] = useState<number | null>(null);
+  const [preview, setPreview] = useState<{ ts: number; text: string } | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [readError, setReadError] = useState<{ ts: number; message: string } | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [listAttempt, setListAttempt] = useState(0);
+  const [readAttempt, setReadAttempt] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [view, setView] = useState<"preview" | "diff">("diff");
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const alive = useRef(true);
 
   useEffect(() => {
-    // 오버레이 자체 포커스 — 키보드 탐색(다른 패널과 같은 규칙).
-    listRef.current?.parentElement?.focus();
+    alive.current = true;
+    overlayRef.current?.focus();
+    return () => { alive.current = false; };
   }, []);
 
-  const step = (from: number, delta: number): number => {
-    let i = from;
-    const n = items?.length ?? 0;
-    for (;;) {
-      const next = i + delta;
-      if (next < 0 || next >= n) return i;
-      i = next;
+  useEffect(() => {
+    setItems(null);
+    setListError(null);
+    setSelectedTs(null);
+    setPreview(null);
+    if (!target.path || !isInApp()) {
+      setItems([]);
+      return;
+    }
+    let disposed = false;
+    void api.snapshotList(target.path).then((list) => {
+      if (disposed) return;
+      const sorted = [...list].sort((a, b) => b.ts - a.ts);
+      setItems(sorted);
+      setSelectedTs(sorted[0]?.ts ?? null);
+    }).catch((error: unknown) => {
+      if (!disposed) setListError(String(error));
+    });
+    return () => { disposed = true; };
+  }, [target.path, listAttempt]);
+
+  useEffect(() => {
+    setPreview(null);
+    setReadError(null);
+    if (!target.path || selectedTs === null) return;
+    let disposed = false;
+    const ts = selectedTs;
+    void api.snapshotRead(target.path, ts).then((text) => {
+      if (!disposed) setPreview({ ts, text });
+    }).catch((error: unknown) => {
+      if (!disposed) setReadError({ ts, message: String(error) });
+    });
+    return () => { disposed = true; };
+  }, [target.path, selectedTs, readAttempt]);
+
+  // 새 선택의 렌더부터 effect 실행 전까지도 이전 내용을 복원할 수 없게 한다.
+  const text = preview && preview.ts === selectedTs ? preview.text : null;
+  const error = readError && readError.ts === selectedTs ? readError.message : null;
+  const currentDoc = tab?.state.doc;
+  const currentText = useMemo(() => currentDoc?.toString() ?? "", [currentDoc]);
+  const large = useMemo(() => text !== null && (text.length + currentText.length > PREVIEW_LIMIT ||
+    (currentDoc?.lines ?? 0) + text.split("\n").length > 12_000), [text, currentText, currentDoc]);
+  const ops = useMemo(() => view === "diff" && text !== null && !large && text !== currentText
+    ? diffLines(currentText, text) : [], [view, text, currentText, large]);
+  const summary = useMemo(() => diffSummary(ops), [ops]);
+
+  const select = (ts: number) => {
+    if (busyRef.current) return;
+    setSelectedTs(ts);
+    setRestoreError(null);
+  };
+  const restore = async () => {
+    if (busyRef.current || !targetValid || locked || !target.id || !target.path || !currentDoc || text === null) return;
+    busyRef.current = true;
+    // 클릭한 버튼이 disabled가 되어도 Esc 처리가 모달 밖으로 빠져나가지 않게 한다.
+    overlayRef.current?.focus();
+    setBusy(true);
+    setRestoreError(null);
+    try {
+      await store.restoreVersion(target.id, target.path, currentDoc, text);
+      if (alive.current) onRestored();
+    } catch (error: unknown) {
+      if (alive.current) setRestoreError(String(error));
+    } finally {
+      busyRef.current = false;
+      if (alive.current) setBusy(false);
     }
   };
 
-  useEffect(() => {
-    setSel(-1);
-    setPreview(null);
-    if (!path || !isInApp()) {
-      setList([]);
-      return;
-    }
-    let disposed = false;
-    void api
-      .snapshotList(path)
-      .then((l) => {
-        if (!disposed) setList(l);
-      })
-      .catch(() => {
-        if (!disposed) setList([]);
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [path]);
-
-  useEffect(() => {
-    if (!path || sel < 0 || !list || !list[sel]) {
-      setPreview(null);
-      return;
-    }
-    let disposed = false;
-    const ts = list[sel].ts;
-    setPreview(null); // 로드 중 표시
-    void api
-      .snapshotRead(path, ts)
-      .then((text) => {
-        if (!disposed) setPreview(text);
-      })
-      .catch(() => {
-        if (!disposed) setPreview(null);
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [path, sel, list]);
-
-  // 목록은 새 것부터(가장 최근의 이전 상태가 위).
-  const items = list ? [...list].reverse() : null;
-
-  // 변경사항: 현재 버퍼 → 이 버전. add=복원으로 얻는 줄, del=잃는 줄.
-  const currentText = store.active?.state.doc.toString() ?? null;
-  const ops = useMemo(
-    () => (view === "diff" && preview !== null && currentText !== null ? diffLines(currentText, preview) : []),
-    [view, preview, currentText],
-  );
-  const summary = useMemo(() => diffSummary(ops), [ops]);
-
   return (
-    <div
-      className="overlay modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      tabIndex={-1}
-      onKeyDown={(e) => {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          setSel((v) => step(v, 1));
-        } else if (e.key === "ArrowUp") {
-          e.preventDefault();
-          setSel((v) => step(v, -1));
-        } else if (e.key === "Enter") {
-          e.preventDefault();
-          const snap = items?.[sel];
-          if (snap && preview !== null) onRestore(preview);
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          onClose();
+    <div ref={overlayRef} className="overlay modal-overlay" role="dialog" aria-modal="true"
+      aria-labelledby="versions-title" aria-describedby="versions-hint" aria-busy={busy} tabIndex={-1}
+      onKeyDown={(event) => {
+        if (imeComposing(event)) return;
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!busyRef.current) onClose();
         }
       }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
+      onClick={(event) => { if (event.target === event.currentTarget && !busyRef.current) onClose(); }}>
       <div className="modal versions-modal">
-        <div className="modal-title">
-          {t.versionsTitle}
-          <span className="modal-file-name">{store.active?.title ?? t.untitled}</span>
+        <div className="modal-title" id="versions-title">
+          {t.versionsTitle}<span className="modal-file-name">{target.title}</span>
         </div>
+        <p className="versions-hint" id="versions-hint">
+          {t.versionsRestoreHint} {state.settings.autosave ? t.versionsAutosaveHint : t.versionsManualSaveHint}
+        </p>
+        {!targetValid && <p role="alert" className="versions-hint">{t.versionsTargetChanged}</p>}
+        {locked && <p role="alert" className="versions-hint">{t.lockedNoEdit}</p>}
         <div className="versions-body">
-          <div className="versions-list" ref={listRef}>
-            {items === null && <div className="palette-empty">…</div>}
-            {items !== null && items.length === 0 && (
-              <div className="palette-empty">{path ? t.versionsEmpty : t.emptyNoDoc}</div>
-            )}
-            {items?.map((s, i) => (
-              <button
-                key={s.ts}
-                className={`versions-item ${i === sel ? "is-sel" : ""}`}
-                onClick={() => setSel(i)}
-              >
-                <span className="versions-time">{relTime(t, s.ts)}</span>
-                <span className="versions-size">{s.size.toLocaleString()} B</span>
-              </button>
-            ))}
-          </div>
-          <div className="versions-preview">
-            <div className="versions-viewbar">
-              <button
-                className={`versions-viewbtn ${view === "diff" ? "is-on" : ""}`}
-                onClick={() => setView("diff")}
-              >
-                {t.versionsViewDiff}
-                {preview !== null && ops.length > 0 && (
-                  <span className="diff-summary">
-                    {" "}
-                    <span className="diff-add-c">+{summary.added}</span>{" "}
-                    <span className="diff-del-c">−{summary.removed}</span>
-                  </span>
-                )}
-              </button>
-              <button
-                className={`versions-viewbtn ${view === "preview" ? "is-on" : ""}`}
-                onClick={() => setView("preview")}
-              >
-                {t.versionsViewPreview}
-              </button>
+          <div className="versions-sidebar">
+            {listError ? <div className="palette-empty" role="alert">
+              {t.versionsLoadFailed}<p>{listError}</p>
+              <button className="btn" onClick={() => setListAttempt((value) => value + 1)}>{t.wsRetry}</button>
+            </div> : items === null ? <div className="palette-empty" role="status">{t.versionsLoading}</div>
+              : items.length === 0 ? <div className="palette-empty">{target.path ? t.versionsEmpty : t.emptyNoDoc}</div> : null}
+            <div className="versions-list" ref={listRef} role="listbox" aria-label={t.versionsTitle}
+              onKeyDown={(event) => {
+                if (imeComposing(event) || !items?.length) return;
+                const index = items.findIndex((item) => item.ts === selectedTs);
+                let next: number;
+                if (event.key === "ArrowDown") next = Math.min(items.length - 1, index + 1);
+                else if (event.key === "ArrowUp") next = Math.max(0, index - 1);
+                else if (event.key === "Home") next = 0;
+                else if (event.key === "End") next = items.length - 1;
+                else return;
+                event.preventDefault();
+                if (busyRef.current) return;
+                select(items[next].ts);
+                const button = listRef.current?.querySelector<HTMLButtonElement>(`[data-ts="${items[next].ts}"]`);
+                button?.focus();
+                button?.scrollIntoView({ block: "nearest" });
+              }}>
+              {items?.map((item) => (
+                <button key={item.ts} data-ts={item.ts} role="option" aria-selected={item.ts === selectedTs}
+                  tabIndex={item.ts === selectedTs ? 0 : -1} disabled={busy}
+                  title={new Date(item.ts).toLocaleString()}
+                  className={`versions-item ${item.ts === selectedTs ? "is-sel" : ""}`}
+                  onFocus={() => select(item.ts)} onClick={() => select(item.ts)}>
+                  <span className="versions-time">{relTime(t, item.ts)}</span>
+                  <span className="versions-size">{item.size.toLocaleString()} B</span>
+                </button>
+              ))}
             </div>
-            {preview === null ? (
-              <div className="palette-empty">{sel < 0 ? t.versionsPick : "…"}</div>
-            ) : view === "diff" ? (
-              ops.length === 0 ? (
-                <div className="palette-empty">{t.diffSame}</div>
-              ) : (
-                <div className="versions-diff">
-                  {ops.map((op, i) => (
-                    <pre key={i} className={`diff-line diff-${op.kind}`}>
-                      <span className="diff-gutter">{op.kind === "add" ? "+" : op.kind === "del" ? "−" : " "}</span>
-                      <code>{op.text}</code>
-                    </pre>
-                  ))}
+          </div>
+          <div className="versions-preview" aria-busy={selectedTs !== null && text === null && !error}>
+            <div className="versions-viewbar">
+              <button className={`versions-viewbtn ${view === "diff" ? "is-on" : ""}`}
+                aria-pressed={view === "diff"} onClick={() => setView("diff")}>
+                {t.versionsViewDiff}
+                {view === "diff" && text !== null && !large && <span className="diff-summary">
+                  {" "}<span className="diff-add-c">+{summary.added}</span>{" "}<span className="diff-del-c">−{summary.removed}</span>
+                </span>}
+              </button>
+              <button className={`versions-viewbtn ${view === "preview" ? "is-on" : ""}`}
+                aria-pressed={view === "preview"} onClick={() => setView("preview")}>{t.versionsViewPreview}</button>
+            </div>
+            {error ? <div className="palette-empty" role="alert">
+              {t.versionsReadFailed}<p>{error}</p>
+              <button className="btn" onClick={() => { setReadError(null); setReadAttempt((value) => value + 1); }}>{t.wsRetry}</button>
+            </div> : text === null ? <div className="palette-empty" role="status">
+              {selectedTs === null ? t.versionsPick : t.versionsLoading}
+            </div> : large ? <>
+              <p className="versions-hint">{t.versionsLargePreview}</p>
+              <pre tabIndex={0}>{text.slice(0, PREVIEW_LIMIT)}{text.length > PREVIEW_LIMIT ? "\n…" : ""}</pre>
+            </> : view === "diff" ? (
+              text === currentText ? <div className="palette-empty">{t.diffSame}</div> :
+                <div className="versions-diff" tabIndex={0}>
+                  {ops.map((op, i) => <pre key={i} className={`diff-line diff-${op.kind}`}>
+                    <span className="diff-gutter">{op.kind === "add" ? "+" : op.kind === "del" ? "−" : " "}</span>
+                    <code>{op.text}</code>
+                  </pre>)}
                 </div>
-              )
-            ) : (
-              <pre>{preview}</pre>
-            )}
+            ) : <pre tabIndex={0}>{text}</pre>}
           </div>
         </div>
+        {restoreError && <p role="alert" className="versions-hint">{t.versionsRestoreFailed} {restoreError}</p>}
         <div className="modal-actions">
-          <button className="btn" onClick={onClose}>
-            {t.close}
-          </button>
-          <button
-            className="btn btn-primary"
-            disabled={preview === null}
-            onClick={() => {
-              if (preview !== null) onRestore(preview);
-            }}
-          >
-            {t.versionsRestore}
-          </button>
+          <button className="btn" onClick={onClose} disabled={busy}>{t.close}</button>
+          <button className="btn btn-primary"
+            disabled={busy || !targetValid || locked || text === null || text === currentText}
+            onClick={() => void restore()}>{busy ? t.versionsRestoring : t.versionsRestore}</button>
         </div>
       </div>
     </div>

@@ -4,8 +4,7 @@ import type { AppStore } from "../app/store";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
 import { redo, undo } from "@codemirror/commands";
-import { api, pickImageFile } from "../api";
-import { relPath } from "../paths";
+import { pickImageFile } from "../api";
 
 interface Props {
   store: AppStore;
@@ -33,6 +32,8 @@ function ToolBtn({
     <button
       className={`tb-btn ${narrow ? "tb-btn-narrow" : ""} ${active ? "is-active" : ""}`}
       aria-label={title}
+      // 토글로 쓰이는 버튼(active 전달)은 눌림 상태를 보조기기에 노출.
+      {...(active !== undefined ? { "aria-pressed": active } : {})}
       title={title}
       disabled={disabled}
       onMouseDown={(e) => e.preventDefault()} // 에디터 포커스 유지
@@ -102,22 +103,7 @@ export function Toolbar({ store, t, onInsertTable,
           title={t.tbImage}
           disabled={disabled}
           onClick={() => {
-            void (async () => {
-              const picked = await pickImageFile();
-              if (!picked) return;
-              const tab = store.active;
-              const dir = tab?.path
-                ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/"
-                : store.state.workspace;
-              if (!tab || !dir || !store.view) return;
-              try {
-                const absPath = await api.importImage(picked, dir);
-                fmt.insertImageRef(store.view, relPath(dir, absPath));
-                store.view.focus();
-              } catch {
-                /* 취소·실패 무시 */
-              }
-            })();
+            void store.importImages(store.view, pickImageFile);
           }}
         />
         <ToolBtn

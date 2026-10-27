@@ -1,15 +1,15 @@
 // 소스 모드 오른쪽 미리보기 — 왼쪽 소스와 같은 문서를 읽기 스타일로 렌더.
 // 내보내기 파이프라인(renderExportBody·buildExportHtml)을 그대로 타서
-// "미리보기=내보내기 결과"가 보장된다(인쇄 미리보기와 캐시 공유). 렌더는
+// 내보내기와 같은 문서 스냅샷을 사용한다. 본문 캐시는 이 패널에만 둔다. 렌더는
 // 300ms 디바운스, 왼쪽 스크롤을 오른쪽에 비례 동기(rAF 스로틀).
 // 폭 드래그는 RefPane 규약(컨테이너 % · localStorage 저장 · 클램프).
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { api } from "../api";
-import { previewBodyCache } from "./PrintPreview";
-import { frontMatterMeta } from "../editor/frontmatter";
-import { resolveWikiLink } from "../editor/wiki";
+import { captureExportSnapshot, type ExportSnapshot } from "../export/snapshot";
+import { createPreviewRenderer, snapshotHtmlOptions } from "../export/preview";
+import type { Translate } from "../i18n";
 import type { AppStore, Tab } from "../app/store";
 
 const SRC_W_KEY = "iyagi.sourcePreviewWidth";
@@ -37,9 +37,15 @@ export function SourcePreview({
 }: {
   store: AppStore;
   tab: Tab;
-  t: { previewPaneTitle: string };
+  t: Translate;
 }): JSX.Element {
   const [html, setHtml] = useState("");
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const [renderedSnapshot, setRenderedSnapshot] = useState<ExportSnapshot | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  const renderer = useRef<ReturnType<typeof createPreviewRenderer> | null>(null);
+  if (!renderer.current) renderer.current = createPreviewRenderer();
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const [w, setW] = useState<number>(() => {
     const saved = Number(localStorage.getItem(SRC_W_KEY));
@@ -73,75 +79,27 @@ export function SourcePreview({
       window.removeEventListener("pointerup", onUp);
     };
   }, []);
-  const baseDir = tab.path
-    ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/"
-    : store.state.workspace ?? "";
-  const text = tab.state.doc.toString();
-  const theme = store.state.theme;
+  const snapshot = useMemo(() => captureExportSnapshot(tab, {
+    workspace: state.workspace, theme: state.theme, pageNumbers: false, header: false,
+    wikiIndex: store.wikiIndex, lang: t.lang,
+  }), [tab, tab.state.doc, tab.path, tab.title, tab.docStyle, state.workspace, state.theme,
+    store.wikiIndex, state.linksRevision, t.lang]);
 
   useEffect(() => {
     let alive = true;
+    setError(null);
     const id = setTimeout(() => {
-      void (async () => {
-        const { buildExportHtml, renderExportBody } = await import("../export/html");
-        let cached = previewBodyCache.get(text);
-        if (cached === undefined) {
-          cached = await renderExportBody(text, {
-            title: tab.path ? tab.title : "untitled",
-            theme,
-            baseDir,
-            wikiResolve: (name: string) => resolveWikiLink(name, baseDir, store.wikiIndex),
-            readBytes: async (p: string) => {
-              try {
-                return new Uint8Array(await api.readFileBytes(p));
-              } catch {
-                return null;
-              }
-            },
-          });
-          previewBodyCache.set(text, cached);
-          if (previewBodyCache.size > 3) {
-            previewBodyCache.delete(previewBodyCache.keys().next().value as string);
-          }
-        }
-        const ds = tab.docStyle;
-        const fm = frontMatterMeta(text);
-        const built = await buildExportHtml(text, {
-          preRendered: cached,
-          title: fm?.title || (tab.path ? tab.title : "untitled"),
-          baseDir,
-          theme,
-          forPdf: false,
-          imageWidths: ds?.imageWidths ?? {},
-          tableWidths: ds?.tableWidths ?? {},
-          style: {
-            font: ds?.font ?? "system",
-            sizePt: ds && ds.fontSize > 0 ? ds.fontSize : 11,
-            lineHeight: ds?.lineHeight ?? 0,
-            firstLineIndent: ds?.firstLineIndent ?? false,
-            textAlign: ds?.textAlign ?? "left",
-            accent: ds?.accent ?? null,
-          },
-          wikiResolve: (name: string) => resolveWikiLink(name, baseDir, store.wikiIndex),
-          readBytes: async (p: string) => {
-            try {
-              return new Uint8Array(await api.readFileBytes(p));
-            } catch {
-              return null;
-            }
-          },
-        });
-        if (alive) setHtml(built);
-      })();
+      const options = snapshotHtmlOptions(snapshot, async (path) => {
+        try { return new Uint8Array(await api.readFileBytes(path)); } catch { return null; }
+      });
+      void renderer.current!(snapshot, options).then((built) => {
+        if (alive) { setHtml(built); setRenderedSnapshot(snapshot); }
+      }).catch((reason: unknown) => {
+        if (alive) setError(reason instanceof Error ? reason.message : String(reason));
+      });
     }, 300);
-    return () => {
-      alive = false;
-      clearTimeout(id);
-    };
-    // tab.docStyle — 제자리 변이라 객체 자체를 의존성에 넣어야 스타일·이미지
-    // 폭 변경이 재렌더된다(열 때 비동기 로드 경합도 커버).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text, theme, baseDir, tab, tab.docStyle, store]);
+    return () => { alive = false; clearTimeout(id); };
+  }, [snapshot, retry]);
 
   // 왼쪽(소스) 스크롤 → 오른쪽 비례 동기.
   useEffect(() => {
@@ -203,7 +161,10 @@ export function SourcePreview({
           }
         }}
       />
-      {html ? (
+      {error ? <div className="preview-error" role="alert">
+        <p>{t.previewFailed}: {error}</p>
+        <button className="btn" onClick={() => { renderer.current = createPreviewRenderer(); setRetry((value) => value + 1); }}>{t.wsRetry}</button>
+      </div> : html && renderedSnapshot === snapshot ? (
         <iframe
           ref={frameRef}
           title={t.previewPaneTitle}
@@ -212,7 +173,7 @@ export function SourcePreview({
           onLoad={onScroll0(store, frameRef)}
         />
       ) : (
-        <div className="src-preview-loading">
+        <div className="src-preview-loading" role="status" aria-label={t.loading}>
           <div className="spinner" />
         </div>
       )}

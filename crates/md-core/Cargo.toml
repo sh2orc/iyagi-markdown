@@ -8,6 +8,8 @@ authors.workspace = true
 description = "IYAGI Markdown — OS 무관 순수 로직: 문서 IO(원문 보존), 링크 해석, 폴더 트리, 세션, 최근 문서, 설정, i18n."
 
 [dependencies]
+comrak = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+unicode-normalization = "0.1.25"

@@ -7,8 +7,9 @@
 // 편집 화면(CM6 위젯)과는 별개 파이프라인이다 — 모양 차이는 공통 CSS 토큰으로 관리(§4-4).
 
 import MarkdownIt, { type MarkdownIt as MarkdownItType, type StateInline, type Token } from "markdown-it";
+import type { DocxManifest } from "../api";
 import { htmlTableKey } from "../editor/tableKey";
-import { slugifyHeading } from "../links";
+import { createHeadingSlugger } from "../links";
 import { captionWorthy } from "../editor/caption";
 import { applyTableCaptions } from "../editor/tableCaption";
 import footnote from "markdown-it-footnote";
@@ -18,13 +19,16 @@ import { ensureKatex, renderMathMl } from "../plugins/katex";
 import { renderMermaidForExport } from "../plugins/mermaid";
 import { frontMatterMeta, stripFrontMatter } from "../editor/frontmatter";
 import { isPageBreakLine } from "../editor/pagebreak";
-import { citeDefsToHtml, citeDisplay, citeNumbering } from "../editor/citations";
+import { citeDisplay, citeNumbering } from "../editor/citations";
+import { CALLOUT_ICONS, calloutKeyOf } from "../editor/widgets";
 import { wikiLinksToMarkdown } from "../editor/wiki";
 
 export interface ExportHtmlOptions {
   title: string;
   baseDir: string;
   theme: "light" | "dark";
+  /** Small selection previews can show diagram source without mounting Mermaid. */
+  renderDiagrams?: boolean;
   /** 문서별 스타일(라이브 프리뷰와 동일 반영 — 폰트·크기·행간·들여쓰기·정렬·강조색). */
   style?: {
     font: "system" | "serif" | "round" | "mono";
@@ -38,6 +42,8 @@ export interface ExportHtmlOptions {
   };
   /** PDF용: 본문 여백(mm)과 배율을 CSS에 반영한다. */
   forPdf?: boolean;
+  paper?: "a4" | "letter" | "a5";
+  orientation?: "portrait" | "landscape";
   marginMm?: number;
   scale?: number;
   /** PDF 하단 페이지 번호(N / M — WebKit 인쇄에서 매 페이지 반복). */
@@ -76,7 +82,7 @@ function makeMd(): MarkdownItType {
   md.core.ruler.push("iyagi_pagebreak", (state) => {
     const tokens = state.tokens;
     for (let i = 0; i + 2 < tokens.length; i++) {
-      if (tokens[i].type !== "paragraph_open") continue;
+      if (tokens[i].type !== "paragraph_open" || tokens[i].meta?.iyagiBibliography) continue;
       if (tokens[i + 1]?.type !== "inline" || tokens[i + 2]?.type !== "paragraph_close") continue;
       if (!isPageBreakLine(tokens[i + 1].content)) continue;
       const br = new state.Token("html_block", "", 0);
@@ -105,14 +111,11 @@ function makeMd(): MarkdownItType {
     `<mark class="hl">${escapeHtml(tokens[idx].content)}</mark>`;
   // 제목에 슬러그 id — 내부 앵커(#해시) 링크가 내보내기 HTML에서도 작동하게
   // 하고 정적 목차가 같은 id를 가리키게 한다. 규칙은 links.ts와 동일.
-  const slugSeen = new Map<string, number>();
+  const slugFor = createHeadingSlugger();
   md.renderer.rules.heading_open = (tokens, idx) => {
     const lvl = tokens[idx].tag;
     const text = tokens[idx + 1]?.content ?? "";
-    let slug = slugifyHeading(text);
-    const n = (slugSeen.get(slug) ?? 0) + 1;
-    slugSeen.set(slug, n);
-    if (n > 1) slug = `${slug}-${n - 1}`;
+    const slug = slugFor(text);
     return `<${lvl} id="${slug}">`;
   };
   md.inline.ruler.before("escape", "iyagi_math", (state: StateInline, silent: boolean) => {
@@ -149,6 +152,55 @@ interface FenceInfo {
   code: string;
 }
 
+function restoreLiteralCitations(tokens: Token[]): void {
+  for (const token of tokens) {
+    if (token.type === "iyagi_cite") {
+      token.content = (token.meta as { raw: string }).raw;
+      token.type = "text";
+      token.meta = null;
+    }
+    if (token.children) restoreLiteralCitations(token.children);
+  }
+}
+
+/// 인용 바로 양쪽에 같은 강조 마커(`**`·`*`·`***`·`__`·`_`·`~~`)가 정확히
+/// 붙어 있으면 감쌀 태그와 마커를 돌려준다. 여는 마커의 구분자 항목과
+/// 텍스트 토큰은 제거한다 — 짝이 사라진 마커는 리터럴로 새어 나오므로.
+function citationEmphasisWrap(state: StateInline, pos: number, after: number): { tags: string[]; markup: string } | null {
+  const src = state.src;
+  const openChar = src[pos - 1];
+  if (openChar !== "*" && openChar !== "_" && openChar !== "~") return null;
+  let start = pos;
+  while (start > 0 && src[start - 1] === openChar) start--;
+  const len = pos - start;
+  // ~ 는 취소선이 2글자뿐, *·_ 런은 1..3글리만.
+  if (openChar === "~" ? len !== 2 : len < 1 || len > 3) return null;
+  // 앞이 같은 글자로 더 이어지거나(****) 이스케이프면 그대로 둔다.
+  if (start > 0 && (src[start - 1] === openChar || src[start - 1] === "\\")) return null;
+  // 닫는 런이 같은 글자·같은 길이로 바로 뒤에 와야 한다.
+  for (let i = 0; i < len; i++) if (src[after + i] !== openChar) return null;
+  if (src[after + len] === openChar) return null;
+  // 여는 런의 구분자 항목(*·_ 는 글자당 하나, ~ 는 런 전체가 하나)과
+  // 각 항목이 가리키는 텍스트 토큰을 함께 지운다.
+  const delimiters = state.delimiters;
+  const marker = openChar.charCodeAt(0);
+  const victims: number[] = [];
+  let remaining = len;
+  for (let i = delimiters.length - 1; i >= 0 && remaining > 0; i--) {
+    const entry = delimiters[i];
+    if (entry.marker !== marker) return null;
+    const token = state.tokens[entry.token];
+    if (!token || token.type !== "text" || !token.content || !Array.from(token.content).every((c) => c === openChar)) return null;
+    remaining -= token.content.length;
+    victims.push(entry.token);
+  }
+  if (remaining !== 0 || victims.length === 0) return null;
+  delimiters.length -= victims.length;
+  for (const index of victims) state.tokens[index].content = "";
+  const tags = openChar === "~" ? ["s"] : len === 1 ? ["em"] : len === 2 ? ["strong"] : ["strong", "em"];
+  return { tags, markup: openChar.repeat(len) };
+}
+
 /** 마크다운 → HTML 본문 + 수식/다이어그램 정보. 비동기(렌더 완료를 기다린다). */
 export async function renderMarkdownBody(
   markdown: string,
@@ -163,7 +215,7 @@ export async function renderMarkdownBody(
   md.renderer.rules.fence = (tokens: Token[], idx: number) => {
     const token = tokens[idx];
     const info = (token.info || "").trim().split(/\s+/)[0]?.toLowerCase() || "";
-    if (info === "mermaid") {
+    if (info === "mermaid" && opts.renderDiagrams !== false) {
       const i = diagrams.length;
       diagrams.push({ lang: "mermaid", code: token.content });
       return `<div class="mermaid-block" data-mermaid="${i}"></div>`;
@@ -192,35 +244,151 @@ export async function renderMarkdownBody(
     }
   };
 
-  // 인용·서지 — 정의 줄을 먼저 원시 HTML로(링크 참조 정의 소진 회피),
-  // 본문 [@key]는 [N] 위첨자 링크로(첫 등장 순 번호).
+  // 서지는 블록 토큰으로 만들어 항목 안 인라인 서식과 부모 목록을 유지한다.
+  // 원문 줄 번호는 Markdown-it의 CRLF → LF 정규화 이후에도 동일하다.
   const numbering = citeNumbering(markdown);
-  markdown = citeDefsToHtml(markdown, numbering, escapeHtml);
+  const definitions = new Map(numbering.definitions.map((definition) => [definition.line - 1, definition]));
+  md.block.ruler.before("reference", "iyagi_bibliography", (state, startLine, _endLine, silent) => {
+    const definition = definitions.get(startLine);
+    if (!definition || state.sCount[startLine] - state.blkIndent >= 4) return false;
+    const start = state.bMarks[startLine] + state.tShift[startLine];
+    const prefix = `[@${definition.key}]:`;
+    if (!state.src.startsWith(prefix, start)) return false;
+    if (silent) return true;
+
+    const open = state.push("paragraph_open", "p", 1);
+    open.map = [startLine, startLine + 1];
+    open.meta = { iyagiBibliography: true };
+    open.attrSet("class", "ref-entry");
+    if (numbering.defs.get(definition.key)?.line === definition.line) {
+      open.attrSet("id", `ref-${definition.key}`);
+    }
+    const inline = state.push("inline", "", 0);
+    inline.map = open.map;
+    inline.content = state.src.slice(start + prefix.length, state.eMarks[startLine]).replace(/^[ \t]*/, "");
+    inline.children = [];
+    inline.meta = { iyagiBibliography: true, number: numbering.num.get(definition.key) };
+    state.push("paragraph_close", "p", -1).meta = { iyagiBibliography: true };
+    state.line = startLine + 1;
+    return true;
+  }, { alt: ["paragraph", "reference", "blockquote"] });
+  md.core.ruler.after("inline", "iyagi_bibliography_inline", (state) => {
+    for (const token of state.tokens) {
+      const meta = token.meta as { iyagiBibliography?: boolean; number?: number } | null;
+      if (!meta?.iyagiBibliography) continue;
+      // Tight lists hide paragraph tags, which would also discard bibliography IDs.
+      token.hidden = false;
+      if (token.type !== "inline" || !token.children) continue;
+      restoreLiteralCitations(token.children);
+      if (meta.number !== undefined) {
+        const number = new state.Token("iyagi_ref_number", "", 0);
+        number.content = String(meta.number);
+        token.children.unshift(number);
+      }
+    }
+  });
+
+  // 콜아웃 — 인용문 첫 문단이 `[!유형](+/-)? 제목`이면 카드 구조로 재조립.
+  // 표준 토큰(div/p/text)만 써서 html:false 렌더에서도 그대로 나온다.
+  md.core.ruler.after("inline", "iyagi_callout", (state) => {
+    const tokens = state.tokens;
+    for (let i = 0; i < tokens.length; i++) {
+      if (tokens[i].type !== "blockquote_open") continue;
+      const po = tokens[i + 1], inline = tokens[i + 2], pc = tokens[i + 3];
+      if (po?.type !== "paragraph_open" || inline?.type !== "inline" || !inline.children || pc?.type !== "paragraph_close") continue;
+      // 첫 인라인 텍스트(softbreak 전까지)에서 마커를 읽는다 — 지연 연속으로
+      // 문단이 여러 줄이어도 children 수술로 첫 줄만 떼어 낸다.
+      const first = inline.children.find((child) => child.type === "text");
+      if (!first) continue;
+      const marker = /^\[!([\w-]+)\]([+-])?[ \t]*(.*)$/.exec(first.content);
+      if (!marker) continue;
+      const key = calloutKeyOf(marker[1]!);
+      const title = marker[3] ?? "";
+      // 첫 줄(마커+제목)과 그 softbreak를 children에서 제거 — 남은 줄이
+      // 있으면 그 문단을 본문으로 보존한다.
+      const cut = inline.children.indexOf(first);
+      const softbreak = inline.children[cut + 1];
+      const rest = inline.children.slice(softbreak?.type === "softbreak" ? cut + 2 : cut + 1);
+      const hasRest = rest.some((child) => child.type === "text" && child.content.trim());
+      const card = new state.Token("div_open", "div", 1);
+      card.attrSet("class", `callout callout-${key}`);
+      card.attrSet("data-callout", key);
+      const titleOpen = new state.Token("p_open", "p", 1);
+      titleOpen.attrSet("class", "callout-title");
+      const titleText = new state.Token("text", "", 0);
+      titleText.content = `${CALLOUT_ICONS[key] ?? "📝"} ${title}`.trim();
+      const titleInline = new state.Token("inline", "", 0);
+      titleInline.content = titleText.content;
+      titleInline.children = [titleText];
+      const titleClose = new state.Token("p_close", "p", -1);
+      const contentOpen = new state.Token("div_open", "div", 1);
+      contentOpen.attrSet("class", "callout-content");
+      if (hasRest) {
+        inline.children = rest;
+        inline.content = rest.map((child) => child.content).join("\n");
+        tokens.splice(i, 1, card, titleOpen, titleInline, titleClose, contentOpen, po);
+      } else {
+        tokens.splice(i, 4, card, titleOpen, titleInline, titleClose, contentOpen);
+      }
+      // 같은 깊이의 blockquote_close → 두 개의 div_close.
+      let depth = 0;
+      for (let j = i + 5; j < tokens.length; j++) {
+        if (tokens[j].type === "blockquote_open") depth++;
+        else if (tokens[j].type === "blockquote_close") {
+          if (depth > 0) { depth--; continue; }
+          tokens.splice(j, 1,
+            new state.Token("div_close", "div", -1),
+            new state.Token("div_close", "div", -1));
+          break;
+        }
+      }
+    }
+  });
+  md.renderer.rules.iyagi_ref_number = (tokens, idx) =>
+    `<span class="ref-num">[${escapeHtml(tokens[idx].content)}]</span> `;
+
+  // 본문 [@key]는 [N] 위첨자 링크로(첫 등장 순 번호).
   md.inline.ruler.before("escape", "iyagi_cite", (state: StateInline, silent: boolean) => {
     const src = state.src;
     const pos = state.pos;
+    if (state.linkLevel > 0 || src[pos - 1] === "[") return false;
     if (src.charCodeAt(pos) !== 0x5b /* [ */ || src.charCodeAt(pos + 1) !== 0x40 /* @ */) return false;
     const close = src.indexOf("]", pos + 2);
-    if (close === -1) return false;
+    if (close === -1 || src[close + 1] === "]") return false;
     const inner = src.slice(pos + 2, close);
     const comma = inner.indexOf(",");
     const key = (comma === -1 ? inner : inner.slice(0, comma)).trim();
     const suffix = comma === -1 ? undefined : inner.slice(comma + 1).trim();
-    if (!key || /[\s\[\]]/.test(key)) return false;
+    if (!key || /[\s\[\]]/.test(key) || /[\[\r\n]/.test(inner)) return false;
     const display = citeDisplay(key, suffix, numbering);
     if (display === null) return false; // 정의 없는 인용 — 원문 그대로
+    // CommonMark 플랭킹 규칙상 `**[@key]**글자`는 닫는 마커가 짝이 되지
+    // 않아 리터럴 ** 로 남는다(한국어 붙여쓰기에서 항상 그렇다). 양쪽에
+    // 같은 마커가 정확히 붙어 있으면 마커 토큰을 치우고 직접 감싼다.
+    const wrap = !silent ? citationEmphasisWrap(state, pos, close + 1) : null;
     if (!silent) {
+      if (wrap) for (const tag of wrap.tags) state.push(`${tag}_open`, tag, 1).markup = wrap.markup;
       const token = state.push("iyagi_cite", "", 0);
       token.content = display;
-      token.meta = { key };
+      token.meta = { key, raw: src.slice(pos, close + 1) };
+      if (wrap) {
+        for (const tag of wrap.tags.slice().reverse()) state.push(`${tag}_close`, tag, -1).markup = wrap.markup;
+      }
     }
-    state.pos = close + 1;
+    state.pos = close + 1 + (wrap ? wrap.markup.length : 0);
     return true;
   });
   md.renderer.rules.iyagi_cite = (tokens: Token[], idx: number) => {
     const t = tokens[idx];
     const key = (t.meta as { key: string }).key;
     return `<sup class="cite"><a href="#ref-${escapeHtml(key)}">${escapeHtml(t.content)}</a></sup>`;
+  };
+  // Markdown-it parses an image label with a fresh inline state. Restore any
+  // citation tokens there before its text-only alt renderer consumes them.
+  const imageRenderer = md.renderer.rules.image!;
+  md.renderer.rules.image = (tokens, idx, options, env, renderer) => {
+    restoreLiteralCitations(tokens[idx].children ?? []);
+    return imageRenderer(tokens, idx, options, env, renderer);
   };
 
   // 문서 렌더 1차.
@@ -404,8 +572,10 @@ export function applyTableWidths(
 
 
 /** 캡션 후보 alt를 <figure><figcaption>로 — 문서 순서대로 '그림 N — 설명'.
- *  markdown-it의 <p><img></p>를 변환하고, style(img 폭)은 그대로 옮긴다. */
-export function applyFigcaptions(html: string): string {
+ *  markdown-it의 <p><img></p>를 변환하고, style(img 폭)은 그대로 옮긴다.
+ *  라벨은 내보내기 언어를 따른다(기본 한국어 — 목차 라벨과 같은 규칙). */
+export function applyFigcaptions(html: string, lang: "ko" | "en" = "ko"): string {
+  const label = lang === "en" ? "Figure" : "그림";
   let n = 0;
   return html.replace(/<p>(<img\b[^>]*>)<\/p>/g, (_m, img: string) => {
     const alt = / alt="([^"]*)"/.exec(img)?.[1] ?? "";
@@ -414,7 +584,7 @@ export function applyFigcaptions(html: string): string {
       return `<p>${img}</p>`;
     }
     n += 1;
-    return `<figure id="fig-${n}">${img}<figcaption>그림 ${n} — ${alt}</figcaption></figure>`;
+    return `<figure id="fig-${n}">${img}<figcaption>${label} ${n} — ${alt}</figcaption></figure>`;
   });
 }
 
@@ -582,7 +752,7 @@ export async function renderExportBody(markdown: string, opts: ExportHtmlOptions
   const withImages = opts.inlineImages === false
     ? withWidths
     : await inlineImages(withWidths, opts.baseDir, opts.readBytes);
-  const withCaptions = applyFigcaptions(applyTableCaptions(withImages));
+  const withCaptions = applyFigcaptions(applyTableCaptions(withImages, opts.lang ?? "ko"), opts.lang ?? "ko");
   // 외부 링크 새 탭 — 내부 앵커(#...)는 그대로.
   const withTargets = opts.externalLinksNewTab
     ? withCaptions.replace(/<a (?![^>]*target=)(href="https?:[^"]*")/g, '<a $1 target="_blank" rel="noopener"')
@@ -603,7 +773,8 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
     : "";
   const marginCss = opts.forPdf
     ? `body{margin:${opts.marginMm ?? 14}mm !important;}` +
-      `html{font-size:${(16 * (opts.scale ?? 1)).toFixed(1)}px;}`
+      `html{font-size:${(16 * (opts.scale ?? 1)).toFixed(1)}px;}` +
+      `@page{size:${opts.paper === "letter" ? "letter" : opts.paper === "a5" ? "A5" : "A4"} ${opts.orientation === "landscape" ? "landscape" : "portrait"};margin:0;}`
     : "";
   const columnCss =
     columns > 1
@@ -639,7 +810,7 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
         : ``)
     : "";
   return `<!doctype html>
-<html lang="ko">
+<html lang="${opts.lang === "en" ? "en" : "ko"}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -705,6 +876,23 @@ body{margin:0 auto;padding:24px 16px;max-width:820px;font-family:-apple-system,B
 .markdown-body pre{background:${c.codeBg};border-radius:8px;padding:12px 14px;overflow-x:auto;line-height:1.5;}
 .markdown-body pre code{background:none;padding:0;font-size:.88em;}
 .markdown-body blockquote{margin:.8em 0;padding:.1em 14px;border-left:4px solid ${c.border};color:${c.quote};}
+.markdown-body .callout{margin:.9em 0;border-radius:8px;border-left:4px solid #9e9e9e;background:rgba(127,127,127,.08);padding:8px 14px;break-inside:avoid;}
+.markdown-body .callout-title{margin:0 0 2px;font-weight:600;}
+.markdown-body .callout-content > :first-child{margin-top:2px;}
+.markdown-body .callout-content > :last-child{margin-bottom:2px;}
+.markdown-body .callout-note{border-left-color:#448aff;background:rgba(68,138,255,.10);}
+.markdown-body .callout-info{border-left-color:#3ba9f0;background:rgba(59,169,240,.10);}
+.markdown-body .callout-abstract{border-left-color:#00bfbc;background:rgba(0,191,188,.10);}
+.markdown-body .callout-todo{border-left-color:#f9b24a;background:rgba(249,178,74,.12);}
+.markdown-body .callout-tip{border-left-color:#00c9a7;background:rgba(0,201,167,.10);}
+.markdown-body .callout-success{border-left-color:#3fb950;background:rgba(63,185,80,.12);}
+.markdown-body .callout-question{border-left-color:#ba832c;background:rgba(186,131,44,.12);}
+.markdown-body .callout-warning{border-left-color:#e9a23b;background:rgba(233,162,59,.13);}
+.markdown-body .callout-failure{border-left-color:#e5484d;background:rgba(229,72,77,.10);}
+.markdown-body .callout-danger{border-left-color:#f5493d;background:rgba(245,73,61,.11);}
+.markdown-body .callout-bug{border-left-color:#e5484d;background:rgba(229,72,77,.10);}
+.markdown-body .callout-example{border-left-color:#a882ff;background:rgba(168,130,255,.11);}
+.markdown-body .callout-quote{border-left-color:#9e9e9e;background:rgba(127,127,127,.08);}
 .markdown-body table{border-collapse:collapse;margin:1em 0;display:block;max-width:100%;overflow-x:auto;}
 .markdown-body th,.markdown-body td{border:1px solid ${c.border};padding:6px 14px;}
 .markdown-body th{background:${c.codeBg};font-weight:600;}
@@ -751,41 +939,7 @@ body{margin:0 auto;padding:24px 16px;max-width:820px;font-family:-apple-system,B
 /** DOCX 내보내기용 매니페스트(수식 MathML·다이어그램 SVG) — §4-4. */
 export async function buildDocxManifest(
   markdown: string,
-): Promise<{
-  math: Record<string, string>;
-  diagrams: Record<string, string>;
-  style?: {
-    font: "system" | "serif" | "round" | "mono";
-    sizePt: number;
-    lineHeight?: number;
-    firstLineIndent?: boolean;
-    textAlign?: "left" | "center" | "right" | "justify";
-    accent?: string | null;
-    pageNumbers?: boolean;
-  };
-  /** 사이드카 이미지 폭(%) — 마크다운 src 키 → 그림 extent 축소. */
-  imageWidths?: Record<string, number>;
-  /** 사이드카 표 열 폭(px) — 헤더 내용 키 → tblGrid 비율. */
-  tableWidths?: Record<string, number[]>;
-  /** 프런트매터 메타 — core.xml(dc:title·dc:creator). */
-  title?: string;
-  author?: string;
-  /** 네이티브 목차(TOC 필드) — 프런트매터 toc: true. */
-  toc?: boolean;
-  /** 그림 목차 / 표 목차. */
-  lof?: boolean;
-  lot?: boolean;
-  /** 머리글 문서 제목. */
-  headerTitle?: string;
-  /** 바닥글 자유 텍스트(프런트매터 footer:) — 쪽번호와 함께. */
-  footerText?: string;
-  /** 문서 메모(본문 기준 줄 번호) — Word 원생 메모로. [줄, 텍스트] 튜플. */
-  comments?: Array<[number, string]>;
-  /** 목차 라벨 언어. */
-  frontLang?: "ko" | "en";
-  /** 다단(1~3) — sectPr w:cols. */
-  columns?: number;
-}> {
+): Promise<DocxManifest> {
   const math: Record<string, string> = {};
   const diagrams: Record<string, string> = {};
   const jobs: Promise<void>[] = [];

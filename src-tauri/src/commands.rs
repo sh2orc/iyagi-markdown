@@ -6,13 +6,13 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use md_core::io::{read_doc, write_doc_atomic, DocMeta, LoadedDoc};
-use md_core::recent::RecentEntry;
+use md_core::io::{read_doc, write_doc_checked, DocError, DocMeta, LoadedDoc, WriteExpectation};
+use md_core::recent::RecentSnapshot;
 use md_core::session::SessionState;
 use md_core::settings::{LangSetting, Settings};
-use md_core::tree::{scan_tree, TreeNode};
+use md_core::tree::{scan_tree, WorkspaceScan};
 
-use crate::state::{push_recent, AppState};
+use crate::state::{update_recent, AppState};
 
 fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
@@ -83,7 +83,6 @@ pub async fn read_document(app: AppHandle, path: String) -> Result<LoadedDoc, St
     if let Some(dir) = Path::new(&path).parent() {
         let _ = app.asset_protocol_scope().allow_directory(dir, true);
     }
-    push_recent(&app, &path);
     Ok(doc)
 }
 
@@ -94,15 +93,45 @@ pub struct WriteOutcome {
     pub size: u64,
 }
 
+#[derive(Serialize)]
+pub struct WriteFailure {
+    code: &'static str,
+    message: String,
+}
+
+impl WriteFailure {
+    fn io(error: impl std::fmt::Display) -> Self {
+        Self {
+            code: "io",
+            message: error.to_string(),
+        }
+    }
+}
+
+impl From<DocError> for WriteFailure {
+    fn from(error: DocError) -> Self {
+        let code = match &error {
+            DocError::Conflict { removed: true, .. } => "removed",
+            DocError::Conflict { .. } => "conflict",
+            _ => "io",
+        };
+        Self {
+            code,
+            message: error.to_string(),
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn write_document(
     app: AppHandle,
     path: String,
     text: String,
     meta: DocMeta,
-) -> Result<WriteOutcome, String> {
+    expected: WriteExpectation,
+) -> Result<WriteOutcome, WriteFailure> {
     let p = PathBuf::from(&path);
-    let data_dir = app.path().app_data_dir().map_err(err)?;
+    let data_dir = app.path().app_data_dir().map_err(WriteFailure::io)?;
     let doc_path = path.clone();
     // 원자적 저장도 스레드 풀로(쓰기+rename+메타데이터 조회).
     let m = tauri::async_runtime::spawn_blocking(move || {
@@ -114,13 +143,11 @@ pub async fn write_document(
                 let _ = md_core::snapshots::save_snapshot(&data_dir, &doc_path, &old);
             }
         }
-        write_doc_atomic(&p, &text, meta).map_err(err)?;
-        std::fs::metadata(&p).map_err(err)
+        write_doc_checked(&p, &text, meta, &expected).map_err(WriteFailure::from)?;
+        std::fs::metadata(&p).map_err(WriteFailure::io)
     })
     .await
-    .map_err(|e| e.to_string())??;
-    crate::watcher::note_self_write(&app, Path::new(&path));
-    push_recent(&app, &path);
+    .map_err(WriteFailure::io)??;
     Ok(WriteOutcome {
         mtime: m
             .modified()
@@ -299,7 +326,7 @@ pub async fn snapshot_list(
 ) -> Result<Vec<md_core::snapshots::SnapshotInfo>, String> {
     let dir = app.path().app_data_dir().map_err(err)?;
     tauri::async_runtime::spawn_blocking(move || {
-        Ok(md_core::snapshots::list_snapshots(&dir, &path))
+        md_core::snapshots::list_snapshots(&dir, &path).map_err(err)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -310,6 +337,17 @@ pub async fn snapshot_read(app: AppHandle, path: String, ts: u64) -> Result<Stri
     let dir = app.path().app_data_dir().map_err(err)?;
     tauri::async_runtime::spawn_blocking(move || {
         md_core::snapshots::read_snapshot(&dir, &path, ts).map_err(err)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 복원 직전의 편집 버퍼도 일반 저장 간격과 무관하게 보존한다.
+#[tauri::command]
+pub async fn snapshot_backup(app: AppHandle, path: String, text: String) -> Result<(), String> {
+    let dir = app.path().app_data_dir().map_err(err)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        md_core::snapshots::save_before_bulk(&dir, &path, &text).map_err(err)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -326,7 +364,7 @@ pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
 }
 
 #[tauri::command]
-pub async fn scan_workspace(root: String) -> Result<Vec<TreeNode>, String> {
+pub async fn scan_workspace(root: String) -> Result<WorkspaceScan, String> {
     // 재귀 폴더 스캔은 수 밀리초~수 초짜리 무거운 IO — 반드시 스레드 풀에서.
     // (동기 커맨드는 앱 메인 스레드에서 돌아 폴더를 여는 동안 창이 얼어붙는다.)
     tauri::async_runtime::spawn_blocking(move || scan_tree(Path::new(&root)).map_err(err))
@@ -340,12 +378,19 @@ pub async fn scan_workspace(root: String) -> Result<Vec<TreeNode>, String> {
 pub async fn search_workspace(
     root: String,
     query: String,
-) -> Result<Vec<md_core::search::SearchHit>, String> {
+    case_sensitive: Option<bool>,
+) -> Result<md_core::search::SearchReport, String> {
     if query.trim().is_empty() {
-        return Ok(Vec::new());
+        return Ok(md_core::search::SearchReport::default());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        md_core::search::search_tree(Path::new(&root), &query, 2000).map_err(err)
+        md_core::search::search_report(
+            Path::new(&root),
+            &query,
+            2000,
+            case_sensitive.unwrap_or(false),
+        )
+        .map_err(err)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -353,56 +398,139 @@ pub async fn search_workspace(
 
 // — 설정·세션·최근 문서 —
 
-#[tauri::command]
-pub fn get_settings(state: State<'_, AppState>) -> Settings {
-    state.settings.read().unwrap().clone()
+#[derive(Clone, Serialize)]
+pub struct SettingsSnapshot {
+    revision: u64,
+    settings: Settings,
 }
 
 #[tauri::command]
-pub fn set_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
-    let old_lang = lang_of(&app.state::<AppState>().settings.read().unwrap());
-    settings
-        .save(&app.state::<AppState>().paths.settings)
-        .map_err(err)?;
-    *app.state::<AppState>().settings.write().unwrap() = settings.clone();
-    if lang_of(&settings) != old_lang {
-        crate::menu::install(&app).map_err(err)?;
-    }
-    let _ = app.emit("settings-changed", settings);
-    Ok(())
+pub async fn get_settings(app: AppHandle) -> Result<SettingsSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let settings = state.settings.read().unwrap();
+        SettingsSnapshot {
+            revision: state
+                .settings_revision
+                .load(std::sync::atomic::Ordering::Relaxed),
+            settings: settings.clone(),
+        }
+    })
+    .await
+    .map_err(err)
+}
+
+#[tauri::command]
+pub async fn patch_settings(
+    app: AppHandle,
+    patch: serde_json::Value,
+) -> Result<SettingsSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let (snapshot, language_changed, changed) = {
+            // 최신 설정 병합·원자적 저장·메모리 반영을 같은 잠금으로 직렬화한다.
+            let mut current = state.settings.write().unwrap();
+            let next = current.patched(&patch)?;
+            let changed = *current != next;
+            let language_changed = current.language != next.language;
+            if changed {
+                next.save(&state.paths.settings).map_err(err)?;
+                *current = next;
+                state
+                    .settings_revision
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+            (
+                SettingsSnapshot {
+                    revision: state
+                        .settings_revision
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                    settings: current.clone(),
+                },
+                language_changed,
+                changed,
+            )
+        };
+        if changed {
+            if let Err(error) = app.emit("settings-changed", &snapshot) {
+                tracing::warn!("설정 변경 알림 실패: {error}");
+            }
+        }
+        if language_changed {
+            let menu_app = app.clone();
+            if let Err(error) = app.run_on_main_thread(move || {
+                if let Err(error) = crate::menu::install(&menu_app) {
+                    tracing::warn!("설정은 저장했지만 메뉴 갱신 실패: {error}");
+                }
+            }) {
+                tracing::warn!("설정 메뉴 갱신 예약 실패: {error}");
+            }
+        }
+        Ok(snapshot)
+    })
+    .await
+    .map_err(err)?
 }
 
 #[tauri::command]
 pub fn get_session(state: State<'_, AppState>) -> Option<SessionState> {
-    state.session.clone()
+    state.session.lock().unwrap().clone()
 }
 
 #[tauri::command]
-pub async fn save_session(app: AppHandle, session: SessionState) -> Result<(), String> {
+pub async fn save_session(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    session: SessionState,
+) -> Result<(), String> {
     // 탭 전환·열기/닫기마다(디바운스됨) 도는 저장 — 메인 스레드에서 내보낸다.
-    let path = app.state::<AppState>().paths.session.clone();
+    let from_main = window.label() == "main";
     tauri::async_runtime::spawn_blocking(move || {
-        md_core::session::save(&path, &session).map_err(err)
+        let st = app.state::<AppState>();
+        // 잠금을 쥔 채 메모리·파일을 함께 갱신 — 저장 순서가 곧 반영 순서.
+        let mut cur = st.session.lock().unwrap();
+        let Some(next) = md_core::session::merge_from_window(cur.as_ref(), session, from_main)
+        else {
+            return Ok(());
+        };
+        // 파일 쓰기가 실패해도 메모리는 최신으로(리로드 복원은 이것을 본다).
+        *cur = Some(next.clone());
+        md_core::session::save(&st.paths.session, &next).map_err(err)
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn get_recent(state: State<'_, AppState>) -> Vec<RecentEntry> {
-    state.recent.lock().unwrap().entries().to_vec()
+pub fn get_recent(state: State<'_, AppState>) -> RecentSnapshot {
+    state.recent.lock().unwrap().snapshot()
 }
 
 #[tauri::command]
-pub fn clear_recent(app: AppHandle) -> Result<(), String> {
-    {
-        let state = app.state::<AppState>();
-        let mut recent = state.recent.lock().unwrap();
-        *recent = md_core::recent::RecentList::new();
-        recent.save(&state.paths.recent).map_err(err)?;
-    }
-    crate::menu::install(&app).map_err(err)?;
-    Ok(())
+pub async fn record_recent(app: AppHandle, path: String) -> Result<RecentSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        update_recent(&app, |list| {
+            list.push(&path);
+        })
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub async fn remove_recent(app: AppHandle, path: String) -> Result<RecentSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || update_recent(&app, |list| list.remove(&path)))
+        .await
+        .map_err(err)?
+}
+
+#[tauri::command]
+pub async fn clear_recent(app: AppHandle) -> Result<RecentSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        update_recent(&app, |list| *list = md_core::recent::RecentList::new())
+    })
+    .await
+    .map_err(err)?
 }
 
 // — 에셋 범위·감시 —
@@ -416,8 +544,13 @@ pub fn set_asset_scope(app: AppHandle, path: String, recursive: bool) -> Result<
 }
 
 #[tauri::command]
-pub fn watch_paths(app: AppHandle, files: Vec<String>, dirs: Vec<String>) {
-    crate::watcher::update_watch(&app, files, dirs);
+pub fn watch_paths(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    files: Vec<String>,
+    dirs: Vec<String>,
+) -> Result<(), String> {
+    crate::watcher::update_watch(&app, window.label().to_string(), files, dirs)
 }
 
 // — 내보내기 —
@@ -577,6 +710,7 @@ pub fn write_export_file(path: String, contents: String) -> Result<(), String> {
 #[tauri::command]
 pub fn open_in_new_window(app: AppHandle, path: Option<String>) -> Result<(), String> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
+    crate::quit::cancel(&app);
     let label = format!(
         "doc-{}",
         std::time::SystemTime::now()
@@ -598,10 +732,11 @@ pub fn open_in_new_window(app: AppHandle, path: Option<String>) -> Result<(), St
         .inner_size(900.0, 700.0)
         .min_inner_size(480.0, 360.0);
     // 직전 보조 창 위치·크기가 세션에 있으면 재사용(창 관례 — 같은 자리에).
-    if let Some(session) = app
-        .try_state::<crate::state::AppState>()
-        .and_then(|st| st.session.clone())
-    {
+    let session = app.try_state::<crate::state::AppState>().and_then(|st| {
+        let s = st.session.lock().unwrap().clone();
+        s
+    });
+    if let Some(session) = session {
         if let Some(rect) = session.aux_window {
             builder = builder
                 .position(rect.x, rect.y)
@@ -625,112 +760,146 @@ fn urlencode(s: &str) -> String {
     out
 }
 
-/// 작업 폴더 전체 찾아바꾸기 — 각 파일 원자적 저장(§4-2). 결과는 파일별 교체 수.
+/// 워크스페이스 문서 간선(출발 경로 → 대상 경로).
 #[tauri::command]
-pub async fn replace_workspace(
-    root: String,
-    needle: String,
-    replacement: String,
-    case_sensitive: bool,
-) -> Result<Vec<md_core::search::ReplaceOutcome>, String> {
+pub async fn document_edges(root: String) -> Result<Vec<md_core::search::DocumentEdge>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        md_core::search::replace_all_tree(
-            std::path::Path::new(&root),
-            &needle,
-            &replacement,
-            case_sensitive,
+        md_core::search::extract_document_edges(std::path::Path::new(&root)).map_err(err)
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub async fn inspect_links(
+    root: String,
+    source: Option<String>,
+    text: String,
+) -> Result<md_core::broken_links::Report, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        md_core::broken_links::inspect(Path::new(&root), source.as_deref().map(Path::new), &text)
+            .map_err(err)
+    })
+    .await
+    .map_err(err)?
+}
+
+#[tauri::command]
+pub async fn create_link_document(
+    root: String,
+    source: Option<String>,
+    kind: md_core::broken_links::Kind,
+    name: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        md_core::broken_links::create(
+            Path::new(&root),
+            source.as_deref().map(Path::new),
+            kind,
+            &name,
         )
+        .map(|path| path.to_string_lossy().into_owned())
         .map_err(err)
     })
     .await
     .map_err(err)?
 }
 
-/// 워크스페이스 위키링크 간선(출발 경로 → 대상 키).
+fn asset_reference_texts(app: &AppHandle, mut buffers: Vec<String>) -> Result<Vec<String>, String> {
+    let used = buffers
+        .iter()
+        .try_fold(0usize, |sum, text| sum.checked_add(text.len()))
+        .ok_or("Document buffers exceed the image cleanup scan limit")?;
+    let remaining = md_core::assets::MAX_TEXT_BYTES
+        .checked_sub(used)
+        .ok_or("Document buffers exceed the image cleanup scan limit")?;
+    let state = app.state::<AppState>();
+    let drafts = state
+        .draft_db
+        .as_ref()
+        .ok_or("Recovery drafts are unavailable; cleanup was not performed")?;
+    buffers.extend(drafts.asset_reference_texts(remaining)?);
+    Ok(buffers)
+}
+
+/// 워크스페이스의 이미지 정리 후보. 편집 버퍼·복구 초안의 참조도 보존한다.
 #[tauri::command]
-pub async fn wiki_edges(root: String) -> Result<Vec<md_core::search::WikiEdge>, String> {
+pub async fn find_orphan_images(
+    app: AppHandle,
+    root: String,
+    buffers: Vec<String>,
+) -> Result<Vec<md_core::assets::OrphanAsset>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        md_core::search::extract_wiki_edges(std::path::Path::new(&root)).map_err(err)
+        let texts = asset_reference_texts(&app, buffers)?;
+        md_core::assets::find_orphan_assets(std::path::Path::new(&root), &texts).map_err(err)
     })
     .await
     .map_err(err)?
 }
 
-/// 워크스페이스의 고아 이미지(참조 없는 assets/ 파일) 목록.
+/// 검토한 이미지 재확인 후 휴지통 이동. 실패를 영구 삭제로 대체하지 않는다.
 #[tauri::command]
-pub async fn find_orphan_images(root: String) -> Result<Vec<md_core::search::OrphanAsset>, String> {
+pub async fn delete_orphan_images(
+    app: AppHandle,
+    root: String,
+    assets: Vec<md_core::assets::OrphanAsset>,
+    buffers: Vec<String>,
+) -> Result<md_core::assets::TrashReport, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        md_core::search::find_orphan_assets(std::path::Path::new(&root)).map_err(err)
-    })
-    .await
-    .map_err(err)?
-}
-
-/// 고아 이미지 일괄 삭제 — 휴지통 이동 우선(Finder 복구 가능), 실패 시 기존 삭제.
-/// 사용자 2단계 확인 후 프런트가 부른다.
-#[tauri::command]
-pub async fn delete_orphan_images(paths: Vec<String>) -> Result<u32, String> {
-    // 파일 삭제도 워커 스레드에서(메인 스레드 보호 — find_orphan_images와 동일 규칙).
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut deleted = 0u32;
-        for p in &paths {
-            let path = std::path::Path::new(p);
-            // 안전장치: 워크스페이스 assets/ 하위인지 확인(프런트가 이미 검증하지만 이중 방어).
-            if !path.to_string_lossy().contains("/assets/") {
-                continue;
-            }
-            // 휴지통 이동이 성공하면 그걸로 끝 — 오검출·실수를 Finder에서 되돌릴 수 있다.
-            // 휴지통 없는 볼륨(네트워크 등)은 기존처럼 즉시 삭제.
-            if md_macos::trash::move_to_trash(p) || std::fs::remove_file(path).is_ok() {
-                deleted += 1;
-            }
+        if app.webview_windows().len() != 1 {
+            return Err("ASSET_CLEANUP_OTHER_WINDOWS".into());
         }
-        Ok(deleted)
+        // 디스크 검사·이동 중 앱 내부 문서 저장을 직렬화한다.
+        let _guard = md_core::io::document_write_guard();
+        let texts = asset_reference_texts(&app, buffers)?;
+        md_core::assets::trash_reviewed(std::path::Path::new(&root), &assets, &texts, |path| {
+            if app.webview_windows().len() != 1 {
+                return Err("ASSET_CLEANUP_OTHER_WINDOWS".into());
+            }
+            if md_macos::trash::move_to_trash(path) {
+                Ok(())
+            } else {
+                Err("Could not move this file to Trash; the file was kept".into())
+            }
+        })
+        .map_err(err)
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-/// 클립보드 이미지 → 파일로 저장(스크린샷 붙여넣기). 문서 폴더 assets/ 하위에
-/// PNG로 기록하고 절대 경로를 돌려준다. 원문에는 표준 이미지 참조만 삽입된다
-/// (프런트) — 저장 경로 외에는 아무 것도 기록하지 않는다.
+/// Save the exact image captured by the paste event; raw IPC avoids JSON byte arrays.
 #[tauri::command]
-pub fn save_clipboard_image(dir: String) -> Result<String, String> {
-    use objc2::{class, msg_send};
-    use objc2_foundation::NSString;
-    let pasteboard: *mut objc2::runtime::AnyObject = unsafe {
-        let cls: &objc2::runtime::AnyClass = class!(NSPasteboard);
-        msg_send![cls, generalPasteboard]
+pub async fn save_image_bytes(request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Expected raw image bytes".into());
     };
-    if pasteboard.is_null() {
-        return Err("클립보드에 접근할 수 없습니다".into());
+    if bytes.is_empty() || bytes.len() > md_core::images::MAX_IMAGE_BYTES {
+        return Err("Image must contain between 1 byte and 32 MiB".into());
     }
-    // PNG 데이터 타입 확인·추출.
-    let png_type = NSString::from_str("public.png");
-    let data: *mut objc2_foundation::NSData =
-        unsafe { msg_send![pasteboard, dataForType: &*png_type] };
-    if data.is_null() {
-        return Err("클립보드에 이미지가 없습니다".into());
+    let header = |name: &str| -> Result<String, String> {
+        request
+            .headers()
+            .get(name)
+            .ok_or_else(|| format!("Missing header: {name}"))?
+            .to_str()
+            .map(str::to_owned)
+            .map_err(|e| e.to_string())
+    };
+    let encoded_dir = header("x-image-directory")?;
+    if encoded_dir.len() > 16_384 {
+        return Err("Image directory is too long".into());
     }
-    let len = unsafe { (*data).len() };
-    if len == 0 {
-        return Err("클립보드 이미지가 비었습니다".into());
-    }
-    let raw: *const std::ffi::c_void = unsafe { msg_send![data, bytes] };
-    let bytes = unsafe { std::slice::from_raw_parts(raw as *const u8, len) };
-    // assets/ 디렉터리 + 타임스탬프 파일명.
-    let dir_path = std::path::Path::new(&dir).join("assets");
-    std::fs::create_dir_all(&dir_path).map_err(err)?;
-    let name = format!(
-        "paste-{}.png",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0)
-    );
-    let out = dir_path.join(&name);
-    md_core::io::write_bytes_atomic(&out, bytes).map_err(err)?;
-    Ok(out.to_string_lossy().into_owned())
+    let dir = md_core::links::percent_decode(&encoded_dir);
+    let ext = md_core::images::clipboard_extension(&header("x-image-type")?)
+        .ok_or_else(|| "Unsupported clipboard image type".to_string())?;
+    let bytes = bytes.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let out = md_core::images::save_bytes(Path::new(&dir), "paste", ext, &bytes)?;
+        Ok(out.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 드래그 앤 드롭 이미지 — 문서 폴더 assets/ 로 복사해 삽입 참조를 돌려준다
@@ -738,38 +907,8 @@ pub fn save_clipboard_image(dir: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn import_image(src: String, dir: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let ext = std::path::Path::new(&src)
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase())
-            .unwrap_or_default();
-        const OK: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "heic"];
-        if !OK.contains(&ext.as_str()) {
-            return Err(format!("지원하지 않는 이미지 형식: .{ext}"));
-        }
-        let bytes = std::fs::read(&src).map_err(err)?;
-        if bytes.is_empty() {
-            return Err("이미지 파일이 비었습니다".into());
-        }
-        let dir_path = std::path::Path::new(&dir).join("assets");
-        std::fs::create_dir_all(&dir_path).map_err(err)?;
-        let stem = std::path::Path::new(&src)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .map(|s| {
-                s.chars()
-                    .filter(|c| c.is_alphanumeric() || *c == '-')
-                    .take(40)
-                    .collect::<String>()
-            })
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "image".into());
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
-        let out = dir_path.join(format!("{stem}-{ts}.{ext}"));
-        md_core::io::write_bytes_atomic(&out, &bytes).map_err(err)?;
+        let out =
+            md_core::images::import_file(std::path::Path::new(&src), std::path::Path::new(&dir))?;
         Ok(out.to_string_lossy().into_owned())
     })
     .await
@@ -803,78 +942,176 @@ pub fn open_logs_dir(app: AppHandle) -> Result<(), String> {
 
 /// 파일 이름 변경 — 대상이 이미 있으면 실패(덮어쓰기 없음). 같은 폴더 안 이동.
 #[tauri::command]
-pub async fn file_rename(from: String, to: String) -> Result<(), String> {
-    // 파일 IO는 워커 스레드에서(메인 스레드 보호 — 확립 규칙).
-    tauri::async_runtime::spawn_blocking(move || {
+pub async fn file_rename(
+    app: AppHandle,
+    from: String,
+    to: String,
+    root: Option<String>,
+) -> Result<Vec<String>, String> {
+    let worker_app = app.clone();
+    let warnings = tauri::async_runtime::spawn_blocking(move || {
+        use std::ffi::CString;
         let from_p = std::path::PathBuf::from(&from);
         let to_p = std::path::PathBuf::from(&to);
         if !from_p.is_file() {
-            return Err("원본 파일이 없습니다".into());
+            return Err("원본 파일이 없습니다".to_string());
         }
-        if to_p.exists() {
-            return Err("같은 이름의 파일이 이미 있습니다".into());
+        if from_p.parent() != to_p.parent() {
+            return Err("이름 변경은 같은 폴더 안에서만 가능합니다".to_string());
         }
-        std::fs::rename(&from_p, &to_p).map_err(|e| e.to_string())
+        let old = CString::new(from.as_bytes()).map_err(err)?;
+        let new = CString::new(to.as_bytes()).map_err(err)?;
+        let _operation = crate::rename_jobs::operation_guard();
+        let state = worker_app.state::<AppState>();
+        let mut warnings = Vec::new();
+        {
+            let _files = md_core::io::document_write_guard();
+            // 먼저 기록을 확정한다. 기록 실패 시 원본 이름을 바꾸지 않는다.
+            let recovery_root = root
+                .as_deref()
+                .unwrap_or_else(|| from_p.parent().and_then(|p| p.to_str()).unwrap_or("/"));
+            let db = state
+                .style_db
+                .as_ref()
+                .ok_or("Rename recovery storage is unavailable")?;
+            let job_id = db.prepare_rename_job(recovery_root, &from, &to)?;
+            // 대상이 생겨도 덮어쓰지 않는 macOS 원자 연산.
+            let result = unsafe { libc::renamex_np(old.as_ptr(), new.as_ptr(), libc::RENAME_EXCL) };
+            if result != 0 {
+                let mut error = std::io::Error::last_os_error().to_string();
+                if let Err(cleanup) = db.remove_rename_job(job_id) {
+                    error.push_str(&format!("; recovery record kept: {cleanup}"));
+                }
+                crate::rename_jobs::changed(&worker_app);
+                return Err(error);
+            }
+            if let Err(error) = db.mark_rename_ready(job_id) {
+                warnings.push(format!(
+                    "File renamed; the saved recovery record needs to be reloaded: {error}"
+                ));
+            }
+        }
+        if let Some(db) = &state.style_db {
+            if let Err(e) = db.rename_document(&from, &to) {
+                warnings.push(format!(
+                    "File renamed; document metadata remains at {from}: {e}"
+                ));
+            } else {
+                crate::favorites::changed(&worker_app);
+            }
+        }
+        if let Some(db) = &state.draft_db {
+            if let Err(e) = db.rename_document(&from, &to) {
+                warnings.push(format!(
+                    "File renamed; recovery draft remains at {from}: {e}"
+                ));
+            }
+        }
+        match worker_app.path().app_data_dir() {
+            Ok(dir) => {
+                if let Err(e) = md_core::snapshots::copy_history(&dir, &from, &to) {
+                    warnings.push(format!(
+                        "File renamed; some version history remains at {from}: {e}"
+                    ));
+                }
+            }
+            Err(e) => warnings.push(format!(
+                "File renamed; version history could not be moved: {e}"
+            )),
+        }
+        if let Err(error) = update_recent(&worker_app, |list| {
+            list.remove(&from);
+            list.push(&to);
+        }) {
+            warnings.push(format!(
+                "File renamed; recent documents could not be updated: {error}"
+            ));
+        }
+        crate::rename_jobs::changed(&worker_app);
+        Ok(warnings)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(err)??;
+    Ok(warnings)
+}
+
+/// 휴지통 이동 확인 화면에 표시할 문서의 파일 정체성.
+#[tauri::command]
+pub async fn review_document_trash(
+    root: String,
+    path: String,
+) -> Result<md_core::document_trash::TrashDocument, md_core::document_trash::TrashError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        md_core::document_trash::review(Path::new(&root), Path::new(&path))
+    })
+    .await
+    .map_err(|error| md_core::document_trash::TrashError::Io(error.to_string()))?
+}
+
+#[tauri::command]
+pub async fn trash_document(
+    app: AppHandle,
+    reviewed: md_core::document_trash::TrashDocument,
+) -> Result<(), md_core::document_trash::TrashError> {
+    use md_core::document_trash::TrashError;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = md_core::io::document_write_guard();
+        md_core::document_trash::apply(&reviewed, |path| {
+            if app.webview_windows().len() != 1 {
+                return Err(TrashError::OtherWindows);
+            }
+            if md_macos::trash::move_to_trash(path) {
+                Ok(())
+            } else {
+                Err(TrashError::Io(
+                    "Could not move the document to Trash".into(),
+                ))
+            }
+        })
+    })
+    .await
+    .map_err(|error| TrashError::Io(error.to_string()))?
 }
 
 /// 파일 복제 — '이름 2.md'부터 빈 슬롯을 찾아 복사. 새 경로 반환.
 #[tauri::command]
 pub async fn file_duplicate(path: String) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let p = std::path::PathBuf::from(&path);
-        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("untitled");
-        let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("md");
-        let dir = p.parent().unwrap_or(std::path::Path::new("/"));
-        let mut n = 2;
-        loop {
-            let cand = dir.join(format!("{stem} {n}.{ext}"));
-            if !cand.exists() {
-                std::fs::copy(&p, &cand).map_err(|e| e.to_string())?;
-                return Ok(cand.to_string_lossy().into_owned());
-            }
-            n += 1;
-        }
+        md_core::document_files::duplicate_document(Path::new(&path))
+            .map_err(err)?
+            .into_os_string()
+            .into_string()
+            .map_err(|_| "Unsupported path encoding".to_string())
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
-/// 폴더에 새 문서 — '제목 없음 N.md' 빈 파일. 경로 반환.
+/// 워크스페이스 안에 표시 가능한 새 폴더 하나를 만든다.
 #[tauri::command]
-pub async fn new_file_in(dir: String) -> Result<String, String> {
+pub async fn new_folder_in(
+    root: String,
+    dir: String,
+    name: String,
+) -> Result<String, md_core::tree::CreateFolderError> {
     tauri::async_runtime::spawn_blocking(move || {
-        let d = std::path::PathBuf::from(&dir);
-        if !d.is_dir() {
-            return Err("폴더가 없습니다".into());
-        }
-        let mut n = 1;
-        loop {
-            let name = if n == 1 {
-                "제목 없음.md".to_string()
-            } else {
-                format!("제목 없음 {n}.md")
-            };
-            let cand = d.join(name);
-            if !cand.exists() {
-                std::fs::write(&cand, b"").map_err(|e| e.to_string())?;
-                return Ok(cand.to_string_lossy().into_owned());
-            }
-            n += 1;
-        }
+        md_core::tree::create_folder(Path::new(&root), Path::new(&dir), &name)
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|error| md_core::tree::CreateFolderError::Io(error.to_string()))?
 }
 
-/// 이름 변경 전파 — 워크스페이스의 [[from]] 링크를 [[to]]로(메타 보존·원자적).
+/// 언어 설정에 맞는 기본 이름으로 빈 문서를 생성하고 경로를 반환한다.
 #[tauri::command]
-pub async fn update_wiki_links(root: String, from: String, to: String) -> Result<u32, String> {
-    // 워크스페이스 전체 파일을 읽고 다시 쓰는 무거운 전파 — 반드시 워커에서.
+pub async fn new_file_in(app: AppHandle, dir: String) -> Result<String, String> {
+    let settings = app.state::<AppState>().settings.read().unwrap().clone();
+    let language = lang_of(&settings);
     tauri::async_runtime::spawn_blocking(move || {
-        md_core::search::update_wiki_links(Path::new(&root), &from, &to).map_err(err)
+        md_core::document_files::create_document(Path::new(&dir), language)
+            .map_err(err)?
+            .into_os_string()
+            .into_string()
+            .map_err(|_| "Unsupported path encoding".to_string())
     })
     .await
     .map_err(|e| e.to_string())?

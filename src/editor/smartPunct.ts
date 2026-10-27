@@ -22,8 +22,16 @@ export function isCloseQuote(before: string): boolean {
 }
 
 /** 입력 1글자 + 커서 앞 3글자로 대체 입력을 정한다. 순수 함수.
+ *  atDashLine: 커서 줄의 커서 앞이 공백·대시류([-–—])뿐 — 수평선 ---
+ *  을 입력하는 중이라 대시 변환을 하지 않는다(2026-10-21 보고 — 이 가드가
+ *  없으면 세 번째 - 가 – 로 바뀌어 --- 이 절대 완성되지 않는다. 3글자
+ *  미리보기 창으론 앞 줄이 있을 때 "\n--"를 줄 시작으로 못 알아봤다).
  *  반환: [교체 시작 오프셋(음수 = 커서에서 뒤로), 삽입 문자열] | null */
-export function smartChar(ch: string, before: string): readonly [number, string] | null {
+export function smartChar(
+  ch: string,
+  before: string,
+  atDashLine = false,
+): readonly [number, string] | null {
   switch (ch) {
     case '"':
       return [0, isCloseQuote(before) ? "”" : "“"];
@@ -35,7 +43,8 @@ export function smartChar(ch: string, before: string): readonly [number, string]
       return null;
     }
     case "-": {
-      // -- → – (줄 시작·대시 연속 제외), –- → —
+      // -- → – , –- → — (줄 시작·대시 연속 제외 — atDashLine이 정확한 판정)
+      if (atDashLine) return null;
       if (before.endsWith("–") && before.slice(-2, -1) !== "-") return [-1, "—"];
       if (before.endsWith("--") && before.length > 2 && before.slice(-3, -2) !== "-") {
         return [-2, "–"];
@@ -71,7 +80,11 @@ export function smartPunctExtension(enabled: boolean): Extension {
     EditorView.inputHandler.of((view, from, to, text) => {
     if (text.length !== 1) return false;
     const before = view.state.doc.sliceString(Math.max(0, from - 3), from);
-    const repl = smartChar(text, before);
+    // 커서 줄이 (공백·인용구 마커·)대시류로만 이뤄지면 수평선 입력 중 —
+    // 대시 변환 금지. 인용구 안("> ---")도 포함(2026-10-24 검토 구멍).
+    const line = view.state.doc.lineAt(from);
+    const atDashLine = /^[\s–—>\-]*$/.test(view.state.doc.sliceString(line.from, from));
+    const repl = smartChar(text, before, atDashLine);
     if (!repl) return false;
     if (inRawContext(from, syntaxTree(view.state))) return false;
     const [back, insert] = repl;

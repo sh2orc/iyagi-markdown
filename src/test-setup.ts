@@ -8,3 +8,19 @@ if (typeof window !== "undefined" && typeof Element !== "undefined") {
     proto.scrollIntoView = () => {};
   }
 }
+// CodeMirror의 비동기 측정 루프(rAF → measureTextSize)가 Range 직사각형을
+// 읽는다 — jsdom에는 없어서, 스텁 없는 테스트 파일에서 뷰를 만들면 테스트
+// 종료 뒤에라도 미처리 TypeError로 Suite를 오염시킨다. 파일별 beforeAll 스텁과
+// 같은 내용을 전역으로(개별 스텁이 있으면 그것이 우선).
+if (typeof Range !== "undefined") {
+  const proto = Range.prototype as unknown as {
+    getClientRects?: () => DOMRectList;
+    getBoundingClientRect?: () => DOMRect;
+  };
+  if (!proto.getClientRects) {
+    proto.getClientRects = () => [] as unknown as DOMRectList;
+  }
+  if (!proto.getBoundingClientRect) {
+    proto.getBoundingClientRect = () => new DOMRect();
+  }
+}

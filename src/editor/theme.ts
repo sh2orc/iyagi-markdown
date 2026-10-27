@@ -95,12 +95,23 @@ export const editorTheme = EditorView.theme({
   ".md-h6": { fontWeight: "640", fontSize: "0.94em", lineHeight: "1.42", color: "var(--md-fg-dim)", paddingTop: "0.3em", paddingBottom: "0.1em" },
   ".md-setext-underline": { lineHeight: "0.5" },
 
+  // — 소스 모드 전용 제목 태그 스타일: 태그 클래스(md-tag-h*)는 하이라이트가
+  //    항상 붙이지만 스타일은 이 스코프에서만 산다(cm-source-mode 클래스는
+  //    cm.ts의 sourceModeClass 플러그인이 previewBehavior로 토글). 편집·읽기
+  //    모드에선 셋텍스트 억제를 우회하지 않는다(2026-10-24).
+  ".cm-source-mode .md-tag-h1": { fontSize: "1.5em", fontWeight: "700", color: "var(--md-heading)" },
+  ".cm-source-mode .md-tag-h2": { fontSize: "1.3em", fontWeight: "700", color: "var(--md-heading)" },
+  ".cm-source-mode .md-tag-h3": { fontSize: "1.15em", fontWeight: "650", color: "var(--md-heading)" },
+  ".cm-source-mode .md-tag-h4": { fontWeight: "650", color: "var(--md-heading)" },
+
   // — 목록: 걸침 들여쓰기(첫 시각 줄만 왼쪽으로 당겨 글머리가 들여쓰기
   //    기준점에 놓이고, 줄바꿈된 내용은 글머리 뒤에 정렬된다). 깊이는 CSS 변수로.
+  //    기본 좌측 여백 28px — 불렛이 본문 여백(16px)에 붙어 보인다는 보고
+  //    (2026-10-21)로 증가.
   ".md-li": {
     "--md-hang": "1.25em",
     "--md-depth-em": "0em",
-    paddingLeft: "calc(16px + var(--md-depth-em))",
+    paddingLeft: "calc(28px + var(--md-depth-em))",
     textIndent: "calc(-1 * var(--md-hang))",
     marginLeft: "var(--md-hang)",
     paddingBottom: "0.14em",
@@ -243,6 +254,15 @@ export const editorTheme = EditorView.theme({
     fontSize: "0.75em",
     cursor: "default",
   },
+  ".md-cite-strong": {
+    fontWeight: "700",
+  },
+  ".md-cite-em": {
+    fontStyle: "italic",
+  },
+  ".md-cite-strike": {
+    textDecoration: "line-through",
+  },
   ".md-cite-link": {
     cursor: "pointer",
   },
@@ -257,6 +277,72 @@ export const editorTheme = EditorView.theme({
   ".md-cite-def": {
     fontSize: "0.85em",
     color: "var(--md-fg-dim)",
+  },
+
+  // — 콜아웃(인용문 첫 줄 [!유형]) — 유형색 왼쪽 테두리 + 반투명 배경
+  // (밝음·어두움 테마 모두 성립하는 rgba 계열만 쓴다).
+  ".md-callout": {
+    borderRadius: "8px",
+    padding: "4px 10px 4px 12px",
+    borderLeft: "3px solid #9e9e9e",
+    background: "rgba(127,127,127,0.07)",
+    margin: "2px 0",
+  },
+  ".md-callout-icon": {
+    marginRight: "6px",
+    fontSize: "1.05em",
+  },
+  ".md-callout-title": {
+    fontWeight: "700",
+  },
+  ".md-callout-note": { borderLeftColor: "#448aff", background: "rgba(68,138,255,0.09)" },
+  ".md-callout-info": { borderLeftColor: "#3ba9f0", background: "rgba(59,169,240,0.09)" },
+  ".md-callout-abstract": { borderLeftColor: "#00bfbc", background: "rgba(0,191,188,0.09)" },
+  ".md-callout-todo": { borderLeftColor: "#f9b24a", background: "rgba(249,178,74,0.10)" },
+  ".md-callout-tip": { borderLeftColor: "#00c9a7", background: "rgba(0,201,167,0.09)" },
+  ".md-callout-success": { borderLeftColor: "#3fb950", background: "rgba(63,185,80,0.10)" },
+  ".md-callout-question": { borderLeftColor: "#ba832c", background: "rgba(186,131,44,0.10)" },
+  ".md-callout-warning": { borderLeftColor: "#e9a23b", background: "rgba(233,162,59,0.11)" },
+  ".md-callout-failure": { borderLeftColor: "#e5484d", background: "rgba(229,72,77,0.09)" },
+  ".md-callout-danger": { borderLeftColor: "#f5493d", background: "rgba(245,73,61,0.10)" },
+  ".md-callout-bug": { borderLeftColor: "#e5484d", background: "rgba(229,72,77,0.09)" },
+  ".md-callout-example": { borderLeftColor: "#a882ff", background: "rgba(168,130,255,0.10)" },
+  ".md-callout-quote": { borderLeftColor: "#9e9e9e", background: "rgba(127,127,127,0.07)" },
+
+  // — 노트 임베드 ![[이름]] — 대상 문서 원문 카드(높이 제한·스크롤).
+  ".md-embed": {
+    border: "1px solid var(--md-border, #d0d7de)",
+    borderRadius: "8px",
+    margin: "4px 0",
+    maxWidth: "100%",
+    overflow: "hidden",
+    background: "rgba(127,127,127,0.04)",
+  },
+  ".md-embed.is-missing": {
+    opacity: "0.65",
+  },
+  ".md-embed-head": {
+    padding: "3px 10px",
+    fontSize: "0.82em",
+    color: "var(--md-fg-dim, #8a919c)",
+    borderBottom: "1px solid var(--md-border, #d0d7de)",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  ".md-embed-link .md-embed-head": {
+    cursor: "pointer",
+  },
+  ".md-embed-body": {
+    padding: "4px 12px",
+    maxHeight: "300px",
+    overflowY: "auto",
+    whiteSpace: "pre-wrap",
+    fontSize: "0.92em",
+    lineHeight: "1.5",
+  },
+  ".md-embed-body[data-state='loading']": {
+    minHeight: "22px",
   },
 
   // — 코드 블록: 하나의 붙는 카드(줄마다 배경이 이어지고 끝만 둥글게) —
@@ -360,19 +446,15 @@ export const editorTheme = EditorView.theme({
     fontSize: "0.92em",
     opacity: 0.85,
   },
-  ".md-tracked-del.is-revertable": {
-    cursor: "pointer",
+  ".md-tracked-del-action": {
+    display: "inline-block", textDecoration: "none", cursor: "pointer", margin: "4px 0",
+    fontSize: "11px", color: "var(--md-fg)", background: "var(--md-bg)",
+    border: "1px solid var(--md-border)", borderRadius: "4px", padding: "2px 6px",
   },
-  ".md-tracked-del.is-revertable:hover": {
-    background: "color-mix(in srgb, var(--md-accent, #4f46e5) 10%, transparent)",
-  },
+  ".md-tracked-del-action:disabled": { cursor: "default", opacity: "0.5" },
   ".md-tracked-add": {
     background: "color-mix(in srgb, #34c759 12%, transparent)",
     boxShadow: "inset 3px 0 0 #34c759",
-  },
-  ".md-occurrence": {
-    background: "color-mix(in srgb, var(--md-accent, #4f46e5) 14%, transparent)",
-    borderRadius: "2px",
   },
   ".md-long-sentence": {
     textDecoration: "underline dotted rgba(210, 130, 30, 0.55)",
@@ -546,10 +628,15 @@ export const editorTheme = EditorView.theme({
 
 // 소스 모드(장식 없음)에서도 마크다운 구문색이 읽히게 — 폰트는 산문 폰트 유지.
 export const mdHighlightStyle = HighlightStyle.define([
-  { tag: t.heading1, fontSize: "1.5em", fontWeight: "700", color: "var(--md-heading)" },
-  { tag: t.heading2, fontSize: "1.3em", fontWeight: "700", color: "var(--md-heading)" },
-  { tag: t.heading3, fontSize: "1.15em", fontWeight: "650", color: "var(--md-heading)" },
-  { tag: [t.heading4, t.heading5, t.heading6], fontWeight: "650", color: "var(--md-heading)" },
+  // 제목 크기·색은 라인 클래스(md-h1~6)가 유일한 원천이다 — 태그 하이라이트가
+  // fontSize를 넣으면 셋텍스트 억제(livePreview — H2는 ## 로만 방침)를
+  // 우회해 text\n--- 내용이 계속 크게 보였다(2026-10-21 보고). 대신 소스
+  // 모드에서만(class 스코프) 제목 모양을 준다(2026-10-24 — 원문 그대로
+  // 보는 소스 모드에선 CommonMark 해석이 드러나는 게 정직하다).
+  { tag: t.heading1, class: "md-tag-h1" },
+  { tag: t.heading2, class: "md-tag-h2" },
+  { tag: t.heading3, class: "md-tag-h3" },
+  { tag: [t.heading4, t.heading5, t.heading6], class: "md-tag-h4" },
   { tag: t.strong, fontWeight: "700" },
   { tag: t.emphasis, fontStyle: "italic" },
   { tag: t.strikethrough, textDecoration: "line-through" },

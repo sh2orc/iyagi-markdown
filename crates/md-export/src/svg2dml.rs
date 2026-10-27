@@ -46,7 +46,8 @@ fn svg_options() -> usvg::Options<'static> {
 
 /// SVG 문자열 → 인라인 DrawingML(w:drawing … wpg:wgp) XML 조각.
 /// `max_width_emu`에 맞춰 축소(확대는 하지 않는다).
-pub fn svg_to_drawingml(svg: &str, max_width_emu: i64) -> Result<String, SvgError> {
+/// `doc_id`는 호출자가 문서의 다른 그림과 함께 할당한다.
+pub fn svg_to_drawingml(svg: &str, max_width_emu: i64, doc_id: u32) -> Result<String, SvgError> {
     let uses_markers = svg.contains("marker-end=") || svg.contains("marker-start=");
     let tree =
         usvg::Tree::from_str(svg, &svg_options()).map_err(|e| SvgError::Parse(e.to_string()))?;
@@ -85,16 +86,9 @@ pub fn svg_to_drawingml(svg: &str, max_width_emu: i64) -> Result<String, SvgErro
         total_h = total_h,
         ch_w = ch_w,
         ch_h = ch_h,
-        doc_id = next_doc_id(),
+        doc_id = doc_id,
         children = children,
     ))
-}
-
-/// 그림마다 고유 id — 정적 카운터(프로세스당).
-fn next_doc_id() -> i64 {
-    use std::sync::atomic::{AtomicI64, Ordering};
-    static SEQ: AtomicI64 = AtomicI64::new(1000);
-    SEQ.fetch_add(1, Ordering::Relaxed)
 }
 
 fn walk_group(group: &usvg::Group, out: &mut String, uses_markers: bool) {
@@ -427,7 +421,8 @@ mod tests {
 
     #[test]
     fn rect_svg_becomes_custgeom_shape() {
-        let xml = svg_to_drawingml(RECT_SVG, 6_000_000).unwrap();
+        let xml = svg_to_drawingml(RECT_SVG, 6_000_000, 42).unwrap();
+        assert!(xml.contains("<wp:docPr id=\"42\""));
         assert!(xml.contains("wpg:wgp"), "그룹 래퍼가 있어야 한다");
         assert!(xml.contains("a:custGeom"), "custGeom이 있어야 한다");
         assert!(xml.contains("4F46E5"), "채움색이 유지되어야 한다");
@@ -440,7 +435,7 @@ mod tests {
         let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="120" height="40">
 <text x="60" y="24" text-anchor="middle" font-size="16" fill="#111" font-family="Helvetica, Arial, sans-serif">Hello</text>
 </svg>"##;
-        let xml = svg_to_drawingml(svg, 6_000_000).unwrap();
+        let xml = svg_to_drawingml(svg, 6_000_000, 1).unwrap();
         assert!(xml.contains("wps:txbx"), "텍스트 상자여야 한다");
         assert!(xml.contains("Hello"), "텍스트가 보존되어야 한다");
         assert!(
@@ -455,20 +450,20 @@ mod tests {
 <defs><marker id="a" markerWidth="10" markerHeight="10"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>
 <path d="M10,25 L80,25" stroke="#333" stroke-width="2" fill="none" marker-end="url(#a)"/>
 </svg>"##;
-        let xml = svg_to_drawingml(svg, 6_000_000).unwrap();
+        let xml = svg_to_drawingml(svg, 6_000_000, 1).unwrap();
         assert!(xml.contains("a:tailEnd"), "화살표 끝 장식이 있어야 한다");
     }
 
     #[test]
     fn sizeless_svg_uses_usvg_default() {
         // width/height 없는 SVG는 usvg 기본 크기(100x100)로 변환된다 — 실패 아님.
-        let xml = svg_to_drawingml("<svg xmlns=\"http://www.w3.org/2000/svg\"/>", 1000).unwrap();
+        let xml = svg_to_drawingml("<svg xmlns=\"http://www.w3.org/2000/svg\"/>", 1000, 1).unwrap();
         assert!(xml.contains("wpg:wgp"));
     }
 
     #[test]
     fn invalid_svg_is_rejected() {
-        assert!(svg_to_drawingml("not a svg at all", 1000).is_err());
+        assert!(svg_to_drawingml("not a svg at all", 1000, 1).is_err());
     }
 
     #[test]
@@ -481,7 +476,7 @@ mod tests {
 <text x="150" y="35" text-anchor="middle" font-size="14">끝</text></g>
 <path d="M95,30 L105,30" stroke="#333" marker-end="url(#arrow)"/>
 </svg>"##;
-        let xml = svg_to_drawingml(svg, 5_486_400).unwrap();
+        let xml = svg_to_drawingml(svg, 5_486_400, 1).unwrap();
         assert!(
             xml.matches("<wps:wsp>").count() >= 5,
             "도형+텍스트 상자 충분히 생성: {}",

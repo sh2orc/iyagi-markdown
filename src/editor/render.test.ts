@@ -85,6 +85,32 @@ describe("샘플 문서 라이브 프리뷰", { retry: 2 }, () => {
     document.body.innerHTML = "";
   });
 
+  it("⌘A 전체 선택은 무엇도 원문으로 풀지 않는다(40~42차 의미론)", async () => {
+    const view = await makeView("edit");
+    const doc = view.state.doc;
+    // 문서 전체 선택 — 노출 집합이 비어야 한다(FM·표·인라인 마커 전부 렌더 유지).
+    view.dispatch({ selection: { anchor: 0, head: doc.length } });
+    await new Promise((r) => setTimeout(r, 60));
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain("# IYAGI Markdown"); // 제목 마커 미노출
+    expect(text).not.toContain("|"); // 표 파이프 미노출(위젯 유지)
+    const kinds = widgetKinds(view);
+    expect(kinds["widget:TableWidget"] ?? 0).toBeGreaterThanOrEqual(1); // 표 위젯 유지
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
+  it("줄 전체 선택(끝점이 줄 끝)은 제목 마커를 노출하지 않는다", async () => {
+    const view = await makeView("edit");
+    const line1 = view.state.doc.line(1);
+    // 첫 줄 전체(시작→줄 끝) 선택 — 42차: 감쌈의 끝이 줄 끝이면 미노출.
+    view.dispatch({ selection: { anchor: line1.from, head: line1.to } });
+    await new Promise((r) => setTimeout(r, 60));
+    expect(document.body.textContent).not.toContain("# IYAGI Markdown");
+    view.destroy();
+    document.body.innerHTML = "";
+  });
+
   it("플러그인 갱신 중 크래시 없이 장식이 적용된다(update-dispatch 회귀)", async () => {
     const errors: string[] = [];
     const orig = console.error;

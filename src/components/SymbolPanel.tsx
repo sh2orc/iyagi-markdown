@@ -1,62 +1,90 @@
 // 특수 문자 삽입(Word "기호" 대화상자) — 분류 탭 + 검색 + 클릭 삽입.
 // 연속 삽입: 패널은 닫히지 않고 커서에 계속 넣는다(Word과 같은 워크플로).
-// 키보드: 검색창이 포커스를 유지하고 ↑↓←→로 셀 선택, Enter 삽입(명령 팔레트
-// 키크롤과 같은 규약 — 마우스 없이 기호 삽입이 끝나야 한다).
+// 검색창 포커스를 유지하며 ↑↓로 결과 선택, Enter 삽입. 좌우·Home·End는
+// 검색어 편집에 사용한다. 연속 삽입 위치는 현재 에디터 커서와 별도로 추적한다.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { SYMBOL_CATS, searchSymbols, type SymbolCat } from "../app/symbols";
 import type { Translate } from "../i18n";
 import { imeComposing } from "../app/ime";
+import type { AppStore } from "../app/store";
+import { captureAsyncEdit } from "../editor/asyncEdit";
 
 interface Props {
   t: Translate;
-  onInsert: (ch: string) => void;
+  store: AppStore;
   onClose: () => void;
 }
 
-export function SymbolPanel({ t, onInsert, onClose }: Props): JSX.Element {
+export function SymbolPanel({ t, store, onClose }: Props): JSX.Element {
+  useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [query, setQuery] = useState("");
   const [cat, setCat] = useState<SymbolCat | null>(null);
   const [sel, setSel] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const gridRef = useRef<HTMLDivElement | null>(null);
   const cellEls = useRef<(HTMLButtonElement | null)[]>([]);
-  // 그리드 열 수(auto-fill이라 CSS가 정함) — 첫 행의 offsetTop이 같은 셀 수로 측정.
-  const colsRef = useRef(8);
+  const listId = useId();
+  const hintId = useId();
+  const [origin] = useState(() => {
+    const view = store.view;
+    return { view, tabId: store.active?.id, selection: view?.state.selection.main, doc: view?.state.doc };
+  });
+  const pending = useRef<ReturnType<typeof captureAsyncEdit>>(null);
+  const inserting = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+  const [inserted, setInserted] = useState({ ch: "", count: 0 });
+  const originCurrent = () => !!origin.view && !!origin.tabId && store.view === origin.view &&
+    store.active?.id === origin.tabId && !origin.view.state.readOnly;
+  const targetChanged = !originCurrent();
 
   useEffect(() => {
+    const target = origin.view && origin.selection && origin.tabId && store.view === origin.view &&
+      store.active?.id === origin.tabId && origin.view.state.doc === origin.doc
+      ? captureAsyncEdit(origin.view, "symbol-panel", origin.selection) : null;
+    pending.current = target;
     inputRef.current?.focus();
-  }, []);
+    return () => { target?.finish(); };
+  }, [origin, store]);
 
   const list = useMemo(() => searchSymbols(query, cat ?? undefined), [query, cat]);
 
-  // 검색·분류가 바뀌면 선택을 처음으로.
-  useEffect(() => {
-    setSel(0);
-  }, [query, cat]);
-
-  useLayoutEffect(() => {
-    const g = gridRef.current;
-    if (!g) return;
-    let cols = 0;
-    while (cols < g.children.length && (g.children[cols] as HTMLElement).offsetTop === (g.children[0] as HTMLElement).offsetTop) cols++;
-    if (cols > 0) colsRef.current = cols;
-  }, [list]);
+  const active = Math.max(0, Math.min(sel, list.length - 1));
 
   // 선택 셀이 그리드 스크롤을 벗어나면 따라온다.
   useEffect(() => {
-    cellEls.current[sel]?.scrollIntoView({ block: "nearest" });
-  }, [sel]);
+    cellEls.current[active]?.scrollIntoView({ block: "nearest" });
+  }, [active, list]);
 
   const move = (d: number) => setSel((s) => Math.max(0, Math.min(s + d, list.length - 1)));
+  const close = () => { pending.current?.finish(); onClose(); };
+  const chooseCat = (next: SymbolCat | null) => { setCat(next); setSel(0); inputRef.current?.focus(); };
+  const insert = (ch: string) => {
+    if (inserting.current) return;
+    if (!originCurrent() || !pending.current?.current()) { setError(t.symbolTargetChanged); return; }
+    inserting.current = true;
+    try {
+      if (!pending.current.replace(ch, "input.symbol", { continueAtEnd: true })) {
+        setError(t.symbolInsertFailed); return;
+      }
+      setError(null);
+      setInserted((previous) => ({ ch, count: previous.count + 1 }));
+    } catch { setError(t.symbolInsertFailed); }
+    finally { inserting.current = false; inputRef.current?.focus(); }
+  };
 
   return (
     <div
       className="overlay modal-overlay"
       role="dialog"
       aria-modal="true"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      aria-label={t.symbolTitle}
+      onClick={(e) => e.target === e.currentTarget && close()}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !e.defaultPrevented && !imeComposing(e)) {
+          e.preventDefault(); e.stopPropagation(); close();
+        }
+      }}
     >
       <div className="modal symbol-modal">
         <div className="modal-title">{t.symbolTitle}</div>
@@ -64,46 +92,37 @@ export function SymbolPanel({ t, onInsert, onClose }: Props): JSX.Element {
           ref={inputRef}
           className="palette-input symbol-search"
           role="combobox"
+          aria-label={t.symbolSearch}
+          aria-autocomplete="list"
+          aria-describedby={hintId}
           aria-expanded={list.length > 0}
-          aria-controls="symbol-listbox"
-          aria-activedescendant={list[sel] ? `symbol-opt-${sel}` : undefined}
+          aria-controls={listId}
+          aria-activedescendant={list[active] ? `${listId}-${active}` : undefined}
           placeholder={t.symbolSearch}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => { setQuery(e.target.value); setSel(0); }}
           onKeyDown={(e) => {
-            if (imeComposing(e)) return; // IME 조합 중 키는 IME가 소비(한글 Esc·Enter 새기기 방지)
-            if (e.key === "Escape") {
-              e.preventDefault();
-              onClose();
-            } else if (e.key === "ArrowRight") {
-              e.preventDefault();
-              move(1);
-            } else if (e.key === "ArrowLeft") {
-              e.preventDefault();
-              move(-1);
-            } else if (e.key === "ArrowDown") {
-              e.preventDefault();
-              move(colsRef.current);
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              move(-colsRef.current);
-            } else if (e.key === "Home") {
-              e.preventDefault();
-              setSel(0);
-            } else if (e.key === "End") {
-              e.preventDefault();
-              setSel(Math.max(0, list.length - 1));
-            } else if (e.key === "Enter") {
-              e.preventDefault();
-              const s = list[sel];
-              if (s) onInsert(s.ch);
+            if (e.defaultPrevented || imeComposing(e) || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+            switch (e.key) {
+              case "ArrowDown": move(1); break;
+              case "ArrowUp": move(-1); break;
+              case "PageDown": move(10); break;
+              case "PageUp": move(-10); break;
+              case "Enter": {
+                const s = list[active];
+                if (s && !e.repeat) insert(s.ch);
+                break;
+              }
+              default: return;
             }
+            e.preventDefault(); e.stopPropagation();
           }}
         />
         <div className="symbol-cats">
           <button
             className={`symbol-cat ${cat === null ? "is-sel" : ""}`}
-            onClick={() => setCat(null)}
+            aria-pressed={cat === null}
+            onClick={() => chooseCat(null)}
           >
             {t.symbolAll}
           </button>
@@ -111,37 +130,47 @@ export function SymbolPanel({ t, onInsert, onClose }: Props): JSX.Element {
             <button
               key={c.id}
               className={`symbol-cat ${cat === c.id ? "is-sel" : ""}`}
-              onClick={() => setCat(c.id)}
+              aria-pressed={cat === c.id}
+              onClick={() => chooseCat(c.id)}
             >
               {t[c.labelKey]}
             </button>
           ))}
         </div>
-        <div className="symbol-grid" ref={gridRef} role="listbox" id="symbol-listbox" aria-label={t.symbolSearch}>
+        <p id={hintId} className="symbol-help">{t.symbolKeyboardHint}</p>
+        <div className="symbol-grid" role="listbox" id={listId} aria-label={t.symbolSearch}>
           {list.map((s, i) => (
             <button
               key={`${s.ch}-${s.name}`}
-              id={`symbol-opt-${i}`}
+              id={`${listId}-${i}`}
               role="option"
-              aria-selected={i === sel}
+              aria-selected={i === active}
+              aria-label={`${s.ch} ${s.name}`}
+              tabIndex={-1}
+              disabled={targetChanged}
               ref={(el) => {
                 cellEls.current[i] = el;
               }}
               className="symbol-cell"
               title={s.name}
-              style={i === sel ? { background: "var(--md-accent-soft)", outline: "2px solid var(--md-accent)" } : undefined}
+              style={i === active ? { background: "var(--md-accent-soft)", outline: "2px solid var(--md-accent)" } : undefined}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
                 setSel(i);
-                onInsert(s.ch);
+                insert(s.ch);
               }}
             >
               {s.ch}
             </button>
           ))}
-          {list.length === 0 && <div className="palette-empty">{t.symbolNoMatch}</div>}
+        </div>
+        {list.length === 0 && <div className="palette-empty" role="status">{t.symbolNoMatch}</div>}
+        {(targetChanged || error) && <p className="comment-error" role="alert">{targetChanged ? t.symbolTargetChanged : error}</p>}
+        <div className="symbol-help" role="status" aria-atomic="true">
+          {inserted.count > 0 && `${t.symbolInserted}: ${inserted.ch} (${inserted.count})`}
         </div>
         <div className="modal-actions">
-          <button className="btn btn-plain" onClick={onClose}>
+          <button className="btn btn-plain" onClick={close}>
             {t.close}
           </button>
         </div>

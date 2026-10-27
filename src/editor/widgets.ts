@@ -41,7 +41,15 @@ export class MathWidget extends WidgetType {
     if (this.display) {
       el.addEventListener("mousedown", (e: Event) => {
         if ((e as MouseEvent).button !== 0) return;
+        // preventDefault만으론 부족 — CM의 contentDOM mousedown이 같은
+        // 이벤트를 받아 위젯 좌표의 부정확한 매핑으로 선택을 덮어쓴다
+        // (전파 차단 필수, 2026-10-20 실브라우저 재현).
+        e.stopPropagation();
         e.preventDefault();
+        // widgetClickCollapse(캡처)가 먼저 커서를 옮겨 이 위젯이 원문 노출로
+        // 떨어져 나갔으면 detach 상태 — posAtDOM이 문서 끝을 돌려 커서를
+        // 납치하므로(실측) 살아 있을 때만 처리한다.
+        if (!el.isConnected) return;
         const pos = view.posAtDOM(el);
         const doc = view.state.doc;
         const line = doc.lineAt(pos);
@@ -102,7 +110,11 @@ export class DiagramWidget extends WidgetType {
     // 클릭 → 커서를 펜스 코드로 — 원문 노출로 즉석 편집(클릭=편집, 104-105차 규칙).
     wrap.addEventListener("mousedown", (e: Event) => {
       if ((e as MouseEvent).button !== 0) return;
+      // 수식 블록과 같은 이유 — CM mousedown의 덮어쓰기 차단.
+      e.stopPropagation();
       e.preventDefault();
+      // 같은 이유 — widgetClickCollapse가 먼저 처리해 detach됐으면 스킵.
+      if (!wrap.isConnected) return;
       const pos = view.posAtDOM(wrap);
       const doc = view.state.doc;
       const line = doc.lineAt(pos);
@@ -131,6 +143,8 @@ export interface ImageWidgetOpts {
 export class ImageWidget extends WidgetType {
   #url: string;
   #broken = false;
+  /** 드래그가 살아 있을 때만 — 위젯이 도중에 사라지면 window 청취기를 뗀다. */
+  #dragAbort: (() => void) | null = null;
   constructor(
     readonly src: string,
     readonly alt: string,
@@ -144,6 +158,12 @@ export class ImageWidget extends WidgetType {
     this.#broken = !isRemote && !isInApp();
   }
 
+  /** 드래그 중 문서 변경으로 위젯이 사라져도 pointermove 청취기가 남지 않게. */
+  destroy() {
+    this.#dragAbort?.();
+    this.#dragAbort = null;
+  }
+
   eq(other: ImageWidget) {
     return (
       other.src === this.src &&
@@ -155,8 +175,10 @@ export class ImageWidget extends WidgetType {
     );
   }
 
-  toDOM(view: EditorView) {
-    const wrap = document.createElement("span");
+  toDOM(view: EditorView, existingWrap?: HTMLSpanElement) {
+    const wrap = existingWrap ?? document.createElement("span");
+    wrap.replaceChildren();
+    wrap.removeAttribute("title");
     wrap.className = "md-image";
     if (!this.opts.showImages) {
       wrap.classList.add("md-image-off");
@@ -181,8 +203,10 @@ export class ImageWidget extends WidgetType {
         const unlocked = new ImageWidget(this.src, this.alt, this.title, {
           ...this.opts,
           remoteImages: true,
-        });
-        wrap.replaceWith(unlocked.toDOM(view));
+        }, this.widthPct);
+        // Keep CodeMirror's widget DOM identity so posAtDOM still identifies
+        // this occurrence after the user allows a blocked remote image.
+        unlocked.toDOM(view, wrap);
       }, { once: true });
       return wrap;
     }
@@ -214,7 +238,9 @@ export class ImageWidget extends WidgetType {
       }
     });
     // 클릭 → 확대 뷰어(App이 등록한 콜백 — 원문 불변, 보기만).
-    img.addEventListener("click", () => imageViewerHandler?.(this.src, this.alt));
+    img.addEventListener("click", () => {
+      if (wrap.isConnected && view.dom.isConnected) imageViewerHandler?.(view, view.posAtDOM(wrap));
+    });
     wrap.append(img);
     // alt가 비었거나 파일명 모양이면 호버 칩 '설명 추가' — 캡션·접근성
     // 진입점(63·108차 퍼널 확장: screenshot.png 같은 무의미 alt도 유도).
@@ -264,15 +290,20 @@ export class ImageWidget extends WidgetType {
         if (!raf) raf = requestAnimationFrame(applyPct);
       };
       const onUp = () => {
+        abortDrag();
+        applyPct(); // 마지막 값 즉시 반영 — 놓은 시점과 저장값이 일치하게
+        const pct = Number(handle.dataset.pct ?? 0);
+        if (pct > 0) imageResizeHandler?.(this.src, pct);
+      };
+      // 놓기(저장)와 중단(청취기만 해제)을 나눈다 — 위젯 파괴 시 저장은 안 한다.
+      const abortDrag = () => {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
         if (raf) {
           cancelAnimationFrame(raf);
           raf = 0;
         }
-        applyPct(); // 마지막 값 즉시 반영 — 놓은 시점과 저장값이 일치하게
-        const pct = Number(handle.dataset.pct ?? 0);
-        if (pct > 0) imageResizeHandler?.(this.src, pct);
+        this.#dragAbort = null;
       };
       handle.addEventListener("pointerdown", (ev) => {
         ev.preventDefault();
@@ -282,6 +313,7 @@ export class ImageWidget extends WidgetType {
         const host = wrap.closest(".editor-host, .cm-content");
         containerW = host?.clientWidth ?? wrap.clientWidth; // 드래그 중엔 다시 안 읽는다
         pendingPct = 0;
+        this.#dragAbort = abortDrag;
         window.addEventListener("pointermove", onMove);
         window.addEventListener("pointerup", onUp);
       });
@@ -299,14 +331,14 @@ export class ImageWidget extends WidgetType {
 export let imageResizeHandler: ((src: string, pct: number) => void) | null = null;
 
 /** 이미지 클릭 → 확대 뷰어 콜백(App이 등록). */
-export let imageViewerHandler: ((src: string, alt: string) => void) | null = null;
+export let imageViewerHandler: ((view: EditorView, pos: number) => void) | null = null;
 
 /** 표 헤더 클릭 → (열 인덱스, altKey 여부) 콜백(App이 등록). */
 export let tableHeaderClickHandler: ((col: number, reset?: boolean) => void) | null = null;
 export function setTableHeaderClickHandler(fn: ((col: number, reset?: boolean) => void) | null): void {
   tableHeaderClickHandler = fn;
 }
-export function setImageViewerHandler(fn: ((src: string, alt: string) => void) | null): void {
+export function setImageViewerHandler(fn: typeof imageViewerHandler): void {
   imageViewerHandler = fn;
 }
 export function setImageResizeHandler(fn: ((src: string, pct: number) => void) | null): void {
@@ -475,6 +507,8 @@ export function serializeTable(t: ParsedTable): string {
 
 export class TableWidget extends WidgetType {
   #widths: number[] | null;
+  /** 살아 있는 드래그(셀 선택·열 폭)의 중단 — 위젯 파괴 시 window 청취기를 뗀다. */
+  #dragAborts: Array<() => void> = [];
 
   constructor(
     readonly src: string,
@@ -483,6 +517,11 @@ export class TableWidget extends WidgetType {
   ) {
     super();
     this.#widths = initialWidths ? [...initialWidths] : null;
+  }
+
+  /** 드래그 중 문서 변경으로 위젯이 사라져도 mousemove/pointermove 청취기가 남지 않게. */
+  destroy() {
+    for (const abort of this.#dragAborts.splice(0)) abort();
   }
 
   eq(other: TableWidget) {
@@ -624,8 +663,7 @@ export class TableWidget extends WidgetType {
         ev.preventDefault();
       };
       const onUp = (): void => {
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
+        abortDrag();
         if (dragSelecting) {
           dragSelecting = false;
           setTimeout(() => {
@@ -634,6 +672,14 @@ export class TableWidget extends WidgetType {
           wrap.focus();
         }
       };
+      // 셀 선택 드래그 — 위젯 파괴 시에도 청취기가 남지 않게.
+      const abortDrag = (): void => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        const index = this.#dragAborts.indexOf(abortDrag);
+        if (index >= 0) this.#dragAborts.splice(index, 1);
+      };
+      this.#dragAborts.push(abortDrag);
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     });
@@ -968,15 +1014,22 @@ export class TableWidget extends WidgetType {
             const w = Math.max(48, startW + ev.clientX - startX);
             col.style.width = `${w}px`;
           };
-          const up = () => {
+          // 열 폭 드래그 — 놓기(저장)와 중단(청취기 해제만)을 나눈다.
+          const abortDrag = () => {
             window.removeEventListener("pointermove", move);
             window.removeEventListener("pointerup", up);
+            const index = this.#dragAborts.indexOf(abortDrag);
+            if (index >= 0) this.#dragAborts.splice(index, 1);
+          };
+          const up = () => {
+            abortDrag();
             this.#widths = Array.from(colgroup.children).map(
               (c) => (c as HTMLElement).getBoundingClientRect().width,
             );
             // 사이드카 저장 — 원문 불변.
             this.onWidthsSaved?.(this.#widths);
           };
+          this.#dragAborts.push(abortDrag);
           window.addEventListener("pointermove", move);
           window.addEventListener("pointerup", up);
         });
@@ -1098,6 +1151,50 @@ export class BulletWidget extends WidgetType {
   }
 }
 
+/** 콜아웃 아이콘 — 인용문 첫 줄의 `[!유형]` 마커(+여닫는 >) 대체. */
+export class CalloutWidget extends WidgetType {
+  constructor(readonly key: string) {
+    super();
+  }
+
+  eq(other: CalloutWidget) {
+    return other.key === this.key;
+  }
+
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = `md-callout-icon md-callout-icon-${this.key}`;
+    el.textContent = CALLOUT_ICONS[this.key] ?? CALLOUT_ICONS.note!;
+    return el;
+  }
+
+  ignoreEvent() {
+    return true;
+  }
+}
+
+/** 콜아웃 정식 유형 — 별칭은 여기로 정규화한다(export/미리보기 공용). */
+export const CALLOUT_TYPES: Record<string, string> = {
+  note: "note", abstract: "abstract", tldr: "abstract", summary: "abstract",
+  info: "info", todo: "todo", tip: "tip", hint: "tip", important: "tip",
+  success: "success", check: "success", done: "success",
+  question: "question", help: "question", faq: "question",
+  warning: "warning", caution: "warning", attention: "warning",
+  failure: "failure", fail: "failure", missing: "failure",
+  danger: "danger", error: "danger", bug: "bug", example: "example",
+  quote: "quote", cite: "quote",
+};
+
+export const CALLOUT_ICONS: Record<string, string> = {
+  note: "📝", abstract: "📋", info: "ℹ️", todo: "☑️", tip: "💡",
+  success: "✅", question: "❓", warning: "⚠️", failure: "❌",
+  danger: "🛑", bug: "🐛", example: "🧪", quote: "❝",
+};
+
+export function calloutKeyOf(raw: string): string {
+  return CALLOUT_TYPES[raw.toLowerCase()] ?? "note";
+}
+
 // — 수평선 —
 
 export class HRuleWidget extends WidgetType {
@@ -1105,9 +1202,24 @@ export class HRuleWidget extends WidgetType {
     return true;
   }
 
-  toDOM() {
+  toDOM(view: EditorView) {
     const el = document.createElement("div");
     el.className = "md-hr";
+    // 클릭 → 커서를 --- 줄로 — 커서 줄 노출이 원문을 보여 즉석 편집
+    // (클릭=편집 규칙. 표·수식·머메이드와 달리 다른 진입이 없던 유일한
+    // 위젯이라 ↑↓ 가드 수정과 함께 채웠다).
+    el.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      // 수식 블록과 같은 이유 — CM mousedown의 덮어쓰기 차단.
+      e.stopPropagation();
+      e.preventDefault();
+      // 캡처 단계의 widgetClickCollapse가 이미 커서를 옮겼다면 이 위젯은
+      // 원문 노출로 막 떨어져 나갔다 — detach된 요소의 posAtDOM은 문서 끝을
+      // 돌려주므로(실측) 커서를 납치한다. 살아 있을 때만 처리한다.
+      if (!el.isConnected) return;
+      view.dispatch({ selection: { anchor: view.posAtDOM(el) }, scrollIntoView: true });
+      view.focus();
+    });
     return el;
   }
 
@@ -1224,6 +1336,75 @@ export function setFrontMatterEditHandler(fn: (() => void) | null): void {
   frontMatterEditHandler = fn;
 }
 
+/** 임베드 내용 제공 — App이 등록(경로 → 문서 원문). 위젯이 비동기로 채운다. */
+export let embedContentHandler: ((path: string) => Promise<string | null>) | null = null;
+export function setEmbedContentHandler(fn: ((path: string) => Promise<string | null>) | null): void {
+  embedContentHandler = fn;
+}
+
+/** 임베드 클릭 → 문서 열기 — App이 등록(위키링크와 같은 위임 방식). */
+export let embedOpenHandler: ((path: string) => void) | null = null;
+export function setEmbedOpenHandler(fn: ((path: string) => void) | null): void {
+  embedOpenHandler = fn;
+}
+
+/** 노트 임베드 ![[이름]] — 대상 문서 원문을 카드로 보여준다(클릭 → 열기).
+ *  v1은 원문 텍스트 카드 — 마크다운 렌더는 재귀 장식이 필요해 다음 단계. */
+export class EmbedWidget extends WidgetType {
+  #loadedPath: string | null = null;
+
+  constructor(
+    readonly label: string,
+    readonly resolved: string | null,
+  ) {
+    super();
+  }
+
+  eq(other: EmbedWidget) {
+    return other.label === this.label && other.resolved === this.resolved;
+  }
+
+  toDOM() {
+    const el = document.createElement("div");
+    el.className = this.resolved ? "md-embed" : "md-embed is-missing";
+    const head = document.createElement("div");
+    head.className = "md-embed-head";
+    head.textContent = `🧩 ${this.label}`;
+    if (this.resolved) el.setAttribute("data-wiki-path", this.resolved);
+    el.append(head);
+    const body = document.createElement("div");
+    body.className = "md-embed-body";
+    if (!this.resolved) {
+      body.textContent = "·";
+    } else if (embedContentHandler) {
+      body.dataset.state = "loading";
+      const path = this.resolved;
+      void embedContentHandler(path).then((text) => {
+        // 위젯 DOM이 재사용(같은 eq)되거나 떨어져 나갔을 수 있다 — 채우기 전에 확인.
+        if (!el.isConnected || this.#loadedPath === path) return;
+        this.#loadedPath = path;
+        delete body.dataset.state;
+        body.textContent = text ?? "·";
+        if (text == null) el.classList.add("is-missing");
+      });
+    }
+    el.append(body);
+    if (this.resolved && embedOpenHandler) {
+      el.classList.add("md-embed-link");
+      el.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        embedOpenHandler?.(this.resolved!);
+      });
+    }
+    return el;
+  }
+
+  ignoreEvent() {
+    return false;
+  }
+}
+
 /** 메모 개수 배지 — 메모 줄 끝(여러 개면 N). */
 export class CommentCountWidget extends WidgetType {
   constructor(readonly count: number, readonly onOpen: () => void) {
@@ -1272,18 +1453,23 @@ export class CiteWidget extends WidgetType {
     readonly entry: string,
     /** 서지 정의 줄로 이동(정의가 있을 때만 — Word Ctrl+클릭 이동). */
     readonly onJump: (() => void) | null = null,
+    /** 감싼 강조(`strong`·`em`·`strike`) — 플랭킹 규칙 때문에 마커가
+     *  파싱되지 않는 `**[@key]**글자` 형태의 의도를 위젯에 반영한다. */
+    readonly emphasis: readonly string[] = [],
   ) {
     super();
   }
   eq(other: CiteWidget) {
     // onJump(클로저)는 비교하지 않는다 — display·entry가 같으면 이동처도 같다.
-    return other.display === this.display && other.entry === this.entry;
+    return other.display === this.display && other.entry === this.entry
+      && other.emphasis.join() === this.emphasis.join();
   }
   toDOM() {
     const el = document.createElement("sup");
     el.className = "md-cite";
     el.textContent = this.display;
     if (this.entry) el.title = this.entry;
+    for (const tag of this.emphasis) el.classList.add(`md-cite-${tag}`);
     if (this.onJump) {
       el.classList.add("md-cite-link");
       el.title = this.entry;

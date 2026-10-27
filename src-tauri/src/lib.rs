@@ -2,36 +2,39 @@
 //! 순수 로직은 `md-core`, macOS 호출은 `md-macos`, 내보내기는 `md-export`.
 
 use tauri::{Emitter, Manager, RunEvent};
-use std::sync::atomic::{AtomicBool, Ordering};
-
-/// ⌘Q(앱 종료) 확인 완료 — ExitRequested 재진입 루프 방지(아래 참조).
-static EXIT_CONFIRMED: AtomicBool = AtomicBool::new(false);
-
-/// 프런트가 종료 확인 절차(미저장 확인·세션 저장)를 마치고 부른다.
-#[tauri::command]
-fn exit_confirmed(app: tauri::AppHandle) {
-    EXIT_CONFIRMED.store(true, Ordering::SeqCst);
-    app.exit(0);
-}
 
 mod commands;
+mod draft_db;
+mod favorites;
 mod logging;
 mod menu;
 mod pdf;
+mod quit;
+mod rename_jobs;
+mod replacement;
 mod state;
 mod style_db;
+mod template_archive;
+mod user_templates;
 mod watcher;
 mod window;
+mod workspace_history;
 
 pub fn run() {
     tauri::Builder::default()
+        .manage(quit::QuitState::default())
+        .manage(replacement::ReplacementState::default())
         // 문서 앱은 인스턴스가 하나여야 한다: 두 번째 실행(더블클릭 포함)은
         // 첫 인스턴스에 파일 경로를 넘기고 바로 끝난다.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            quit::cancel(app);
             let files = extract_md_paths(&argv);
             // 두 번째 실행은 기존 인스턴스에서 처리하고 조용히 끝난다 — 사용자
             // 터미널엔 아무 것도 안 남아 실패로 오해되므로 앱 로그에 근거를 남긴다.
-            tracing::info!(count = files.len(), "두 번째 실행 — 기존 인스턴스 활성화(single-instance)");
+            tracing::info!(
+                count = files.len(),
+                "두 번째 실행 — 기존 인스턴스 활성화(single-instance)"
+            );
             if !files.is_empty() {
                 state::queue_pending_files(app, files);
             }
@@ -42,12 +45,16 @@ pub fn run() {
         .setup(|app| {
             state::init(app.handle());
             let st = app.state::<state::AppState>();
-            if let Some(warn) = &st.settings_warning {
+            logging::init(app.handle());
+            // 로거가 생긴 뒤에 찍는다(그 전의 tracing 호출은 어디에도 남지 않는다).
+            for warn in [&st.settings_warning, &st.session_warning]
+                .into_iter()
+                .flatten()
+            {
                 tracing::warn!("{warn}");
             }
-            logging::init(app.handle());
             menu::install(app.handle()).expect("메뉴 구성 실패");
-            let rect = st.session.as_ref().and_then(|s| s.window);
+            let rect = st.session.lock().unwrap().as_ref().and_then(|s| s.window);
             window::create_main(app.handle(), rect)?;
             tracing::info!(
                 version = env!("CARGO_PKG_VERSION"),
@@ -57,15 +64,21 @@ pub fn run() {
             Ok(())
         })
         .on_menu_event(|app, event| {
-            let id = event.id().as_ref().to_string();
             // 미리 정의된 항목(undo/cut/…)은 시스템이 직접 처리한다 — 우리 이벤트만 전달.
-            if !id.is_empty() && menu::is_custom(&id) {
+            if let Some(id) = menu::command_id(event.id().as_ref()) {
                 tracing::debug!(menu = %id, "menu event");
-                let _ = app.emit("menu", id);
+                if let Some(window) = app
+                    .webview_windows()
+                    .into_values()
+                    .find(|window| window.is_focused().unwrap_or(false))
+                {
+                    let _ = app.emit_to(window.label(), "menu", id.to_owned());
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
-            exit_confirmed,
+            quit::quit_reply,
+            quit::quit_pending,
             commands::log_error,
             commands::app_ready,
             commands::app_info,
@@ -77,6 +90,7 @@ pub fn run() {
             commands::search_workspace,
             commands::snapshot_list,
             commands::snapshot_read,
+            commands::snapshot_backup,
             commands::backlinks,
             commands::list_voices,
             commands::speak_start,
@@ -84,15 +98,32 @@ pub fn run() {
             commands::speak_status,
             commands::import_image,
             commands::export_epub,
-            commands::replace_workspace,
+            replacement::preview_replacement,
+            replacement::apply_replacement,
             commands::find_orphan_images,
-            commands::wiki_edges,
+            commands::document_edges,
+            commands::inspect_links,
+            commands::create_link_document,
             commands::delete_orphan_images,
             commands::get_settings,
-            commands::set_settings,
+            commands::patch_settings,
             commands::get_session,
             commands::save_session,
             commands::get_recent,
+            favorites::get_favorites,
+            favorites::set_favorite,
+            favorites::move_favorite,
+            user_templates::list_user_templates,
+            user_templates::get_user_template,
+            user_templates::put_user_template,
+            user_templates::delete_user_template,
+            template_archive::read_template_archive,
+            template_archive::export_template_archive,
+            template_archive::import_template_archive,
+            workspace_history::get_workspace_history,
+            workspace_history::update_workspace_history,
+            commands::record_recent,
+            commands::remove_recent,
             commands::clear_recent,
             commands::set_asset_scope,
             commands::watch_paths,
@@ -101,11 +132,15 @@ pub fn run() {
             commands::write_export_file,
             commands::reveal_in_finder,
             commands::open_logs_dir,
-            commands::save_clipboard_image,
+            commands::save_image_bytes,
             commands::open_in_new_window,
             style_db::doc_style_get,
             style_db::doc_style_set,
             style_db::doc_style_clear,
+            draft_db::draft_save,
+            draft_db::draft_load,
+            draft_db::draft_clear,
+            draft_db::draft_list,
             style_db::bookmark_list,
             style_db::comment_list,
             style_db::comment_add,
@@ -114,30 +149,40 @@ pub fn run() {
             style_db::comment_remove,
             style_db::comment_reanchor,
             style_db::baseline_get,
-            style_db::baseline_set,
-            style_db::baseline_clear,
+            style_db::baseline_write,
             commands::file_rename,
             commands::file_duplicate,
+            commands::review_document_trash,
+            commands::trash_document,
             commands::new_file_in,
-            commands::update_wiki_links,
-            style_db::bookmark_add,
-            style_db::bookmark_remove,
+            commands::new_folder_in,
+            replacement::preview_wiki_rename,
+            rename_jobs::pending_renames,
+            rename_jobs::finish_rename_review,
+            style_db::bookmark_set,
+            style_db::bookmark_replace,
         ])
         .build(tauri::generate_context!())
         .expect("error while building IYAGI Markdown")
         .run(|app, event| {
-            // ⌘Q(메뉴 quit)는 창 닫기(CloseRequested)를 거치지 않고 종료된다 —
-            // 미저장 확인·세션 저장이 생략되는 것을 막으려 한 번 막고 프런트의
-            // 확인 절차(quit-requested)를 거쳐 exit_confirmed로 진짜 종료.
+            // ⌘Q도 모든 창의 미저장 확인·저장 완료를 거친다.
             if let RunEvent::ExitRequested { api, .. } = &event {
-                if EXIT_CONFIRMED.load(Ordering::SeqCst) {
-                    return; // 확인 완료 — 종료 진행
+                if quit::confirmed(app) {
+                    return;
                 }
                 api.prevent_exit();
-                let _ = app.emit("quit-requested", ());
+                quit::request(app);
                 return;
             }
+            if let RunEvent::WindowEvent {
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } = &event
+            {
+                quit::cancel(app);
+            }
             if let RunEvent::Opened { urls } = event {
+                quit::cancel(app);
                 // macOS: 실행 중 파일 더블클릭/Dock 드롭으로 열기.
                 let files: Vec<String> = urls
                     .iter()

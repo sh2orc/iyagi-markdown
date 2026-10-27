@@ -3,10 +3,11 @@
 // 하이브리드: 워크스페이스·최근 파일도 같이 퍼지 검색해 바로 연다
 // (Obsidian 퀵 스위처 · Xcode Open Quickly).
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { api, isInApp, type TreeNode } from "../api";
+import { api, isInApp } from "../api";
 import type { AppStore } from "../app/store";
+import { dailyNoteTitle } from "../app/dailyNote";
 import { flattenFiles, scoreFile, subsequence, type FileEntry } from "../app/quickOpen";
 import type { Translate } from "../i18n";
 import * as fmt from "../editor/format";
@@ -15,10 +16,8 @@ import { splitHighlights } from "../search/searchCm";
 import { copyFormat, pasteFormat } from "../editor/formatPainter";
 import { pasteAsPlainText } from "../editor/cm";
 import { collectHeadings } from "../links";
-import { stripFrontMatter } from "../editor/frontmatter";
-import { smoothScrollIntoView } from "../editor/cm";
 import { foldAll, unfoldAll } from "@codemirror/language";
-import { DOC_TEMPLATES } from "../app/templates";
+import { DOC_TEMPLATES, templateName, templateContent } from "../app/templates";
 import { imeComposing } from "../app/ime";
 
 /** 라벨 끝의 단축키 토큰 분리 — "저장 ⌘S" → ["저장", "⌘S"]. 순수 함수. */
@@ -64,24 +63,32 @@ type Row =
   | { kind: "cmd"; c: Cmd }
   | { kind: "file"; f: FileEntry };
 
+function rowKey(row: Row): string | null {
+  return row.kind === "cmd" ? `cmd:${row.c.id}` : row.kind === "file" ? `file:${row.f.path}` : null;
+}
+
 interface Props {
   store: AppStore;
   t: Translate;
   onClose: () => void;
+  onCloseDocument: () => void;
   onOpenDiff?: () => void;
   onOpenGraph?: () => void;
   onNewFromTemplate?: (content: string) => void;
+  onOpenTemplates?: (initialId?: string) => void;
   onOpenWsSearch?: () => void;
   onOpenVersions?: () => void;
   onOpenBacklinks?: () => void;
   onOpenBrokenLinks?: () => void;
   onOpenShortcuts: () => void;
   onOpenStats: () => void;
+  onOpenRenameHeading: () => void;
   onOpenSymbols?: () => void;
   onOpenTableDialog?: () => void;
   onOpenComments?: () => void;
   onAddComment?: () => void;
   onOpenReview?: () => void;
+  onOpenTrack?: (action: "start" | "accept" | "stop") => void;
   onOpenFrontMatter?: () => void;
   onOpenStyle: () => void;
   onOpenPrint: () => void;
@@ -92,12 +99,14 @@ export function CommandPalette({
   store,
   t,
   onClose,
+  onCloseDocument,
   onOpenShortcuts,
-  onOpenStats,
+  onOpenStats, onOpenRenameHeading,
   onOpenSymbols,
   onOpenTableDialog,
   onOpenComments,
   onOpenReview,
+  onOpenTrack,
   onOpenFrontMatter,
   onOpenStyle,
   onOpenPrint,
@@ -105,6 +114,7 @@ export function CommandPalette({
   onOpenDiff,
   onOpenGraph,
   onNewFromTemplate,
+  onOpenTemplates,
   onOpenWsSearch,
   onOpenVersions,
   onOpenBacklinks,
@@ -112,8 +122,16 @@ export function CommandPalette({
   onAddComment,
 }: Props): JSX.Element {
   const [query, setQuery] = useState("");
-  const [sel, setSel] = useState(0);
-  const [files, setFiles] = useState<FileEntry[] | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const listId = useId();
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const workspaceHistory = useSyncExternalStore(store.workspaceHistory.subscribe, store.workspaceHistory.getSnapshot);
+  const active = store.active;
+  const currentView = store.view;
+  const favoritePaths = useMemo(() => new Set(state.favorites), [state.favorites]);
+  const files = useMemo(() => flattenFiles([
+    ...state.favorites.map((path) => ({ path, name: path.split("/").pop() ?? path })), ...state.recent,
+  ], state.tree, state.workspace), [state.favorites, state.recent, state.tree, state.workspace]);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
@@ -121,71 +139,50 @@ export function CommandPalette({
     inputRef.current?.focus();
   }, []);
 
-  // 파일 후보는 마운트 시 1회 수집 — 최근 문서 → 워크스페이스 트리 순서.
-  useEffect(() => {
-    if (!isInApp()) {
-      setFiles([]);
-      return;
-    }
-    let disposed = false;
-    void (async () => {
-      let recent: { path: string; name: string }[] = [];
-      let tree: TreeNode[] | null = null;
-      try {
-        recent = await api.getRecent();
-      } catch {
-        /* 무시 — 폴백 */
-      }
-      const root = store.state.workspace;
-      if (root) {
-        try {
-          tree = await api.scanWorkspace(root);
-        } catch {
-          /* 무시 */
-        }
-      }
-      if (!disposed) setFiles(flattenFiles(recent, tree, root));
-    })();
-    return () => {
-      disposed = true;
-    };
-    // 마운트 시 1회 의도 — store.workspace를 다시 읽지 않는다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const commands: Cmd[] = useMemo(() => {
     const view = store.view;
-    const editable = !!view && store.active?.mode !== "read";
+    const sourceId = store.active?.id;
+    const editable = !!view && !!store.active && store.active.mode !== "read";
     // 잠긴(읽기 전용) 문서의 편집 명령 차단 — 입력 차단과 일관(144차).
     // 조용히 무시하지 않고 안내(25~28차 조용한 실패 규칙).
     const go = (fn: () => void) => () => {
-      const ro = view ? view.state.readOnly : false;
+      if (!view || sourceId === undefined || store.view !== view || store.active?.id !== sourceId) return;
+      const ro = view.state.readOnly;
       if (ro) store.toast(t.lockedNoEdit, "error");
       else fn();
       view?.focus();
     };
     const cmds: Cmd[] = [
+      { id: "recover-documents", label: `${t.scFile}: ${t.recoverDocuments}`, run: () => void store.retryRecovery() },
+      ...workspaceHistory.entries.map((entry) => ({
+        id: `workspace:${entry.path}`, label: `${t.workspaceRecent}: ${entry.name} — ${entry.path}`,
+        run: () => { void store.openWorkspace(entry.path); },
+      })),
       { id: "mode-read", label: `${t.scView}: ${t.modeRead} ⌘E`, run: () => store.toggleReadEdit() },
+      { id: "navigate-back", label: `${t.scView}: ${t.navigateBack} ⌥⌘←`, run: () => store.navigateHistory(false) },
+      { id: "navigate-forward", label: `${t.scView}: ${t.navigateForward} ⌥⌘→`, run: () => store.navigateHistory(true) },
       { id: "mode-source", label: `${t.scView}: ${t.modeSource} ⌘/`, run: () => store.setMode(store.active?.mode === "source" ? "edit" : "source") },
       { id: "source-preview", label: `${t.scView}: ${t.toggleSourcePreview}`, run: () => store.toggleSourcePreview() },
+      { id: "theme-toggle", label: `${t.scView}: ${t.cmdThemeToggle}`, run: () => store.setTheme(store.state.theme === "dark" ? "light" : "dark") },
       { id: "sidebar", label: `${t.scView}: ${t.toggleSidebar} ⇧⌘B`, run: () => store.setSidebar(!store.state.sidebarOpen) },
-      { id: "toc", label: `${t.scView}: ${t.tocTitle} ⇧⌘T`, run: () => store.setToc(!store.state.tocOpen) },
+      { id: "toc", label: `${t.scView}: ${t.tocTitle} ⌥⌘T`, run: () => store.setToc(!store.state.tocOpen) },
       { id: "save", label: `${t.scFile}: ${t.save} ⌘S`, run: () => void store.saveActive() },
       { id: "stats", label: `${t.statsTitle}`, run: onOpenStats },
       ...(onOpenSymbols ? [{ id: "symbols", label: `${t.symbolTitle}…`, run: onOpenSymbols }] : []),
       { id: "style", label: `${t.styleTitle} — Aa`, run: onOpenStyle },
       { id: "shortcuts", label: `${t.shortcutsTitle}`, run: onOpenShortcuts },
-          ...(onOpenGraph ? [{ id: "graph", label: `${t.graphTitle}`, run: onOpenGraph }] : []),
-          ...(onNewFromTemplate
-            ? DOC_TEMPLATES.map((tpl) => ({
-                id: `tpl-${tpl.id}`,
-                label: `${t.newFromTemplate}: ${tpl.nameEn}`,
-                run: () => onNewFromTemplate(tpl.content),
-              }))
-            : []),
+      ...(onOpenGraph ? [{ id: "graph", label: `${t.graphTitle}`, run: onOpenGraph }] : []),
+      ...(onOpenTemplates ? [{ id: "templates", label: t.templateBrowse, run: () => onOpenTemplates() }] : []),
+      ...(onOpenTemplates || onNewFromTemplate
+        ? DOC_TEMPLATES.map((tpl) => ({
+            id: `tpl-${tpl.id}`,
+            label: `${t.newFromTemplate}: ${templateName(tpl, t.lang)}`,
+            run: () => onOpenTemplates ? onOpenTemplates(tpl.id) : onNewFromTemplate?.(templateContent(tpl, t.lang)),
+          }))
+        : []),
       ...(onOpenDiff ? [{ id: "diff", label: `${t.diffTitle}…`, run: onOpenDiff }] : []),
-      { id: "wssearch", label: `${t.wsSearchTitle} ⇧⌘F`, run: () => onOpenWsSearch?.() },
-      { id: "versions", label: `${t.scFile}: ${t.versionsTitle}`, run: () => onOpenVersions?.() },
+      ...(onOpenWsSearch ? [{ id: "wssearch", label: `${t.wsSearchTitle} ⇧⌘F`, run: onOpenWsSearch }] : []),
+      ...(onOpenVersions ? [{ id: "versions", label: `${t.scFile}: ${t.versionsTitle}`, run: onOpenVersions }] : []),
       // 로그 폴더 — 문제 보고·디버깅 경로(앱 안에서만, 실패는 안내).
       ...(isInApp()
         ? [
@@ -198,32 +195,36 @@ export function CommandPalette({
             },
           ]
         : []),
-      { id: "backlinks", label: `${t.scView}: ${t.backlinksTitle}`, run: () => onOpenBacklinks?.() },
+      ...(onOpenBacklinks ? [{ id: "backlinks", label: `${t.scView}: ${t.backlinksTitle}`, run: onOpenBacklinks }] : []),
       ...(onOpenComments ? [{ id: "comments", label: `${t.commentsTitle}…`, run: onOpenComments }] : []),
       // 커서 줄에 메모 추가 — 우클릭 메뉴와 같은 대화상자(팔레티 진입은 그동안
       // 죽은 배선이었다: prop만 선언되고 호출처가 없었다).
       ...(onAddComment ? [{ id: "comment-add", label: `${t.scReview}: ${t.ctxAddComment}`, run: () => onAddComment() }] : []),
       ...(onOpenReview ? [{ id: "review", label: `${t.reviewTitle}…`, run: onOpenReview }] : []),
       ...(onOpenFrontMatter ? [{ id: "frontmatter", label: `${t.fmTitle}…`, run: onOpenFrontMatter }] : []),
-      { id: "broken-links", label: `${t.scEdit}: ${t.brokenLinksTitle}`, run: () => onOpenBrokenLinks?.() },
+      ...(onOpenBrokenLinks ? [{ id: "broken-links", label: `${t.scEdit}: ${t.brokenLinksTitle}`, run: onOpenBrokenLinks }] : []),
       { id: "speak", label: `${t.scView}: ${t.speakStart}`, run: () => store.speakActive() },
       { id: "speak-stop", label: `${t.scView}: ${t.speakStop}`, run: () => store.speakStop() },
       { id: "print", label: `${t.printPreviewTitle} ⌘P`, run: onOpenPrint },
       { id: "export-html", label: `${t.exportTitle} — ${t.exportHtml}`, run: () => onOpenExport("html") },
       { id: "export-pdf", label: `${t.exportTitle} — ${t.exportPdf}`, run: () => onOpenExport("pdf") },
       { id: "export-docx", label: `${t.exportTitle} — ${t.exportDocx}`, run: () => onOpenExport("docx") },
-      { id: "bookmark", label: `${t.ctxAddBookmark} / ${t.ctxRemoveBookmark}`, run: () => store.toggleBookmark() },
+      { id: "bookmark", label: `${t.ctxAddBookmark} / ${t.ctxRemoveBookmark}`, run: () => { void store.toggleBookmark(); } },
       { id: "bm-next", label: `${t.bookmarksSection}: ${t.bmNext}`, run: () => store.cycleBookmark(true) },
-      { id: "fold-all", label: `${t.scView}: ${t.foldAll}`, run: go(() => foldAll(store.view!)) },
-      { id: "unfold-all", label: `${t.scView}: ${t.unfoldAll}`, run: go(() => unfoldAll(store.view!)) },
+      ...(view ? [
+        { id: "fold-all", label: `${t.scView}: ${t.foldAll}`, run: go(() => foldAll(view)) },
+        { id: "unfold-all", label: `${t.scView}: ${t.unfoldAll}`, run: go(() => unfoldAll(view)) },
+      ] : []),
       { id: "bm-prev", label: `${t.bookmarksSection}: ${t.bmPrev}`, run: () => store.cycleBookmark(false) },
       { id: "align-doc-l", label: `${t.scFormat}: ${t.ctxAlign} — ${t.alignLeft}`, run: () => store.setAlign("left") },
       { id: "align-doc-c", label: `${t.scFormat}: ${t.ctxAlign} — ${t.alignCenter}`, run: () => store.setAlign("center") },
       { id: "align-doc-r", label: `${t.scFormat}: ${t.ctxAlign} — ${t.alignRight}`, run: () => store.setAlign("right") },
       { id: "align-doc-j", label: `${t.scFormat}: ${t.ctxAlign} — ${t.alignJustify}`, run: () => store.setAlign("justify") },
-      { id: "track-start", label: `${t.scReview}: ${t.trackStart}`, run: () => void store.startTracking() },
-      { id: "track-accept", label: `${t.scReview}: ${t.trackAccept}`, run: () => void store.acceptAllChanges() },
-      { id: "track-stop", label: `${t.scReview}: ${t.trackStop}`, run: () => void store.stopTracking() },
+      ...(onOpenTrack ? [
+        { id: "track-start", label: `${t.scReview}: ${t.trackStart}…`, run: () => onOpenTrack("start") },
+        { id: "track-accept", label: `${t.scReview}: ${t.trackAccept}…`, run: () => onOpenTrack("accept") },
+        { id: "track-stop", label: `${t.scReview}: ${t.trackStop}…`, run: () => onOpenTrack("stop") },
+      ] : []),
       { id: "track-next", label: `${t.scReview}: ${t.trackNext}`, run: () => store.nextChange(true) },
       { id: "track-prev", label: `${t.scReview}: ${t.trackPrev}`, run: () => store.nextChange(false) },
       { id: "tw-toggle", label: `${t.scView}: ${t.setTypewriter}`, run: () => store.toggleTypewriter() },
@@ -231,10 +232,11 @@ export function CommandPalette({
       { id: "fm-marks", label: `${t.scView}: ${t.setFormattingMarks}`, run: () => store.toggleFormattingMarks() },
       { id: "sentence-toggle", label: `${t.scView}: ${t.setFocusSentence}`, run: () => store.toggleSentenceFocus() },
       { id: "newtab", label: `${t.newTab} ⌘N`, run: () => store.newTab() },
-      { id: "closetab", label: `${t.closeTab} ⌘W`, run: () => {
-        const tab = store.active;
-        if (tab) store.closeTab(tab.id);
-      } },
+      { id: "daily-note", label: `${t.scFile}: ${t.cmdDailyNote} (${dailyNoteTitle()})`, run: () => void store.openDailyNote() },
+      { id: "rename-heading", label: `${t.scEdit}: ${t.cmdRenameHeading}`, run: () => void onOpenRenameHeading() },
+      { id: "closetab", label: `${t.closeTab} ⌘W`, run: onCloseDocument },
+      ...(store.canReopenClosedTab ? [{ id: "reopen-closed-tab", label: `${t.reopenClosedTab} ⇧⌘T`,
+        run: () => void store.reopenClosedTab() }] : []),
     ];
     if (editable && view) {
       cmds.push(
@@ -297,15 +299,21 @@ export function CommandPalette({
       }
     }
     return cmds;
-  }, [store, t, onOpenStats, onOpenStyle, onOpenShortcuts, onOpenPrint, onOpenExport]);
+  }, [store, t, currentView, active?.id, active?.mode, active?.path, workspaceHistory.entries, store.canReopenClosedTab, onCloseDocument,
+    onOpenStats, onOpenStyle, onOpenShortcuts, onOpenPrint, onOpenExport, onOpenTrack,
+    onOpenSymbols, onOpenGraph, onNewFromTemplate, onOpenTemplates, onOpenDiff, onOpenWsSearch,
+    onOpenVersions, onOpenBacklinks, onOpenComments, onAddComment, onOpenReview,
+    onOpenFrontMatter, onOpenBrokenLinks, onOpenTableDialog]);
 
   const rows = useMemo<Row[]>(() => {
-    const raw = query;
+    const raw = query.trimStart();
     // @심볼 모드 — 현재 문서의 제목 퍼지 점프(VS Code @ 내비게이션).
     if (raw.startsWith("@")) {
       const q = raw.slice(1).trim();
-      const doc = store.active?.state.doc.toString() ?? "";
-      const heads = collectHeadings(stripFrontMatter(doc));
+      const source = store.active;
+      const sourceDoc = source?.state.doc;
+      const doc = sourceDoc?.toString() ?? "";
+      const heads = collectHeadings(doc);
       const hits = heads
         .map((h) => ({ h, s: q ? subsequence(q, h.text) : 1 }))
         .filter((r) => r.s > 0)
@@ -317,14 +325,12 @@ export function CommandPalette({
           id: `head-${r.h.pos}`,
           // 줄 번호 접두 — 동명 제목 구분(wssearch-lineno 관례). 검색어 하이라이트
           // 렌더는 아래 rows 매핑에서 kind "cmd" 대신 특별 분기로.
-          label: `L${store.active?.state.doc.lineAt(Math.min(r.h.pos, store.active.state.doc.length)).number ?? 0} ${"  ".repeat(Math.max(0, r.h.level - 1))}${"#".repeat(r.h.level)} ${r.h.text}`,
+          label: `L${sourceDoc?.lineAt(Math.min(r.h.pos, sourceDoc.length)).number ?? 0} ${"  ".repeat(Math.max(0, r.h.level - 1))}${"#".repeat(r.h.level)} ${r.h.text}`,
           hint: q,
           run: () => {
             const view = store.view;
-            if (!view) return;
-            const pos = Math.min(r.h.pos, view.state.doc.length);
-            view.dispatch({ selection: { anchor: pos } });
-            smoothScrollIntoView(view, pos);
+            if (!view || store.active !== source || view.state.doc !== sourceDoc) return;
+            store.revealLocation({ pos: r.h.pos });
             view.focus();
           },
         },
@@ -347,16 +353,25 @@ export function CommandPalette({
       for (const c of commands) {
         if (!seen.has(c.id)) out.push({ kind: "cmd", c });
       }
-      if (files && files.length > 0) {
+      const favorites = files.filter((file) => favoritePaths.has(file.path));
+      const otherFiles = files.filter((file) => !favoritePaths.has(file.path));
+      if (favorites.length > 0) {
+        out.push({ kind: "header", label: t.favoritesTitle });
+        for (const f of favorites.slice(0, 8)) out.push({ kind: "file", f });
+      }
+      if (otherFiles.length > 0) {
         out.push({ kind: "header", label: t.paletteRecentFiles });
-        for (const f of files.slice(0, 8)) out.push({ kind: "file", f });
+        for (const f of otherFiles.slice(0, 8)) out.push({ kind: "file", f });
       }
       return out;
     }
     const cmdHits = commands
       .map((c) => ({ c, s: subsequence(q, c.label) }))
       .filter((r) => r.s > 0)
-      .sort((a, b) => b.s - a.s);
+      // 동점(예: 'review'가 "Review…"와 "Review: Add comment"에서 같은 접두
+      // 점수)은 짧은 라벨 우선 — 정확히 그 이름인 항목이 더 긴 형제에게
+      // 목록 순서만으로 밀려 바로 가기가 엉뚱해지는 일을 막는다.
+      .sort((a, b) => b.s - a.s || a.c.label.length - b.c.label.length);
     for (const r of cmdHits) out.push({ kind: "cmd", c: r.c });
     if (files) {
       const fileHits = files
@@ -370,27 +385,26 @@ export function CommandPalette({
       }
     }
     return out;
-  }, [commands, files, query, t]);
+  }, [commands, files, favoritePaths, query, t, state.activeId, store.active?.state.doc]);
 
-  // 헤더 행은 건너뛰는 이동.
+  // Track the selected action, not its position: async file updates can insert
+  // rows above it. A new query or a removed action selects the first usable row.
+  const selectedIndex = selectedKey === null ? -1 : rows.findIndex((row) => rowKey(row) === selectedKey);
+  const sel = selectedIndex >= 0 ? selectedIndex : rows.findIndex((row) => row.kind !== "header");
+  const select = (index: number) => setSelectedKey(rows[index] ? rowKey(rows[index]) : null);
+
+  // 구분선을 건너뛰고 목록 끝에서는 마지막 실행 가능한 선택을 유지한다.
   const step = (from: number, delta: number): number => {
-    let i = from;
-    for (;;) {
-      const next = i + delta;
-      if (next < 0 || next >= rows.length) return i;
+    for (let next = from + delta; next >= 0 && next < rows.length; next += delta) {
       if (rows[next].kind !== "header") return next;
-      i = next;
     }
+    return from;
   };
-
-  useEffect(() => {
-    setSel(0);
-  }, [query]);
 
   useEffect(() => {
     const el = listRef.current?.children[sel] as HTMLElement | undefined;
     el?.scrollIntoView({ block: "nearest" });
-  }, [sel]);
+  }, [sel, rows]);
 
   const runIdx = (i: number) => {
     const r = rows[i];
@@ -407,29 +421,40 @@ export function CommandPalette({
 
   // 콤보박스 a11y — 포커스는 입력창에 둔 채 가상 선택을 스크린 리더가 읽게.
   const activeId =
-    rows.length > 0 && rows[sel] && rows[sel].kind !== "header" ? `palette-opt-${sel}` : undefined;
+    sel >= 0 ? `${listId}-opt-${sel}` : undefined;
 
   return (
-    <div className="overlay palette-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay palette-overlay" role="dialog" aria-modal="true" aria-label={t.palettePlaceholder}
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="palette">
         <input
           ref={inputRef}
           className="palette-input"
           role="combobox"
-          aria-expanded={rows.length > 0}
-          aria-controls="palette-listbox"
+          aria-label={t.palettePlaceholder}
+          aria-autocomplete="list"
+          aria-expanded={true}
+          aria-controls={listId}
           aria-activedescendant={activeId}
           placeholder={t.palettePlaceholder}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => { setQuery(e.target.value); setSelectedKey(null); }}
           onKeyDown={(e) => {
             if (imeComposing(e)) return; // IME 조합 중 키는 IME가 소비(한글 Esc·Enter 새기기 방지)
             if (e.key === "ArrowDown") {
               e.preventDefault();
-              setSel((s) => step(s, 1));
+              select(step(sel, 1));
             } else if (e.key === "ArrowUp") {
               e.preventDefault();
-              setSel((s) => step(s, -1));
+              select(step(sel, -1));
+            } else if (e.key === "PageDown" || e.key === "PageUp") {
+              e.preventDefault();
+              let next = sel;
+              for (let i = 0; i < 10; i++) next = step(next, e.key === "PageDown" ? 1 : -1);
+              select(next);
+            } else if (e.key === "Tab") {
+              // This combobox has one keyboard focus stop; options use arrows.
+              e.preventDefault();
             } else if (e.key === "Enter") {
               e.preventDefault();
               runIdx(sel);
@@ -439,9 +464,14 @@ export function CommandPalette({
             }
           }}
         />
-        <div className="palette-list" ref={listRef} role="listbox" id="palette-listbox" aria-label={t.palettePlaceholder}>
+        {!query.trimStart().startsWith("@") && state.workspace &&
+          (state.workspaceLoading || state.workspaceError || state.workspaceIssues.length > 0) &&
+          <div className="workspace-status" role="status"><p>
+            {state.workspaceLoading ? t.workspaceLoading : state.workspaceError ? t.workspaceFailed : t.workspacePartial}
+          </p></div>}
+        <div className="palette-list" ref={listRef} role="listbox" id={listId} aria-label={t.palettePlaceholder}>
           {rows.length === 0 && (
-            <div className="palette-empty">
+            <div className="palette-empty" role="status">
               {query.trimStart().startsWith("@") ? t.paletteNoHeadings : t.paletteNoMatch}
             </div>
           )}
@@ -473,11 +503,13 @@ export function CommandPalette({
               return (
                 <button
                   key={r.c.id}
-                  id={`palette-opt-${i}`}
+                  id={`${listId}-opt-${i}`}
                   role="option"
+                  tabIndex={-1}
                   aria-selected={i === sel}
                   className={cls}
-                  onMouseEnter={() => setSel(i)}
+                  onMouseEnter={() => select(i)}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => runIdx(i)}
                 >
                   <span className="palette-cmd-text">{body}</span>
@@ -489,11 +521,13 @@ export function CommandPalette({
             return (
               <button
                 key={`f-${r.f.path}`}
-                id={`palette-opt-${i}`}
+                id={`${listId}-opt-${i}`}
                 role="option"
+                tabIndex={-1}
                 aria-selected={i === sel}
                 className={`${cls} palette-file`}
-                onMouseEnter={() => setSel(i)}
+                onMouseEnter={() => select(i)}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => runIdx(i)}
               >
                 <span className="palette-file-name">{r.f.name}</span>

@@ -12,23 +12,39 @@ import {
   onMenu,
   onOpenFiles,
   onSettingsChanged,
+  onRecentChanged,
+  onFavoritesChanged,
+  onWorkspaceHistoryChanged,
+  onCommentsChanged,
+  onBaselineChanged,
+  onBookmarksChanged,
   pickOpenFile,
   pickOpenFolder,
   pickSave,
   webviewWindowApi,
+  type DocumentEdge,
 } from "./api";
 import { AppStore, resolveTheme, type ExportKind, type Tab } from "./app/store";
-import { replaceDoc, setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
+import { scaledLineWidth } from "./app/docStyle";
+import { useOverlayFocus } from "./app/overlayFocus";
+import { guardAppCommands, handleAppShortcut } from "./app/appCommands";
+import { closingDocumentsUnchanged, restoreUnclosedDrafts } from "./app/closeDocuments";
+import { setImageImportHandler, setLinkClickHandler, setViewListener, smoothScrollIntoView } from "./editor/cm";
 import { phrases, setPhrases } from "./app/phrases";
+import { setClipboardNoticeHandler } from "./editor/clipboard";
 import { findNext, searchStateOf } from "./search/searchCm";
 import { invalidateLinkPreviews } from "./editor/linkPreview";
-import { frontMatterLen, frontMatterMeta, stripFrontMatter } from "./editor/frontmatter";
-import { EPUB_CSS, epubChapterInputs, splitEpubChapters } from "./export/epub";
-import { relPath } from "./paths";
-import { resolveWikiLink, wikiLinksToMarkdown } from "./editor/wiki";
-import { collectHeadings, resolveLink } from "./links";
+import { frontMatterMeta, stripFrontMatter } from "./editor/frontmatter";
+import { EPUB_CSS, epubChapterInputs, firstEpubLocalImage, splitEpubChapters } from "./export/epub";
+import { applyEmbeds, captureExportSnapshot, type ExportSnapshot } from "./export/snapshot";
+import { countHeadingLinks, headingAtCursor, retargetHeadingLinks, rewrittenHeadingLine } from "./editor/headingRename";
+import { RenameHeadingDialog } from "./components/RenameHeadingDialog";
+import type { TreeNode } from "./api";
+import { snapshotHtmlOptions, type PdfOptions } from "./export/preview";
+import type { ExportResult } from "./export/result";
+import { resolveLink } from "./links";
 import { makeT, type Lang } from "./i18n";
-import { TabBar } from "./components/TabBar";
+import { TabBar, documentTabId } from "./components/TabBar";
 import { Sidebar } from "./components/Sidebar";
 import { TocPanel } from "./components/TocPanel";
 import { SearchPanel } from "./components/SearchPanel";
@@ -38,10 +54,11 @@ import { ExportSheet } from "./components/ExportSheet";
 import { Toolbar } from "./components/Toolbar";
 import { MiniToolbar } from "./components/MiniToolbar";
 import { ContextMenu } from "./components/ContextMenu";
-import { setImageResizeHandler, setImageViewerHandler, setTableHeaderClickHandler, setFrontMatterEditHandler, setImageCaptionHandler } from "./editor/widgets";
+import { setImageResizeHandler, setImageViewerHandler, setTableHeaderClickHandler, setFrontMatterEditHandler, setImageCaptionHandler, setEmbedContentHandler, setEmbedOpenHandler } from "./editor/widgets";
 import { setTableWidthsSaveHandler } from "./editor/livePreview";
 import { setTagClickHandler } from "./editor/cm";
-import { setWikiDocsProvider, setTagListProvider, type WikiDoc } from "./editor/wikiComplete";
+import { setWikiDocsProvider, setTagListProvider } from "./editor/wikiComplete";
+import { workspaceCompletions } from "./app/workspaceCompletions";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { StylePanel } from "./components/StylePanel";
 import { PrintPreview } from "./components/PrintPreview";
@@ -55,11 +72,14 @@ import { CommentDialog } from "./components/CommentDialog";
 import { FrontMatterDialog } from "./components/FrontMatterDialog";
 import { RefPane } from "./components/RefPane";
 import { TrackPanel } from "./components/TrackPanel";
-import { findImageAt } from "./editor/livePreview";
+import { findImageAt, previewConfigField } from "./editor/livePreview";
+import { documentImages, type DocumentImage } from "./editor/documentImages";
 import { LinkDialog } from "./components/LinkDialog";
+import { captureInlineLinkEdit, type InlineLinkEdit } from "./editor/inlineLinkEdit";
 import { ReviewPanel } from "./components/ReviewPanel";
 import { Welcome } from "./components/Welcome";
 import { CommandPalette } from "./components/CommandPalette";
+import { TemplatePicker } from "./components/TemplatePicker";
 import { VersionsPanel } from "./components/VersionsPanel";
 import { BacklinksPanel } from "./components/BacklinksPanel";
 import { BrokenLinksPanel } from "./components/BrokenLinksPanel";
@@ -70,40 +90,56 @@ import { GraphView } from "./components/GraphView";
 import * as fmt from "./editor/format";
 
 const ioAdapter = {
+  getWorkspaceHistory: () => api.getWorkspaceHistory(),
+  updateWorkspaceHistory: (...args: Parameters<typeof api.updateWorkspaceHistory>) => api.updateWorkspaceHistory(...args),
+  getFavorites: () => api.getFavorites(),
+  setFavorite: (path: string, present: boolean) => api.setFavorite(path, present),
+  moveFavorite: (...args: Parameters<typeof api.moveFavorite>) => api.moveFavorite(...args),
+  getRecent: () => api.getRecent(),
+  recordRecent: (path: string) => api.recordRecent(path),
+  removeRecent: (path: string) => api.removeRecent(path),
+  clearRecent: () => api.clearRecent(),
+  docStyleGet: (path: string) => api.docStyleGet(path),
+  docStyleSet: (path: string, styleJson: string) => api.docStyleSet(path, styleJson),
+  fileRename: (...args: Parameters<typeof api.fileRename>) => api.fileRename(...args),
+  trashDocument: (reviewed: Parameters<typeof api.trashDocument>[0]) => api.trashDocument(reviewed),
   readDocument: (path: string) => api.readDocument(path),
+  importImage: (src: string, dir: string) => api.importImage(src, dir),
+  saveImageBytes: (...args: Parameters<typeof api.saveImageBytes>) => api.saveImageBytes(...args),
   writeDocument: (
     path: string,
     text: string,
     meta: { hadBom: boolean; crlf: boolean },
-  ) => api.writeDocument(path, text, meta),
+    expected: Parameters<typeof api.writeDocument>[3],
+  ) => api.writeDocument(path, text, meta, expected),
   scanWorkspace: (root: string) => api.scanWorkspace(root),
   saveSession: (session: Parameters<typeof api.saveSession>[0]) => api.saveSession(session),
+  draftSave: (draft: Parameters<typeof api.draftSave>[0]) => api.draftSave(draft),
+  draftLoad: (key: string) => api.draftLoad(key),
+  draftClear: (key: string) => api.draftClear(key),
+  draftList: () => api.draftList(),
+  snapshotBackup: (path: string, text: string) => api.snapshotBackup(path, text),
   setAssetScope: (path: string, recursive: boolean) => api.setAssetScope(path, recursive),
   watchPaths: (files: string[], dirs: string[]) => api.watchPaths(files, dirs),
   bookmarkList: (path: string) => api.bookmarkList(path),
-  bookmarkAdd: (path: string, lineNo: number) => api.bookmarkAdd(path, lineNo),
-  bookmarkRemove: (path: string, lineNo: number) => api.bookmarkRemove(path, lineNo),
-  setSettings: (settings: Parameters<typeof api.setSettings>[0]) => api.setSettings(settings),
+  bookmarkSet: (...args: Parameters<typeof api.bookmarkSet>) => api.bookmarkSet(...args),
+  bookmarkReplace: (...args: Parameters<typeof api.bookmarkReplace>) => api.bookmarkReplace(...args),
+  patchSettings: isInApp() ? (patch: Parameters<typeof api.patchSettings>[0]) => api.patchSettings(patch) : undefined,
   backlinks: (root: string, path: string) => api.backlinks(root, path),
   commentList: (path: string) => api.commentList(path),
   commentAdd: (path: string, lineNo: number, text: string) => api.commentAdd(path, lineNo, text),
-  commentUpdate: (id: number, text: string) => api.commentUpdate(id, text),
-  commentResolve: (id: number, resolved: boolean) => api.commentResolve(id, resolved),
-  commentRemove: (id: number) => api.commentRemove(id),
+  commentUpdate: (...args: Parameters<typeof api.commentUpdate>) => api.commentUpdate(...args),
+  commentResolve: (...args: Parameters<typeof api.commentResolve>) => api.commentResolve(...args),
+  commentRemove: (...args: Parameters<typeof api.commentRemove>) => api.commentRemove(...args),
+  commentReanchor: (path: string, updates: Array<[number, number]>) => api.commentReanchor(path, updates),
   baselineGet: (path: string) => api.baselineGet(path),
-  baselineSet: (path: string, text: string) => api.baselineSet(path, text),
-  baselineClear: (path: string) => api.baselineClear(path),
+  baselineWrite: (...args: Parameters<typeof api.baselineWrite>) => api.baselineWrite(...args),
   speakStart: (text: string, rate: number, voice: string) => api.speakStart(text, rate, voice),
   speakStop: () => api.speakStop(),
   speakStatus: () => api.speakStatus(),
 };
 
-export interface PdfExportOptions {
-  paper: "a4" | "letter" | "a5";
-  orientation: "portrait" | "landscape";
-  marginMm: number;
-  scale: number;
-}
+export type PdfExportOptions = PdfOptions;
 
 /** 이 창의 역할 — "main"(전체 UI·세션 소유) 또는 "doc-*"(단일 문서 보조 창). */
 function windowLabel(): string {
@@ -131,25 +167,59 @@ export function App(): JSX.Element {
   const store = useMemo(() => new AppStore(ioAdapter), []);
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const editorHost = useRef<HTMLDivElement | null>(null);
+  const appRoot = useRef<HTMLDivElement | null>(null);
   const editorView = useRef<EditorView | null>(null);
+  const exportRunning = useRef(false);
   /** 닫기 확인 진행 중인 콜백(창 닫기·탭 닫기 공용). */
   const [closeAsk, setCloseAsk] = useState<((proceed: boolean) => void) | null>(null);
+  const [closeTargets, setCloseTargets] = useState<string[] | null>(null);
+  const closeInFlight = useRef(false);
+  const closeMounted = useRef(true);
+  const closePrompt = useRef<((proceed: boolean) => void) | null>(null);
+  const askToClose = useCallback((ids: string[] | null): Promise<boolean> => {
+    if (!closeMounted.current || closePrompt.current) return Promise.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      const complete = (proceed: boolean) => {
+        if (closePrompt.current !== complete) return;
+        closePrompt.current = null;
+        setCloseAsk((current: typeof closeAsk) => (current === complete ? null : current));
+        setCloseTargets(null);
+        resolve(proceed);
+      };
+      closePrompt.current = complete;
+      setCloseTargets(ids); setCloseAsk(() => complete);
+    });
+  }, []);
+  useEffect(() => {
+    closeMounted.current = true;
+    return () => { closeMounted.current = false; closePrompt.current?.(false); };
+  }, []);
+  const [quitRound, setQuitRound] = useState<number | null>(null);
+  const quitRoundRef = useRef<number | null>(null);
+  const [quitWaiting, setQuitWaiting] = useState(false);
+  const quitDiscardedIds = useRef(new Set<string>());
+  const appColumns = useRef<HTMLDivElement | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [styleOpen, setStyleOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [templatePicker, setTemplatePicker] = useState<{ initialId?: string } | null>(null);
   const [wsSearchOpen, setWsSearchOpen] = useState(false);
   const [wsSearchQuery, setWsSearchQuery] = useState("");
   const [graphOpen, setGraphOpen] = useState(false);
-  const [wikiLinks, setWikiLinks] = useState<Array<{ from: string; to: string }>>([]);
+  const [documentLinks, setDocumentLinks] = useState<DocumentEdge[]>([]);
+  const graphRequest = useRef<Promise<void> | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
+  const [graphError, setGraphError] = useState<string | null>(null);
+  const [graphReload, setGraphReload] = useState(0);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [backlinksOpen, setBacklinksOpen] = useState(false);
   const [brokenOpen, setBrokenOpen] = useState(false);
-  const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null);
-  const [viewerIndex, setViewerIndex] = useState(0);
-  const [viewerTotal, setViewerTotal] = useState(0);
+  const [viewer, setViewer] = useState<{
+    images: DocumentImage[]; index: number; view: EditorView; current: () => boolean;
+  } | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
   // 내보내기 토글·옵션은 설정에 산다 — 재시작에도 유지(Word 인쇄 설정 기억).
   const setExportPageNumbers = (v: boolean) => updateSettings(store, { exportPageNumbers: v });
@@ -157,15 +227,33 @@ export function App(): JSX.Element {
   const [symbolOpen, setSymbolOpen] = useState(false);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
-  /** 메모 추가 대화상자 줄(팔레트). */
-  const [commentAddLine, setCommentAddLine] = useState<number | null>(null);
+  /** 메모를 작성하기 시작한 문서·경로·내용·위치를 고정한다. */
+  const [commentAddTarget, setCommentAddTarget] = useState<{
+    id: string; path: string; title: string; lineNo: number; doc: Tab["state"]["doc"];
+  } | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [fmOpen, setFmOpen] = useState(false);
   /** 이미지 설명 편집(칩 클릭 위치 → 그 이미지). */
-  const [imgEditPos, setImgEditPos] = useState<number | null>(null);
+  const [imageEdit, setImageEdit] = useState<InlineLinkEdit | null>(null);
+  const [headingRename, setHeadingRename] = useState<{
+    from: number;
+    to: number;
+    title: string;
+    stem: string;
+    linkCount: number;
+    /** 제목이 속한 문서 경로(같은 문서 링크 판별·디스크 갱신 제외용). */
+    path: string | null;
+  } | null>(null);
+  const openImageEdit = useCallback((pos: number) => {
+    const view = store.view;
+    const image = view ? findImageAt(view.state, pos) : null;
+    if (view && image) setImageEdit(captureInlineLinkEdit(view, image.from, image.to));
+  }, [store]);
+  useEffect(() => () => imageEdit?.finish(), [imageEdit]);
   /** 참조 보기 — 옆에 고정한 탭(읽기 전용 iframe 렌더). */
   const [pinnedTabId, setPinnedTabId] = useState<string | null>(null);
   const [trackOpen, setTrackOpen] = useState(false);
+  const [trackAction, setTrackAction] = useState<"start" | "accept" | "stop" | null>(null);
   // 세션 복원으로 스토어가 지정하면 화면에 반영.
   useEffect(() => {
     if (store.pinnedTabId && store.pinnedTabId !== pinnedTabId) setPinnedTabId(store.pinnedTabId);
@@ -181,12 +269,16 @@ export function App(): JSX.Element {
 
   // — 모달이 열려 있으면 에디터로 키보드 포커스가 새지 않게(의도치 않은
   //    입력·Tab 탐색 차단). 검색 바는 에디터 조작이 함께 일어나야 하므로 제외. —
-  // 오버레이 단일 원천 — modalOpen(에디터 inert·Tab 트랩)과 anyOverlay(닫힘
-  // 포커스 복귀)가 같은 목록을 공유한다. 32차까지 세 목록이 따로 놀아
+  // 오버레이 단일 원천 — 에디터 inert와 초기 포커스·Tab 순환·닫힘 복귀가
+  // modalOpen의 같은 목록을 공유한다. 32차까지 세 목록이 따로 놀아
   // 그래프·검수 등 10종이 inert·트랩을 빠졌다 — 새 오버레이는 여기만 추가.
   // 검색 바는 제외 — 열려도 편집(찾으며 고치기 흐름). 기호판 연속 삽입도
   // 프로그램 삽입이라 inert와 무관하다.
-  const overlayOpen = !!(
+  const [sidebarModalOpen, setSidebarModalOpen] = useState(false);
+  const [contextModalOpen, setContextModalOpen] = useState(false);
+  const interactiveOverlayOpen = !!(
+    sidebarModalOpen ||
+    contextModalOpen ||
     closeAsk ||
     settingsOpen ||
     styleOpen ||
@@ -194,6 +286,7 @@ export function App(): JSX.Element {
     shortcutsOpen ||
     statsOpen ||
     paletteOpen ||
+    templatePicker !== null ||
     wsSearchOpen ||
     versionsOpen ||
     backlinksOpen ||
@@ -207,50 +300,31 @@ export function App(): JSX.Element {
     symbolOpen ||
     tableDialogOpen ||
     viewer !== null ||
-    commentAddLine !== null ||
-    imgEditPos !== null ||
-    state.exportKind !== null ||
-    state.tabs.some((x) => x.conflict !== null)
+    commentAddTarget !== null ||
+    imageEdit !== null ||
+    state.exportKind !== null
   );
-  const modalOpen = overlayOpen || state.busy !== null;
+  const overlayOpen = interactiveOverlayOpen || state.tabs.some((x) => x.conflict !== null);
+  const modalOpen = overlayOpen || state.busy !== null || quitRound !== null;
+  const commandBlocked = useRef(false);
+  commandBlocked.current = modalOpen || !state.ready;
+  const closeBlocked = useRef(false);
+  // 이미 열린 대화상자의 응답 콜백을 종료 확인으로 덮어쓰지 않는다.
+  closeBlocked.current = interactiveOverlayOpen || state.busy !== null || !state.ready;
   useEffect(() => {
     if (editorHost.current) editorHost.current.inert = modalOpen;
-  }, [modalOpen]);
+    if (store.splitView) store.splitView.dom.inert = modalOpen;
+    if (appColumns.current) appColumns.current.inert = quitRound !== null;
+  }, [modalOpen, quitRound, store]);
 
-  // 모달 포커스 트랩 — Tab이 배경 UI로 새는 것을 막고 오버레이 안에서 순환.
-  useEffect(() => {
-    if (!modalOpen) return;
-    const onTab = (e: KeyboardEvent) => {
-      if (e.key !== "Tab") return;
-      // 가장 나중에 뜬 오버레이(현재 대화상자) 안의 포커스 가능 요소들.
-      const overlays = Array.from(document.querySelectorAll<HTMLElement>(".overlay"));
-      const top = overlays.filter((o) => o.offsetParent !== null).pop();
-      if (!top) return;
-      const focusables = Array.from(
-        top.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), input:not([disabled]), select, textarea, a[href], [tabindex]:not([tabindex="-1"])',
-        ),
-      ).filter((el) => el.offsetParent !== null);
-      if (focusables.length === 0) return;
-      const active = document.activeElement as HTMLElement | null;
-      // 항상 잡고 안에서 순환 — 중간 요소에서 기본 Tab을 놓아주면 콤보박스
-      // 오버레이(다음 포커스 가능 요소가 없는)는 모달 밖 툴바로 한 걸 샌다.
-      e.preventDefault();
-      const idx = active !== null && top.contains(active) ? focusables.indexOf(active) : -1;
-      if (e.shiftKey) {
-        focusables[idx <= 0 ? focusables.length - 1 : idx - 1].focus();
-      } else {
-        focusables[idx === -1 || idx === focusables.length - 1 ? 0 : idx + 1].focus();
-      }
-    };
-    window.addEventListener("keydown", onTab, true);
-    return () => window.removeEventListener("keydown", onTab, true);
-  }, [modalOpen]);
+  const focusEditor = useCallback(() => editorView.current?.focus(), []);
+  useOverlayFocus(appRoot, modalOpen, focusEditor);
 
   // — 초기화 —
   useEffect(() => {
     store.phrases = { bigDocSource: t.bigDocSource };
     setPhrases({
+      editorLabel: t.editorLabel,
       mathError: t.mathError,
       diagramError: t.diagramError,
       imgMissing: t.imgMissing,
@@ -258,9 +332,16 @@ export function App(): JSX.Element {
       linkOpen: t.linkOpen,
       linkOpenFailed: t.linkOpenFailed,
       saveFailed: t.saveFailed,
+      settingsSaveFailed: t.settingsSaveFailed,
+      trackRestoreDeleted: t.trackRevert,
       speakStartedDoc: t.speakStartedDoc,
       speakStartedSel: t.speakStartedSel,
       speakFailed: t.speakFailed,
+      clipboardReadFailed: t.ctxPasteBlocked,
+      clipboardWriteFailed: t.clipboardWriteFailed,
+      clipboardTargetChanged: t.clipboardTargetChanged,
+      clipboardHtmlTooLarge: t.clipboardHtmlTooLarge,
+      clipboardHtmlFailed: t.clipboardHtmlFailed,
     });
     let disposed = false;
     initBridge();
@@ -270,10 +351,13 @@ export function App(): JSX.Element {
     (async () => {
       try {
         const settings = await api.getSettings();
-        store.setSettings(settings);
+        if (!disposed) store.acceptSettings(settings);
       } catch {
         /* 브라우저 개발 — 기본값 */
       }
+      // 정리된 실행(StrictMode 이중 실행의 첫 번째)은 여기서 멈춘다 — 이어 가면
+      // 복원 대신 빈 새 탭을 만들어 활성화하고 세션에 저장까지 했다.
+      if (disposed) return;
       // 보조 창(doc-*)은 세션을 복원하지 않고 지정 파일만 — main이 세션을 소유.
       const isAux = windowLabel() !== "main";
       const file = fileParam();
@@ -282,11 +366,13 @@ export function App(): JSX.Element {
       } else {
         try {
           const session = await api.getSession();
-          if (session && !disposed) await store.restoreSession(session);
-        } catch {
-          /* 무시 */
+          if (!disposed) await store.restoreSession(session ?? store.buildSession());
+        } catch (e) {
+          if (isInApp()) store.toast(String(e), "error");
+          if (!disposed) await store.restoreSession(store.buildSession());
         }
       }
+      if (disposed) return;
       try {
         const pending = await api.takePendingFiles();
         for (const p of pending) await store.openPath(p);
@@ -296,13 +382,13 @@ export function App(): JSX.Element {
       if (store.state.tabs.length === 0) store.newTab();
       // 참조 보기 복원 — 경로로 탭 id 해소.
       if (store.pendingPinnedPath) {
-        const t = store.state.tabs.find((x) => x.path === store.pendingPinnedPath);
+        const t = store.findSessionTab(store.pendingPinnedPath);
         if (t) store.pinnedTabId = t.id;
         store.pendingPinnedPath = null;
       }
       // 잠금 복원 — 경로로 탭에 적용.
       for (const lp of store.pendingLockedPaths) {
-        const t = store.state.tabs.find((x) => x.path === lp);
+        const t = store.findSessionTab(lp);
         if (t) store.setLocked(t.id, true);
       }
       store.pendingLockedPaths.clear();
@@ -355,17 +441,37 @@ export function App(): JSX.Element {
 
   // 이미지 폭 조절 → 사이드카 / 이미지 클릭 → 확대 뷰어(원문 불변).
   useEffect(() => {
+    // 노트 임베드 ![[이름]] — 내용 제공(읽기 실패는 위젯이 끊김 표시)과 클릭 열기.
+    setEmbedContentHandler(async (path) => {
+      try {
+        const doc = await api.readDocument(path);
+        return stripFrontMatter(doc.text);
+      } catch {
+        return null;
+      }
+    });
+    setEmbedOpenHandler((path) => { void store.openPath(path); });
     setImageResizeHandler((src, pct) => store.setImageWidth(src, pct));
-    setImageViewerHandler((src, alt) => {
-      const doc = store.view?.state.doc.toString() ?? "";
-      const all = [...doc.matchAll(/!\[[^\]]*\]\(([^)\s]+)[^)]*\)/g)].map((m) => m[1]);
-      setViewerIndex(Math.max(0, all.indexOf(src)));
-      setViewerTotal(all.length);
-      setViewer({ src, alt });
+    setImageViewerHandler((view, pos) => {
+      const tab = store.active;
+      if (view !== store.view || !tab) return;
+      const { id, path } = tab;
+      const doc = view.state.doc;
+      const config = view.state.field(previewConfigField);
+      const images = documentImages(doc.toString(), config.baseDir).filter((image) =>
+        config.remoteImages || !/^https?:/i.test(image.src) || (image.from <= pos && pos < image.to));
+      const index = images.findIndex((image) => image.from <= pos && pos < image.to);
+      if (index < 0 || !config.showImages) return;
+      setViewer({ images, index, view, current: () => {
+        const now = view.state.field(previewConfigField, false);
+        return !!now && store.view === view && view.dom.isConnected && view.state.doc === doc &&
+          store.active?.id === id && store.active.path === path &&
+          now.baseDir === config.baseDir && now.remoteImages === config.remoteImages && now.showImages;
+      } });
     });
     setFrontMatterEditHandler(() => setFmOpen(true));
     // 이미지 '설명 추가' 칩 — 그 이미지의 대체 텍스트 편집(69차 대화상자 재사용).
-    setImageCaptionHandler((_src, pos) => setImgEditPos(pos));
+    setImageCaptionHandler((_src, pos) => openImageEdit(pos));
     setTableWidthsSaveHandler((lineNo, key, widths) => store.setTableWidths(lineNo, key, widths));
     setTagClickHandler((tag) => {
       setWsSearchQuery(tag);
@@ -419,7 +525,7 @@ export function App(): JSX.Element {
       setTableWidthsSaveHandler(null);
       setTagClickHandler(null);
     };
-  }, [store]);
+  }, [store, openImageEdit]);
 
   // — 에디터 뷰 수명(탭 전환은 setState) —
   useEffect(() => {
@@ -431,11 +537,15 @@ export function App(): JSX.Element {
     if (import.meta.env.DEV) (window as unknown as { __iyagiView?: unknown }).__iyagiView = view;
     store.hostEl = editorHost.current;
     setViewListener((update) => store.onDocChanged(update));
+    setImageImportHandler((view, files) => { void store.importImages(view, files); });
+    setClipboardNoticeHandler((text, kind) => store.toast(text, kind));
     const tab = store.active;
     if (tab) view.setState(tab.state);
     store.applyConfig();
     return () => {
       setViewListener(null);
+      setImageImportHandler(null);
+      setClipboardNoticeHandler(null);
       view.destroy();
       editorView.current = null;
       store.view = null;
@@ -454,7 +564,7 @@ export function App(): JSX.Element {
       .replace(/[\/:*?"<>|]/g, "-");
     const path = await pickSave(`${name}.md`, "md");
     if (!path) return false;
-    const ok = await store.saveActive(path);
+    const ok = await store.saveDocument(tab.id, path);
     if (ok) store.toast(t.savedToast);
     return ok;
   }, [store, t]);
@@ -462,7 +572,6 @@ export function App(): JSX.Element {
   const saveActive = useCallback(async () => {
     const tab = store.active;
     if (!tab) return;
-    if (tab.path && !tab.dirty) return; // 무수정 저장 안 함(§4-2)
     const ok = tab.path ? await store.saveActive() : await saveAs();
     if (ok) store.toast(t.savedToast);
   }, [store, t, saveAs]);
@@ -479,113 +588,112 @@ export function App(): JSX.Element {
     [],
   );
 
-  /** 문서의 첫 로컬 이미지 경로(절대) — http(s)/데이터 URL 제외. */
-  const firstLocalImage = (md: string, baseDir: string): string | null => {
-    for (const m of md.matchAll(/!\[[^\]]*\]\(([^)\s]+)[^)]*\)/g)) {
-      const src = m[1];
-      if (/^(https?:|data:)/i.test(src)) continue;
-      if (src.startsWith("/")) return src;
-      return baseDir ? `${baseDir}/${src.replace(/\.\//g, "")}` : src;
+  /** 커서가 있는 제목 이름 바꾸기 흐름 — 링크 수를 세고 대화상자를 연다. */
+  const openRenameHeadingFlow = async (): Promise<void> => {
+    const view = store.view;
+    const tab = store.active;
+    if (!view || !tab) return;
+    const heading = headingAtCursor(view.state);
+    if (!heading) {
+      store.toast(t.renameHeadingNoHeading, "error");
+      return;
     }
-    return null;
+    const stem = (tab.path ? tab.title : "untitled").replace(/\.md$/i, "");
+    const text = view.state.doc.toString();
+    let count = countHeadingLinks(text, stem, heading.title);
+    // 다른 파일의 링크 수 — 디스크 읽기 상한 300(대화상자 안내값).
+    const walkFiles = async (nodes: TreeNode[]): Promise<string[]> => {
+      const out: string[] = [];
+      for (const n of nodes) {
+        if (n.kind === "dir") out.push(...await walkFiles(n.children ?? []));
+        else out.push(n.path);
+      }
+      return out;
+    };
+    let scanned = 0;
+    for (const p of await walkFiles(store.state.tree)) {
+      if (scanned >= 300) break;
+      if (p === tab.path) continue;
+      scanned++;
+      let doc;
+      try { doc = await api.readDocument(p); } catch { continue; }
+      count += countHeadingLinks(doc.text, stem, heading.title);
+    }
+    setHeadingRename({ ...heading, stem, linkCount: count, path: tab.path });
   };
 
   const runExport = useCallback(
-    async (kind: ExportKind, opts: PdfExportOptions) => {
+    async (kind: ExportKind, opts: PdfExportOptions, reviewed?: ExportSnapshot, reviewedHtml?: string): Promise<ExportResult> => {
+      store.syncActiveState();
       const tab = store.active;
-      if (!tab) return;
-      // 내보내기 본문은 메타가 아니다 — 프론트매터는 제외하고 내보낸다.
-      // 위키링크는 표준 마크다운 링크로(DOCX는 텍스트가 그대로 Rust로 간다).
-      const baseDir0 = tab.path
-        ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/"
-        : store.state.workspace ?? "";
-      const wikiResolve = (name: string) => resolveWikiLink(name, baseDir0, store.wikiIndex);
-      const text = wikiLinksToMarkdown(
-        stripFrontMatter(tab.state.doc.toString()),
-        wikiResolve,
-        baseDir0,
-      );
-      // 프런트매터 메타 — 문서가 스스로 밝히는 제목·작가가 내보내기 식별자가 된다.
-      const fm = frontMatterMeta(tab.state.doc.toString());
-      const metaTitle = fm?.title ?? "";
-      const metaAuthor = fm?.author ?? "";
-      const name = (metaTitle || (tab.path ? tab.title : "untitled"))
-        .replace(/\.(md|markdown)$/i, "")
-        .replace(/[\/:*?"<>|]/g, "-"); // 파일명에 못 쓰는 글자
-      const docTitle = metaTitle || (tab.path ? tab.title : name);
-      const ext = kind === "html" ? "html" : kind === "pdf" ? "pdf" : kind === "epub" ? "epub" : "docx";
-      const out = await pickSave(`${name}.${ext}`, ext);
-      if (!out) return;
+      if (!tab && !reviewed) return { status: "failed", message: t.emptyNoDoc };
+      if (exportRunning.current || store.state.busy !== null) return { status: "failed", message: t.commandBlocked };
+      exportRunning.current = true;
       store.setBusy(t.exportPreparing);
       try {
+        const captured = reviewed ?? captureExportSnapshot(tab!, {
+          workspace: store.state.workspace,
+          theme: store.state.theme,
+          pageNumbers: store.state.settings.exportPageNumbers,
+          header: store.state.settings.exportHeader,
+          wikiIndex: store.wikiIndex,
+          lang,
+        }, kind === "docx");
+        // 노트 임베드 ![[이름]] 인라인 — 모든 형식이 같은 마크다운을 쓴다.
+        const snapshot = await applyEmbeds(captured, (path) =>
+          api.readDocument(path).then((doc) => doc.text).catch(() => null));
+        const {
+          text, baseDir, wikiResolve, fm, metaTitle, metaAuthor, name, docTitle,
+          style, docxStyle, imageWidths, tableWidths, comments, theme, pageNumbers, header,
+        } = snapshot;
+        const pdfOptions = { ...opts };
+        const ext = kind;
+        const out = await pickSave(`${name}.${ext}`, ext);
+        if (!out) return { status: "cancelled" };
         // markdown-it(±footnote)은 내보내기에서만 쓴다 — 동적 로드로 메인
         // 청크에서 빼 시작 로딩을 줄인다.
-        const { buildDocxManifest, buildExportHtml, renderMarkdownBody } = await import("./export/html");
+        const { buildDocxManifest, buildExportHtml, renderExportBody } = await import("./export/html");
 
-        const baseDir = tab.path
-          ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/"
-          : store.state.workspace ?? "";
-        // 사이드카 이미지 폭(%) — 편집기 드래그 값과 동일하게 4경로 모두 반영.
-        const imageWidths = tab.docStyle?.imageWidths ?? {};
-        const tableWidths = tab.docStyle?.tableWidths ?? {};
         if (kind === "html") {
-          const html = await buildExportHtml(text, {
+          const html = await buildExportHtml(snapshot.markdown, {
             title: docTitle,
             baseDir,
-            theme: store.state.theme,
-            style: exportStyleOf(tab),
+            theme,
+            style,
             imageWidths,
             tableWidths,
             frontLists: { toc: !!fm?.toc, lof: !!fm?.lof, lot: !!fm?.lot },
-            lang,
+            lang: snapshot.lang,
             externalLinksNewTab: true,
             readBytes: readBytesForExport,
             wikiResolve,
           });
           await api.writeExportFile(out, html);
         } else if (kind === "pdf") {
-          const html = await buildExportHtml(text, {
+          const html = reviewedHtml ?? await buildExportHtml(snapshot.markdown, snapshotHtmlOptions(snapshot, readBytesForExport, pdfOptions));
+          await api.exportPdf(html, { ...pdfOptions, pageNumbers }, out);
+        } else if (kind === "epub") {
+          // Share HTML export's caption/width/sanitization pipeline; keep image
+          // paths for the Rust packager to embed into the EPUB.
+          const body = await renderExportBody(snapshot.markdown, {
             title: docTitle,
             baseDir,
-            theme: store.state.theme,
-            forPdf: true,
-            marginMm: opts.marginMm,
-            scale: opts.scale,
-            style: exportStyleOf(tab),
+            theme: "light",
             imageWidths,
             tableWidths,
-            // 머리글 — 프런트매터 header: 가 있으면 문서가 정한 대로(설정 무시).
-            pdfHeader: fm?.header ?? (state.settings.exportHeader ? docTitle : null),
-            pdfFooter: fm?.footer ?? null,
-            readBytes: readBytesForExport,
+            lang: snapshot.lang,
+            inlineImages: false,
             wikiResolve,
           });
-          await api.exportPdf(html, { ...opts, pageNumbers: state.settings.exportPageNumbers }, out);
-        } else if (kind === "epub") {
-          // EPUB — 본문 조각을 XHTML로(빈 태그 자가 폐쇄) + 최소 가독 CSS.
-          // 이미지는 data URI로 인라인하지 않는다 — 로컬 경로를 그대로 두면
-          // Rust가 디스크에서 읽어 zip 안 images/ 로 임베드한다(DOCX와 동일).
-          const { body } = await renderMarkdownBody(text, {
-            title: docTitle,
-            baseDir,
-            theme: store.state.theme,
-          });
-          const { applyImageWidths, applyTableWidths, applyFigcaptions } = await import("./export/html");
-          const { applyTableCaptions } = await import("./editor/tableCaption");
-          // 전체를 한 번 렌더한 HTML을 <h1> 경계로 챕터 분할(각주는 마지막 챕터에).
-          // 캡션(그림·표)도 HTML/PDF와 동일하게 — 빠지면 전자책만 설명 없음.
-          const decorated = applyFigcaptions(
-            applyTableCaptions(applyTableWidths(applyImageWidths(body, imageWidths), tableWidths)),
-          );
-          const chapters = epubChapterInputs(splitEpubChapters(decorated));
+          const chapters = epubChapterInputs(splitEpubChapters(body));
           // 표지 — 문서의 첫 로컬 이미지. 프런트매터 cover: false면 끔.
-          const coverPath = fm?.cover === false ? null : firstLocalImage(text, baseDir);
+          const coverPath = fm?.cover === false ? null : firstEpubLocalImage(body, baseDir);
           await api.exportEpub(
             {
               chapters,
               title: docTitle,
               author: metaAuthor || "IYAGI Markdown",
-              language: lang === "ko" ? "ko" : "en",
+              language: snapshot.lang,
               css: EPUB_CSS,
               coverPath,
               baseDir,
@@ -595,96 +703,85 @@ export function App(): JSX.Element {
         } else {
           const manifest = await buildDocxManifest(text);
           // 문서별 스타일 → DOCX 기본 서체(폰트·크기).
-          const ds = tab.docStyle;
-          manifest.style = {
-            font: ds?.font ?? "system",
-            sizePt: ds && ds.fontSize > 0 ? ds.fontSize : 11,
-            lineHeight: ds?.lineHeight ?? 0,
-            firstLineIndent: ds?.firstLineIndent ?? false,
-            textAlign: ds?.textAlign ?? "left",
-            accent: ds?.accent ?? null,
-            pageNumbers: state.settings.exportPageNumbers,
-          };
+          manifest.style = docxStyle;
           manifest.imageWidths = imageWidths;
           manifest.tableWidths = tableWidths;
-          // 문서 메모 — 편집기 줄 번호를 프런트매터 제거 본문 기준으로 보정.
-          if (tab.comments && tab.comments.length > 0) {
-            const fmLen = frontMatterLen(tab.state.doc.toString());
-            const fmLines = fmLen > 0 ? tab.state.doc.sliceString(0, fmLen).split("\n").length - 1 : 0;
-            manifest.comments = tab.comments
-              .filter((c) => !c.resolved)
-              .map((c) => [c.lineNo - fmLines, c.text] as [number, string])
-              .filter(([l]) => l > 0);
-          }
+          manifest.comments = comments;
           if (metaTitle) manifest.title = metaTitle;
           if (metaAuthor) manifest.author = metaAuthor;
-          manifest.frontLang = lang;
+          manifest.frontLang = snapshot.lang;
           if (fm?.columns && fm.columns > 1) manifest.columns = fm.columns;
           if (fm?.toc) manifest.toc = true;
           if (fm?.lof) manifest.lof = true;
           if (fm?.lot) manifest.lot = true;
           if (fm?.header) manifest.headerTitle = fm.header;
-          else if (state.settings.exportHeader) manifest.headerTitle = docTitle;
+          else if (header) manifest.headerTitle = docTitle;
           if (fm?.footer) manifest.footerText = fm.footer;
           await api.exportDocx(text, manifest, out, baseDir);
         }
         // 마지막 옵션 저장(재시작 유지) — PDF 옵션은 pdf에만 있고 docx는 토글만.
-        if (kind === "pdf" || kind === "epub") {
+        if (kind === "pdf") {
           updateSettings(store, {
-            exportPaper: opts.paper,
-            exportLandscape: opts.orientation === "landscape",
-            exportMarginMm: opts.marginMm,
-            exportScale: opts.scale,
+            exportPaper: pdfOptions.paper,
+            exportLandscape: pdfOptions.orientation === "landscape",
+            exportMarginMm: pdfOptions.marginMm,
+            exportScale: pdfOptions.scale,
           });
         }
-        store.setBusy(null);
-        store.toast(t.f.exportDone(`${name}.${ext}`));
+        store.toast(t.f.exportDone(out.split(/[\\/]/).at(-1) || `${name}.${ext}`));
+        return { status: "saved", path: out };
       } catch (e) {
+        return { status: "failed", message: e instanceof Error ? e.message : String(e) };
+      } finally {
+        exportRunning.current = false;
         store.setBusy(null);
-        store.toast(`${t.exportFailed}: ${e instanceof Error ? e.message : String(e)}`, "error");
       }
     },
-    [store, t, readBytesForExport],
+    [store, t, lang, readBytesForExport],
   );
 
-  // — 탭 닫기(더티 확인 동반) —
-  const closeTabWithConfirm = useCallback(
-    async (tab: Tab) => {
-      if (tab.dirty) {
-        const ok = await new Promise<boolean>((resolve) => setCloseAsk(() => resolve));
-        setCloseAsk(null);
-        if (!ok) return;
-      }
-      store.closeTab(tab.id);
-    },
-    [store],
-  );
-
-  /** 여러 탭 한 번에 닫기 — 더티가 하나라도 있으면 확인은 한 번만. */
+  /** Single and batch closes own the entire flush/confirmation operation. */
   const closeTabsBatch = useCallback(
-    (tabs: Tab[]) => {
+    async (tabs: Tab[]) => {
       if (tabs.length === 0) return;
-      if (tabs.some((x) => x.dirty)) {
-        setCloseAsk(() => (ok: boolean) => {
-          setCloseAsk(null);
-          if (ok) for (const x of tabs) store.closeTab(x.id);
-        });
-        return;
+      if (closeInFlight.current || closePrompt.current || quitRoundRef.current !== null) {
+        store.toast(t.commandBlocked); return;
       }
-      for (const x of tabs) store.closeTab(x.id);
+      closeInFlight.current = true;
+      const ids = [...new Set(tabs.map((tab) => tab.id))];
+      let closed = false;
+      try {
+        if (!(await store.flushDocStyles(ids))) return;
+        if (!closeMounted.current) return;
+        store.syncActiveState();
+        const current = () => store.state.tabs.filter((tab) => ids.includes(tab.id));
+        if (current().some((tab) => tab.dirty) && !(await askToClose(ids))) return;
+        if (!closeMounted.current) return;
+        // A confirmation only approves the content it actually saved/discarded.
+        if (current().some((tab) => tab.dirty)) { store.toast(t.closeChanged, "error"); return; }
+        for (const tab of current()) store.closeTab(tab.id);
+        closed = true;
+      } catch (error) { store.toast(String(error), "error"); }
+      finally {
+        if (!closed) restoreUnclosedDrafts(store, ids);
+        closeInFlight.current = false;
+      }
     },
-    [store],
+    [store, askToClose, t],
   );
+  const closeTabWithConfirm = useCallback((tab: Tab) => closeTabsBatch([tab]), [closeTabsBatch]);
 
   // — 메뉴/단축키 동작 —
-  const handleMenu = useCallback(
+  const runMenu = useCallback(
     (id: string) => {
-      if (windowLabel() !== "main") return; // 보조 창은 메인이 메뉴를 소유
       if (id.startsWith("recent:")) {
         void store.openPath(id.slice("recent:".length));
         return;
       }
       switch (id) {
+        case "settings":
+          setSettingsOpen(true);
+          break;
         case "doc-style":
           setStyleOpen(true);
           break;
@@ -711,7 +808,7 @@ export function App(): JSX.Element {
           });
           break;
         case "clear-recent":
-          void api.clearRecent().catch(() => {});
+          void store.clearRecent();
           break;
         case "save":
           void saveActive();
@@ -731,6 +828,9 @@ export function App(): JSX.Element {
         case "export-epub":
           store.setExportKind(id.slice("export-".length) as ExportKind);
           break;
+        case "reopen-closed-tab":
+          void store.reopenClosedTab();
+          break;
         case "close-tab": {
           const tab = store.active;
           if (tab) void closeTabWithConfirm(tab);
@@ -738,6 +838,10 @@ export function App(): JSX.Element {
         }
         case "find":
           store.setSearchOpen(true);
+          break;
+        case "navigate-back":
+        case "navigate-forward":
+          store.navigateHistory(id === "navigate-forward");
           break;
         case "find-next":
         case "find-prev": {
@@ -800,6 +904,11 @@ export function App(): JSX.Element {
     },
     [store, saveActive, saveAs, closeTabWithConfirm],
   );
+  const handleMenu = useMemo(() => guardAppCommands(
+    () => commandBlocked.current || quitRoundRef.current !== null || store.state.busy !== null,
+    runMenu,
+    () => store.toast(t.commandBlocked),
+  ), [runMenu, store, t.commandBlocked]);
 
   // — 이벤트 구독 —
   useEffect(() => {
@@ -807,11 +916,16 @@ export function App(): JSX.Element {
     let disposed = false;
     const keep = (p: Promise<{ (): void } | void | undefined>) => {
       void p.then((u) => {
-        if (u && !disposed) unlistens.push(u as () => void);
+        if (u) {
+          if (disposed) u();
+          else unlistens.push(u as () => void);
+        }
       });
     };
 
-    keep(onMenu((id) => handleMenu(id)));
+    keep(onMenu((id) => {
+      if (quitRoundRef.current === null) handleMenu(id);
+    }));
     keep(
       onFsEvent((e) => {
         store.externalChange(e.path, e.kind);
@@ -821,7 +935,82 @@ export function App(): JSX.Element {
     keep(onOpenFiles(async (paths) => {
       for (const p of paths) await store.openPath(p);
     }));
-    keep(onSettingsChanged((s) => store.setSettings(s)));
+    keep(onBaselineChanged((path) => {
+      if (!disposed) void store.refreshBaseline(path);
+    }).then((unlisten) => {
+      if (!disposed) {
+        for (const path of new Set(store.state.tabs.map((tab) => tab.path))) if (path) void store.refreshBaseline(path);
+      }
+      return unlisten;
+    }).catch((error: unknown) => {
+      if (!disposed) store.toast(`${t.trackLoadFailed}: ${String(error)}`, "error");
+    }));
+    keep(onBookmarksChanged((path) => {
+      if (!disposed) void store.refreshBookmarks(path);
+    }).then((unlisten) => {
+      if (!disposed) {
+        for (const path of new Set(store.state.tabs.map((tab) => tab.path))) if (path) void store.refreshBookmarks(path);
+      }
+      return unlisten;
+    }).catch((error: unknown) => {
+      if (!disposed) store.toast(`${t.bookmarksSyncFailed}: ${String(error)}`, "error");
+    }));
+    keep(onCommentsChanged((path) => {
+      if (!disposed) void store.refreshComments(path);
+    }).then((unlisten) => {
+      if (!disposed) {
+        for (const path of new Set(store.state.tabs.map((tab) => tab.path))) {
+          if (path) void store.refreshComments(path);
+        }
+      }
+      return unlisten;
+    }).catch((error: unknown) => {
+      if (!disposed) store.toast(`${t.commentsSyncFailed}: ${String(error)}`, "error");
+    }));
+    keep(onSettingsChanged((snapshot) => {
+      if (!disposed) store.acceptSettings(snapshot);
+    }).then((unlisten) => {
+      // 구독 전에 발생한 변경은 최신 스냅샷으로 보충한다.
+      if (isInApp() && !disposed) {
+        void api.getSettings().then((snapshot) => {
+          if (!disposed) store.acceptSettings(snapshot);
+        }).catch((error: unknown) => {
+          if (!disposed) store.toast(`${t.settingsSyncFailed}: ${String(error)}`, "error");
+        });
+      }
+      return unlisten;
+    }).catch((error: unknown) => {
+      if (!disposed) store.toast(`${t.settingsSyncFailed}: ${String(error)}`, "error");
+    }));
+    // 구독을 먼저 연 뒤 조회해 시작 중 변경을 놓치지 않는다.
+    keep(onRecentChanged((snapshot) => store.acceptRecent(snapshot)).then((unlisten) => {
+      if (!disposed) void store.loadRecent();
+      return unlisten;
+    }).catch((error: unknown) => {
+      if (!disposed) {
+        store.toast(`${t.recentSyncFailed}: ${String(error)}`, "error");
+        void store.loadRecent();
+      }
+    }));
+
+    keep(onWorkspaceHistoryChanged((snapshot) => store.workspaceHistory.accept(snapshot)).then((unlisten) => {
+      if (!disposed) void store.workspaceHistory.load();
+      return unlisten;
+    }).catch((error: unknown) => {
+      if (!disposed) {
+        store.toast(`${t.workspaceHistorySyncFailed}: ${String(error)}`, "error");
+        void store.workspaceHistory.load();
+      }
+    }));
+    keep(onFavoritesChanged((snapshot) => store.acceptFavorites(snapshot)).then((unlisten) => {
+      if (!disposed) void store.loadFavorites();
+      return unlisten;
+    }).catch((error: unknown) => {
+      if (!disposed) {
+        store.toast(`${t.favoritesSyncFailed}: ${String(error)}`, "error");
+        void store.loadFavorites();
+      }
+    }));
 
     // 시스템 테마 추종(auto일 때).
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -832,29 +1021,7 @@ export function App(): JSX.Element {
 
     // 브라우저 폴백 단축키(macOS 메뉴 가속기가 없는 환경).
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      const key = e.key.toLowerCase();
-      if (key === "e") {
-        e.preventDefault();
-        store.toggleReadEdit();
-      } else if (key === "/") {
-        e.preventDefault();
-        store.setMode(store.active?.mode === "source" ? "edit" : "source");
-      } else if (key === "f") {
-        e.preventDefault();
-        if (e.shiftKey) setWsSearchOpen(true);
-        else store.setSearchOpen(true);
-      } else if (key === "s") {
-        e.preventDefault();
-        if (e.shiftKey) void saveAs();
-        else void saveActive();
-      } else if (key === ",") {
-        e.preventDefault();
-        setSettingsOpen(true);
-      } else if (key === "p" && e.shiftKey) {
-        e.preventDefault();
-        setPaletteOpen(true);
-      }
+      handleAppShortcut(e, handleMenu);
     };
     window.addEventListener("keydown", onKey);
 
@@ -862,6 +1029,10 @@ export function App(): JSX.Element {
     if (isInApp()) {
       void import("@tauri-apps/api/event").then(async (ev) => {
         const u = await ev.listen<{ paths: string[] }>("tauri://drag-drop", (e) => {
+          if (commandBlocked.current || quitRoundRef.current !== null || store.state.busy !== null) {
+            store.toast(t.commandBlocked);
+            return;
+          }
           const paths = e.payload.paths;
           for (const p of paths.filter((x) => /\.(md|markdown)$/i.test(x))) {
             void store.openPath(p);
@@ -870,55 +1041,186 @@ export function App(): JSX.Element {
           const imgs = paths.filter((x) => /\.(png|jpe?g|gif|webp|svg|bmp|heic)$/i.test(x));
           if (imgs.length > 0) void importDroppedImages(imgs);
         });
-        if (!disposed) unlistens.push(u);
+        if (disposed) u();
+        else unlistens.push(u);
       });
       // 더티 확인 공용 — ⌘W(창 닫기)·⌘Q(앱 종료)가 같은 절차를 탄다.
       // CloseConfirm이 저장 실패 시 false로 보류한다(25차 가드 상속).
+      let resolveClose: ((ok: boolean) => void) | null = null;
       const confirmDirty = async (): Promise<boolean> => {
+        if (disposed) return false;
         const dirty = store.state.tabs.filter((x) => x.dirty);
         if (dirty.length === 0) return true;
-        const ok = await new Promise<boolean>((resolve) => setCloseAsk(() => resolve));
-        setCloseAsk(null);
+        if (closePrompt.current) return false;
+        const pending = askToClose(null);
+        const callback = closePrompt.current;
+        resolveClose = callback;
+        const ok = await pending;
+        if (resolveClose === callback) resolveClose = null;
+        if (ok && store.state.tabs.some((tab) => tab.dirty)) { store.toast(t.closeChanged, "error"); return false; }
         return ok;
       };
+      let closingWindow = false;
+      const flushBeforeClose = async (): Promise<boolean> => {
+        store.setBusy(t.loading);
+        try {
+          await store.flushDrafts();
+          await store.flushSettings();
+          try {
+            const win = await webviewWindowApi();
+            const pos = await win.outerPosition();
+            const size = await win.innerSize();
+            const scale = await win.scaleFactor();
+            const rect = {
+              x: pos.x / scale, y: pos.y / scale,
+              width: size.width / scale, height: size.height / scale,
+            };
+            if (windowLabel() === "main") store.setWindowRect(rect);
+            else store.setAuxWindowRect(rect);
+          } catch { /* 위치 기록 실패는 문서 저장과 무관하다. */ }
+          await api.saveSession(store.buildSession());
+          return true;
+        } catch (e) {
+          store.toast(String(e), "error");
+          return false;
+        } finally {
+          store.setBusy(null);
+        }
+      };
+      // Rust가 창을 순서대로 요청한다. 승인한 창은 전체 종료/취소까지 입력을 막는다.
       {
-        void import("@tauri-apps/api/event").then(async (ev) => {
-          const uq = await ev.listen("quit-requested", async () => {
-            if (windowLabel() !== "main") return;
-            if (!(await confirmDirty())) return; // 종료 철회
-            await api.saveSession(store.buildSession()).catch(() => {});
-            void api.exitConfirmed();
-          });
-          if (!disposed) unlistens.push(uq);
+        let releaseWatch: (() => void) | null = null;
+        let lastCancelled = -1;
+        const releaseQuit = () => {
+          const wasQuitting = quitRoundRef.current !== null;
+          releaseWatch?.();
+          releaseWatch = null;
+          quitRoundRef.current = null;
+          setQuitRound(null);
+          setQuitWaiting(false);
+          resolveClose?.(false);
+          if (wasQuitting && !disposed) store.resumeAutosaves();
+          if (quitDiscardedIds.current.size) {
+            store.restoreDiscardedDocuments([...quitDiscardedIds.current]);
+            quitDiscardedIds.current.clear();
+          }
+        };
+        const cancelQuit = async (id: number) => {
+          try {
+            await api.quitReply(id, false);
+          } catch (e) {
+            store.toast(String(e), "error");
+          }
+          if (quitRoundRef.current === id) releaseQuit();
+        };
+        const prepareQuit = async (id: number) => {
+          if (disposed || id <= lastCancelled || quitRoundRef.current === id) return;
+          if (closingWindow || closeInFlight.current || closeBlocked.current || quitRoundRef.current !== null) {
+            await api.quitReply(id, false);
+            store.toast(t.quitBlocked);
+            return;
+          }
+          quitRoundRef.current = id;
+          setQuitRound(id);
+          closingWindow = true;
+          closeInFlight.current = true;
+          let settled = false;
+          try {
+            await store.settleDocumentWrites();
+            if (quitRoundRef.current !== id) return;
+            settled = true;
+            if (!(await confirmDirty())) {
+              await cancelQuit(id);
+              return;
+            }
+            if (quitRoundRef.current !== id) return;
+            // 본문/경로/스타일이 flush 중 또는 승인 뒤 바뀌면 전체 종료를 보류한다.
+            const unchanged = closingDocumentsUnchanged(store);
+            if (!(await flushBeforeClose())) {
+              await cancelQuit(id);
+              return;
+            }
+            if (quitRoundRef.current !== id) return;
+            if (!unchanged()) {
+              store.toast(t.quitChanged, "error");
+              await cancelQuit(id);
+              return;
+            }
+            setQuitWaiting(true);
+            releaseWatch = store.subscribe(() => {
+              if (quitRoundRef.current === id && !unchanged()) {
+                releaseWatch?.();
+                releaseWatch = null;
+                void cancelQuit(id);
+                store.toast(t.quitChanged, "error");
+              }
+            });
+            const accepted = await api.quitReply(id, true);
+            if (!accepted && quitRoundRef.current === id) releaseQuit();
+          } catch (e) {
+            store.toast(String(e), "error");
+            await cancelQuit(id);
+          } finally {
+            closingWindow = false;
+            closeInFlight.current = false;
+            if (!settled && quitRoundRef.current === null && !disposed) store.resumeAutosaves();
+          }
+        };
+        unlistens.push(() => {
+          const id = quitRoundRef.current;
+          if (id !== null) void api.quitReply(id, false).catch(() => {});
+          releaseQuit();
         });
+        void import("@tauri-apps/api/event").then(async (ev) => {
+          const uc = await ev.listen<number>("quit-cancelled", (event) => {
+            lastCancelled = Math.max(lastCancelled, event.payload);
+            if (quitRoundRef.current === event.payload) releaseQuit();
+          });
+          if (disposed) { uc(); return; }
+          unlistens.push(uc);
+          const uq = await ev.listen<number>("quit-requested", (event) => {
+            void prepareQuit(event.payload).catch((e) => store.toast(String(e), "error"));
+          });
+          if (disposed) { uq(); return; }
+          unlistens.push(uq);
+          const pending = await api.quitPending();
+          if (!disposed && pending !== null) await prepareQuit(pending);
+        }).catch((e) => store.toast(String(e), "error"));
       }
-      // 창 닫기 요청 — 더티 확인 후 세션 저장하고 닫는다(보조 창은 저장 없이).
+      // 창 닫기 요청 — 미저장 확인·초안·스타일·세션 기록을 끝낸 뒤 닫는다.
       void webviewWindowApi().then(async (win) => {
         const u = await win.onCloseRequested(async (event) => {
           event.preventDefault();
-          if (!(await confirmDirty())) return;
-          if (windowLabel() === "main") {
-            await api.saveSession(store.buildSession()).catch(() => {});
-          } else {
-            // 보조 창: 자기 위치를 세션에 남기고 닫힌다(저장은 메인이 소유).
-            try {
-              const pos = await win.outerPosition();
-              const size = await win.innerSize();
-              const scale = await win.scaleFactor();
-              store.setAuxWindowRect({
-                x: pos.x / scale,
-                y: pos.y / scale,
-                width: size.width / scale,
-                height: size.height / scale,
-              });
-              await api.saveSession(store.buildSession()).catch(() => {});
-            } catch {
-              /* 위치 기록 실패는 닫기에 영향 없음 */
-            }
+          if (closingWindow || closeInFlight.current || quitRoundRef.current !== null) return;
+          if (closeBlocked.current) {
+            store.toast(t.quitBlocked);
+            return;
           }
-          await win.destroy();
+          closingWindow = true;
+          closeInFlight.current = true;
+          let destroyed = false;
+          const windowTargets = store.state.tabs.map((tab) => tab.id);
+          try {
+            await store.settleDocumentWrites();
+            if (!(await confirmDirty())) return;
+            const unchanged = closingDocumentsUnchanged(store);
+            if (!(await flushBeforeClose())) return;
+            if (disposed || !unchanged()) { store.toast(t.closeChanged, "error"); return; }
+            await win.destroy();
+            destroyed = true;
+          } catch (e) {
+            store.toast(String(e), "error");
+          } finally {
+            if (!destroyed) {
+              store.resumeAutosaves();
+              restoreUnclosedDrafts(store, windowTargets);
+            }
+            closingWindow = false;
+            closeInFlight.current = false;
+          }
         });
-        if (!disposed) unlistens.push(u);
+        if (disposed) u();
+        else unlistens.push(u);
       });
     }
 
@@ -928,18 +1230,17 @@ export function App(): JSX.Element {
       mq.removeEventListener("change", onTheme);
       window.removeEventListener("keydown", onKey);
     };
-  }, [store, handleMenu, saveActive, saveAs]);
+  }, [store, handleMenu, saveActive, saveAs, askToClose, t]);
 
   // — Esc로 시트 닫기(macOS 앱 관례) — 확인 대화상자가 떠 있으면 비켜주고,
   // 에디터가 먼저 처리한 Esc(자동완성 닫기 등)는 존중한다.
   useEffect(() => {
     const onEsc = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      if (exportRunning.current) { e.preventDefault(); return; }
       if (closeAsk) return;
-      if (state.exportKind) {
-        store.setExportKind(null);
-        return;
-      }
+      if (templatePicker !== null) return; // 템플릿 창이 IME와 Escape를 직접 처리한다.
+      if (state.exportKind) return; // 내보내기 시트가 진행 상태와 Escape를 함께 관리한다.
       if (styleOpen) {
         setStyleOpen(false);
         return;
@@ -952,10 +1253,7 @@ export function App(): JSX.Element {
         setGraphOpen(false);
         return;
       }
-      if (fmOpen) {
-        setFmOpen(false);
-        return;
-      }
+      if (fmOpen) return; // 문서 정보 창이 입력 폐기 확인을 직접 처리한다.
       if (reviewOpen) {
         setReviewOpen(false);
         return;
@@ -964,113 +1262,149 @@ export function App(): JSX.Element {
         setStatsOpen(false);
         return;
       }
+      // 나머지 오버레이의 Escape 안전망. 자체 처리한 키는 앞쪽의
+      // defaultPrevented 검사로 제외하며 초안 폐기 확인이 있는 창은 위임한다.
+      if (paletteOpen) {
+        setPaletteOpen(false);
+        return;
+      }
+      if (wsSearchOpen) {
+        setWsSearchOpen(false);
+        return;
+      }
+      if (tableDialogOpen) return; // 표 삽입 창이 입력 폐기 확인을 직접 처리한다.
+      if (symbolOpen) {
+        setSymbolOpen(false);
+        return;
+      }
+      if (shortcutsOpen) {
+        setShortcutsOpen(false);
+        return;
+      }
+      if (versionsOpen) {
+        setVersionsOpen(false);
+        return;
+      }
+      if (backlinksOpen) {
+        setBacklinksOpen(false);
+        return;
+      }
+      if (brokenOpen) {
+        setBrokenOpen(false);
+        return;
+      }
+      if (diffOpen) {
+        setDiffOpen(false);
+        return;
+      }
+      if (commentsOpen) return; // 패널이 진행 중 저장·편집 확인을 직접 처리한다.
+      if (trackOpen) return; // 패널이 저장 중 닫기와 확인 취소를 처리한다.
+      if (commentAddTarget !== null) return; // 입력을 버리는 확인은 대화상자가 담당한다.
       if (settingsOpen) setSettingsOpen(false);
     };
     window.addEventListener("keydown", onEsc);
     return () => window.removeEventListener("keydown", onEsc);
-  }, [closeAsk, state.exportKind, styleOpen, printOpen, graphOpen, fmOpen, reviewOpen, statsOpen, settingsOpen, store]);
+  }, [
+    closeAsk,
+    state.exportKind,
+    styleOpen,
+    printOpen,
+    graphOpen,
+    fmOpen,
+    reviewOpen,
+    statsOpen,
+    paletteOpen,
+    templatePicker,
+    wsSearchOpen,
+    tableDialogOpen,
+    symbolOpen,
+    shortcutsOpen,
+    versionsOpen,
+    backlinksOpen,
+    brokenOpen,
+    diffOpen,
+    commentsOpen,
+    trackOpen,
+    commentAddTarget,
+    settingsOpen,
+    store,
+  ]);
 
-  // 오버레이(시트·팔레트·패널·대화상자·이미지 뷰어)가 닫히면 포커스를 에디터로
-  // 복귀 — a11y 규범(대화상자는 이전 위치로)이자 키보드 사용자가 body에서
-  // Tab으로 다시 시작하지 않게 하는 조치. 팔레트→시트처럼 한 이벤트에서
-  // 교체되면 열림 수가 유지돼 발동하지 않는다(기호판 연속 삽입도 안전).
-  const anyOverlay = overlayOpen || state.searchOpen;
-  const hadOverlay = useRef(false);
+  // 검색 바는 모달이 아니므로 기존 편집기 복귀를 유지한다. 모달은 공통
+  // 포커스 관리자가 자신을 열었던 버튼·입력·편집 위치로 복귀시킨다.
+  const hadSearch = useRef(false);
   useEffect(() => {
-    if (hadOverlay.current && !anyOverlay) editorView.current?.focus();
-    hadOverlay.current = anyOverlay;
-  }, [anyOverlay]);
+    if (hadSearch.current && !state.searchOpen && !modalOpen) focusEditor();
+    hadSearch.current = state.searchOpen;
+  }, [state.searchOpen, modalOpen, focusEditor]);
 
   // 위키링크 자동완성 목록 — 트리 기반(워크스페이스 문서들).
   useEffect(() => {
-    setWikiDocsProvider(() => wikiDocsOf(state.tree));
-    setTagListProvider(() => collectWorkspaceTags(state.tree));
+    const candidates = workspaceCompletions(state.tree);
+    setWikiDocsProvider(() => candidates.docs);
+    setTagListProvider(() => candidates.tags);
     return () => {
       setWikiDocsProvider(null);
       setTagListProvider(null);
     };
   }, [state.tree]);
 
-  // 그래프 뷰 — 위키링크 간선 로드(Rust wiki_edges).
+  // 늦은 다른 폴더 응답은 적용하지 않으며 조회 오류를 빈 그래프로 숨기지 않는다.
   useEffect(() => {
-    if (!graphOpen || !store.state.workspace) return;
-    void api
-      .wikiEdges(store.state.workspace)
-      .then((edges) => setWikiLinks(edges))
-      .catch(() => setWikiLinks([]));
-  }, [graphOpen, store.state.workspace]);
+    if (!graphOpen) return;
+    let disposed = false;
+    setDocumentLinks([]); setGraphError(null);
+    const root = store.state.workspace;
+    if (!root) { setGraphLoading(false); return; }
+    const revision = state.linksRevision;
+    const current = () => !disposed && store.state.workspace === root && store.state.linksRevision === revision;
+    setGraphLoading(true);
+    // Coalesce file-event bursts, and let an existing scan finish before starting
+    // the latest request. Superseded queued requests never scan the workspace.
+    const timer = setTimeout(() => {
+      const previous = graphRequest.current;
+      const request = (async () => {
+        await previous;
+        if (!current()) return;
+        try {
+          const edges = await api.documentEdges(root);
+          if (current()) setDocumentLinks(edges);
+        } catch (error) {
+          if (current()) setGraphError(String(error));
+        } finally { if (current()) setGraphLoading(false); }
+      })();
+      graphRequest.current = request;
+      void request.then(() => { if (graphRequest.current === request) graphRequest.current = null; });
+    }, 250);
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [graphOpen, state.workspace, state.linksRevision, graphReload]);
 
   // — CSS 변수로 테마·글꼴 반영 —
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.theme = state.theme;
     root.style.setProperty("--md-font-size", `${state.settings.fontSize}px`);
+    // 줄 폭은 기준 글꼴(15px) 값 — 줌으로 글꼴이 커지면 페이지도 함께
+    // 커진다(Word 줌). 문서별 글꼴이 있는 에디터는 docStyle이 실효 글꼴로
+    // 다시 덮어쓴다.
     root.style.setProperty(
       "--md-line-width",
-      state.settings.lineWidth > 0 ? `${state.settings.lineWidth}px` : "100%",
+      scaledLineWidth(state.settings.lineWidth, state.settings.fontSize),
     );
     // 글꼴 크기가 바뀌면 줄 높이가 변해 CM 추정이 어긋난다 — 재측정.
     editorView.current?.requestMeasure();
   }, [state.theme, state.settings.fontSize, state.settings.lineWidth]);
 
-  // — 앵커 스크롤(링크 클릭) —
-  const scrollToAnchor = useCallback(
-    (id: string) => {
-      const view = editorView.current;
-      if (!view) return;
-      const text = view.state.doc.toString();
-      const target = collectHeadings(text).find((h) => h.slug === id || h.slug.startsWith(id));
-      if (target) {
-        const line = Math.min(
-          view.state.doc.lineAt(target.pos).number,
-          view.state.doc.lines,
-        );
-        smoothScrollIntoView(view, view.state.doc.line(line).from);
-      }
-    },
-    [],
-  );
-
   /** 드롭된 이미지들을 assets/ 로 복사해 커서에 참조 삽입(여러 장 연속). */
   const importDroppedImages = useCallback(
-    async (imgs: string[]) => {
-      const tab = store.active;
-      const dir = tab?.path ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/" : store.state.workspace;
-      if (!tab || !dir) {
-        store.toast(t.imgDropNoDoc, "error");
-        return;
-      }
-      for (const src of imgs) {
-        try {
-          const abs = await api.importImage(src, dir);
-          const rel = relPath(dir, abs);
-          const view = editorView.current;
-          if (!view) return;
-          const sel = view.state.selection.main;
-          view.dispatch({
-            changes: { from: sel.from, to: sel.to, insert: `![](${rel})\n` },
-            selection: { anchor: sel.from + 4 },
-            userEvent: "input.dropImage",
-          });
-        } catch (e) {
-          store.toast(e instanceof Error ? e.message : String(e), "error");
-        }
-      }
-    },
-    [store, t],
+    (imgs: string[]) => store.importImages(editorView.current, imgs),
+    [store],
   );
 
-  // — 전체 검색 결과 열기: 문서를 열고(활성 탭이면 전환만) 커서를 해당 줄에.
-  //    activate()가 뷰 상태를 동기로 갈아끼우므로 then 안에서 즉시 스크롤해도 된다.
+  // — 문서 열기에 성공하고 여전히 최신 탐색일 때만 결과 줄로 이동한다.
   const revealInPath = useCallback(
     (path: string, lineNo: number) => {
-      void store.openPath(path).then(() => {
-        const view = editorView.current;
-        if (!view) return;
-        const line = view.state.doc.line(Math.min(Math.max(lineNo, 1), view.state.doc.lines));
-        view.dispatch({ selection: { anchor: line.from } });
-        smoothScrollIntoView(view, line.from);
-      });
+      void store.openPath(path, undefined, { line: lineNo });
     },
     [store],
   );
@@ -1080,21 +1414,29 @@ export function App(): JSX.Element {
     setLinkClickHandler((url, baseDir) => {
       const target = resolveLink(url, baseDir);
       if (target.kind === "markdown") {
-        void store.openPath(target.path);
+        void store.openPath(target.path, undefined,
+          target.anchor === null ? undefined : { anchor: target.anchor });
       } else if (target.kind === "external" || target.kind === "mail") {
         void import("@tauri-apps/plugin-opener").then((opener) =>
           opener
-            .openUrl(target.kind === "mail" ? target.url : target.url)
+            .openUrl(target.url)
             .catch(() => store.toast(phrases.linkOpenFailed, "error")),
         );
       } else if (target.kind === "anchor") {
-        scrollToAnchor(target.id);
+        store.revealLocation({ anchor: target.id });
       }
     });
     return () => setLinkClickHandler(null);
-  }, [store, scrollToAnchor]);
+  }, [store]);
 
   const activeTab = state.tabs.find((x) => x.id === state.activeId) ?? null;
+
+  useEffect(() => {
+    if (viewer && !viewer.current()) {
+      setViewer(null);
+      store.toast(t.imageViewerChanged, "info");
+    }
+  }, [viewer, state, store, t]);
 
   // 소스 미리보기 토글·모드 전환으로 에디터 폭이 변해도 CM 측정을 맞춘다
   // (깊은 스크롤 위치 점프 방지 — 글꼴 효과와 같은 규칙).
@@ -1106,8 +1448,8 @@ export function App(): JSX.Element {
   );
 
   return (
-    <div className={`app ${state.theme}`}>
-      <div className="app-columns">
+    <div ref={appRoot} className={`app ${state.theme}`}>
+      <div className="app-columns" ref={appColumns}>
         <Sidebar
           store={store}
           tree={state.tree}
@@ -1115,6 +1457,7 @@ export function App(): JSX.Element {
           activePath={activeTab?.path ?? null}
           t={t}
           open={state.sidebarOpen}
+          onModalChange={setSidebarModalOpen}
         />
         <main className="app-main">
           <TabBar
@@ -1134,11 +1477,27 @@ export function App(): JSX.Element {
           onLock={(tab) => store.setLocked(tab.id, !store.lockedTabIds.has(tab.id))}
         />
           <Toolbar store={store} t={t} onInsertTable={() => setTableDialogOpen(true)} />
+          {state.settingsError && (
+            <div className="settings-save-status" role="alert">
+              <span>{t.settingsSaveFailed}: {state.settingsError}</span>
+              <button className="btn" disabled={state.settingsSaving}
+                onClick={() => void store.flushSettings().catch(() => {})}>
+                {state.settingsSaving ? t.settingsSaving : t.wsRetry}
+              </button>
+            </div>
+          )}
           <SearchPanel store={store} view={editorView.current} t={t} open={state.searchOpen} />
           <div className={`edit-split ${pinnedTabId ? "has-ref" : ""}`}>
           <div
+            id="active-document-panel"
+            role="tabpanel"
+            aria-labelledby={activeTab ? documentTabId(activeTab.id) : undefined}
             className={`editor-area ${activeTab?.mode === "read" ? "read-mode" : ""} ${
               activeTab?.mode === "source" ? "source-mode" : ""
+            } ${
+              // 페이지 보기 — 줄 폭 고정(>0)인 편집 모드: 읽기 모드와 같은
+              // 종이 카드 규칙(회색 여백·중앙 페이지). 0이면 전체 폭 캔버스.
+              activeTab?.mode === "edit" && state.settings.lineWidth > 0 ? "page-view" : ""
             }`}
           >
             <MiniToolbar store={store} t={t} />
@@ -1154,6 +1513,7 @@ export function App(): JSX.Element {
                 store={store}
                 t={t}
                 lang={lang}
+                onOpenTemplates={(initialId) => setTemplatePicker({ initialId })}
                 onOpenFile={() => void pickOpenFile().then((p) => { if (p) void store.openPath(p); })}
                 onOpenFolder={() => void pickOpenFolder().then((d) => { if (d) void store.openWorkspace(d); })}
               />
@@ -1169,7 +1529,7 @@ export function App(): JSX.Element {
       </div>
 
       {/* 오버레이 */}
-      {state.busy && (
+      {state.busy && !exportRunning.current && (
         <div className="overlay" role="status" aria-live="polite">
           <div className="overlay-card">
             <div className="spinner" aria-hidden="true" />
@@ -1177,12 +1537,49 @@ export function App(): JSX.Element {
           </div>
         </div>
       )}
-      {closeAsk && <CloseConfirm store={store} t={t} onDone={(p) => closeAsk(p)} />}
-      {conflictTab && !closeAsk && <ConflictDialog store={store} tab={conflictTab} t={t} />}
+      {closeAsk && <CloseConfirm store={store} t={t} targetIds={closeTargets} requestKey={closeAsk} onDone={(p) => closeAsk(p)}
+        onDiscard={quitRound === null ? undefined : (ids) => {
+          if (quitRoundRef.current === quitRound) {
+            for (const id of ids) quitDiscardedIds.current.add(id);
+          } else {
+            store.restoreDiscardedDocuments(ids);
+          }
+        }}
+      />}
+      {quitWaiting && quitRound !== null && (
+        <div className="overlay modal-overlay" role="dialog" aria-modal="true" aria-labelledby="quit-wait-title"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              void api.quitReply(quitRound, false).catch((e) => store.toast(String(e), "error"));
+            }
+          }}>
+          <div className="modal">
+            <p id="quit-wait-title" className="modal-text">{t.quitWaiting}</p>
+            <div className="modal-actions">
+              <button className="btn" autoFocus onClick={() => {
+                void api.quitReply(quitRound, false).catch((e) => store.toast(String(e), "error"));
+              }}>{t.cancel}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {conflictTab && !sidebarModalOpen && !templatePicker && !state.exportKind && !printOpen && !closeAsk && quitRound === null && <ConflictDialog store={store} tab={conflictTab} t={t} />}
       {state.exportKind && (
         <ExportSheet
+          key={state.exportKind}
           kind={state.exportKind}
           t={t}
+          capture={() => {
+            const tab = store.active;
+            return tab ? captureExportSnapshot({ ...tab, state: store.view?.state ?? tab.state }, {
+              workspace: store.state.workspace, theme: store.state.theme,
+              pageNumbers: store.state.settings.exportPageNumbers, header: store.state.settings.exportHeader,
+              wikiIndex: store.wikiIndex, lang,
+            }, state.exportKind === "docx") : null;
+          }}
+          onReveal={isInApp() ? (path) => api.revealInFinder(path) : undefined}
           pageNumbers={state.settings.exportPageNumbers}
           onTogglePageNumbers={setExportPageNumbers}
           pdfHeader={state.settings.exportHeader}
@@ -1193,10 +1590,7 @@ export function App(): JSX.Element {
             margin: state.settings.exportMarginMm,
             scale: state.settings.exportScale,
           }}
-          onRun={(kind, opts) => {
-            store.setExportKind(null);
-            void runExport(kind, opts);
-          }}
+          onRun={runExport}
           onCancel={() => store.setExportKind(null)}
         />
       )}
@@ -1207,11 +1601,22 @@ export function App(): JSX.Element {
         t={t}
       />
       {styleOpen && <StylePanel store={store} onClose={() => setStyleOpen(false)} t={t} />}
+      {templatePicker && <TemplatePicker t={t} theme={state.theme} initialId={templatePicker.initialId}
+        captureDocument={activeTab ? () => {
+          const tab = store.active;
+          if (!tab) return null;
+          const doc = store.view?.state.doc ?? tab.state.doc;
+          if (doc.length > 512 * 1024) throw { code: "tooLarge" };
+          return { name: tab.title || t.untitled, content: doc.toString() };
+        } : undefined}
+        onCreate={(content) => store.newTabWithContent(content)} onClose={() => setTemplatePicker(null)} />}
       {paletteOpen && (
         <CommandPalette
           store={store}
           t={t}
+          onCloseDocument={() => { const tab = store.active; if (tab) void closeTabWithConfirm(tab); }}
           onClose={() => setPaletteOpen(false)}
+          onOpenRenameHeading={() => { setPaletteOpen(false); void openRenameHeadingFlow(); }}
           onOpenShortcuts={() => setShortcutsOpen(true)}
           onOpenStats={() => setStatsOpen(true)}
           onOpenSymbols={() => setSymbolOpen(true)}
@@ -1221,21 +1626,25 @@ export function App(): JSX.Element {
           onOpenExport={(kind) => store.setExportKind(kind)}
           onOpenDiff={() => setDiffOpen(true)}
           onOpenGraph={() => setGraphOpen(true)}
-          onNewFromTemplate={(content) => {
-            store.setExportKind(null);
-            store.newTabWithContent(content);
+          onOpenTemplates={(initialId) => {
+            setPaletteOpen(false);
+            setTemplatePicker({ initialId });
           }}
           onOpenWsSearch={() => setWsSearchOpen(true)}
           onOpenVersions={() => setVersionsOpen(true)}
           onOpenBacklinks={() => setBacklinksOpen(true)}
           onOpenBrokenLinks={() => setBrokenOpen(true)}
           onOpenComments={() => setCommentsOpen(true)}
+          onOpenTrack={(action) => { setTrackAction(action); setTrackOpen(true); }}
           onOpenReview={() => setReviewOpen(true)}
           onOpenFrontMatter={() => setFmOpen(true)}
           onAddComment={() => {
             // 커서 줄에 메모 추가(우클릭 메뉴와 같은 대화상자).
             const v = editorView.current;
-            setCommentAddLine(v ? v.state.doc.lineAt(v.state.selection.main.head).number : 1);
+            const tab = store.active;
+            if (!v || !tab?.path) { store.toast(t.commentSaveDocument, "error"); return; }
+            setCommentAddTarget({ id: tab.id, path: tab.path, title: tab.title,
+              lineNo: v.state.doc.lineAt(v.state.selection.main.head).number, doc: v.state.doc });
           }}
         />
       )}
@@ -1243,7 +1652,10 @@ export function App(): JSX.Element {
         <GraphView
           store={store}
           t={t}
-          wikiLinks={wikiLinks}
+          links={documentLinks}
+          loading={graphLoading}
+          error={graphError}
+          onRetry={() => setGraphReload((n) => n + 1)}
           onClose={() => setGraphOpen(false)}
           onOpen={(path) => {
             setGraphOpen(false);
@@ -1265,14 +1677,6 @@ export function App(): JSX.Element {
           store={store}
           t={t}
           onClose={() => setBrokenOpen(false)}
-          onCreate={(name) => {
-            const root = store.state.workspace;
-            if (!root) return;
-            setBrokenOpen(false); // 생성 후 패널 닫기 — 목록이 스테일해진다
-            void store.createNote(`${root}/${name}.md`).then((ok) => {
-              if (ok) store.toast(t.brokenCreated);
-            });
-          }}
           onGoto={(from) => {
             const view = editorView.current;
             if (!view) return;
@@ -1294,12 +1698,8 @@ export function App(): JSX.Element {
           store={store}
           t={t}
           onClose={() => setVersionsOpen(false)}
-          onRestore={(text) => {
+          onRestored={() => {
             setVersionsOpen(false);
-            const view = editorView.current;
-            if (!view || !store.active) return;
-            replaceDoc(view, text);
-            view.dispatch({ selection: { anchor: 0 } });
             store.toast(t.versionsRestored);
           }}
         />
@@ -1307,45 +1707,83 @@ export function App(): JSX.Element {
       {shortcutsOpen && <ShortcutsPanel t={t} onClose={() => setShortcutsOpen(false)} />}
       {statsOpen && <StatsPanel store={store} t={t} onClose={() => setStatsOpen(false)} />}
       {commentsOpen && <CommentsPanel store={store} t={t} onClose={() => setCommentsOpen(false)} />}
-      {commentAddLine !== null && (
+      {commentAddTarget !== null && (
         <CommentDialog
           t={t}
-          lineNo={commentAddLine}
-          onCancel={() => setCommentAddLine(null)}
-          onConfirm={(text) => {
-            const line = commentAddLine;
-            setCommentAddLine(null);
-            void store.addComment(line, text);
+          title={commentAddTarget.title}
+          lineNo={commentAddTarget.lineNo}
+          onCancel={() => setCommentAddTarget(null)}
+          onConfirm={async (text) => {
+            await store.addComment(commentAddTarget, commentAddTarget.lineNo, text, commentAddTarget.doc);
+            setCommentAddTarget(null);
+          }}
+        />
+      )}
+      {headingRename !== null && (
+        <RenameHeadingDialog
+          initialTitle={headingRename.title}
+          linkCount={headingRename.linkCount}
+          t={t}
+          onCancel={() => setHeadingRename(null)}
+          onConfirm={async ({ title, updateLinks }) => {
+            const session = headingRename;
+            setHeadingRename(null);
+            const view = store.view;
+            if (!view || !session || session.to > view.state.doc.length) return;
+            // ① 현재 문서 — 제목 줄 교체 뒤 링크 재조준(한 트랜잭션).
+            const oldText = view.state.doc.toString();
+            const newLine = rewrittenHeadingLine(oldText.slice(session.from, session.to), title);
+            const step1 = oldText.slice(0, session.from) + newLine + oldText.slice(session.to);
+            const insert = updateLinks
+              ? retargetHeadingLinks(step1, session.stem, session.title, title) ?? step1
+              : step1;
+            view.dispatch({
+              changes: { from: 0, to: view.state.doc.length, insert },
+              userEvent: "input.renameHeading",
+            });
+            // ② 다른 파일의 링크 — 디스크에서 읽어 기대값 맞춰 갱신(상한 200).
+            if (!updateLinks || !session.path) return;
+            let updated = 0;
+            const walkFiles = async (nodes: TreeNode[]): Promise<string[]> => {
+              const out: string[] = [];
+              for (const n of nodes) {
+                if (n.kind === "dir") out.push(...await walkFiles(n.children ?? []));
+                else out.push(n.path);
+              }
+              return out;
+            };
+            for (const p of await walkFiles(store.state.tree)) {
+              if (p === session.path || updated >= 200) continue;
+              let doc;
+              try { doc = await api.readDocument(p); } catch { continue; }
+              const next = retargetHeadingLinks(doc.text, session.stem, session.title, title);
+              if (next === null) continue;
+              try {
+                await api.writeDocument(p, next, doc.meta,
+                  { kind: "match", text: doc.text, meta: doc.meta });
+                updated++;
+              } catch { /* 경합 — 다음 실행에서 다시 */ }
+            }
+            if (updated > 0) void store.refreshTree();
+            store.toast(t.f.renameHeadingLinks(updateLinks ? session.linkCount : 0));
           }}
         />
       )}
       {fmOpen && <FrontMatterDialog store={store} t={t} onClose={() => setFmOpen(false)} />}
-      {trackOpen && <TrackPanel store={store} t={t} onClose={() => setTrackOpen(false)} />}
-      {imgEditPos !== null && (() => {
-        const view = editorView.current;
-        const img = view ? findImageAt(view.state, imgEditPos) : null;
-        if (!img) return null;
-        return (
+      {trackOpen && <TrackPanel store={store} t={t} initialAction={trackAction} onClose={() => { setTrackOpen(false); setTrackAction(null); }} />}
+      {imageEdit !== null && (
           <LinkDialog
             kind="image"
-            initial={{ text: img.alt, url: img.url, from: img.from, to: img.to }}
+            initial={imageEdit.initial}
             t={t}
-            onCancel={() => setImgEditPos(null)}
+            onCancel={() => setImageEdit(null)}
             onConfirm={(next) => {
-              const v = editorView.current;
-              setImgEditPos(null);
-              if (!v) return;
-              v.dispatch({
-                changes: { from: img.from, to: img.to, insert: `![${next.text}](${next.url})` },
-                selection: { anchor: img.from + next.text.length + 4 },
-                userEvent: "input.editImage",
-              });
-              v.focus();
+              if (!imageEdit.apply(next)) throw new Error(t.linkTargetChanged);
+              setImageEdit(null);
               store.toast(t.imageEdited);
             }}
           />
-        );
-      })()}
+      )}
       {reviewOpen && (
         <ReviewPanel
           store={store}
@@ -1362,73 +1800,57 @@ export function App(): JSX.Element {
       {symbolOpen && (
         <SymbolPanel
           t={t}
+          store={store}
           onClose={() => setSymbolOpen(false)}
-          onInsert={(ch) => {
-            const view = editorView.current;
-            if (!view) return;
-            const sel = view.state.selection.main;
-            view.dispatch({
-              changes: { from: sel.from, to: sel.to, insert: ch },
-              selection: { anchor: sel.from + ch.length },
-              userEvent: "input.type",
-            });
-            view.focus(); // 연속 삽입 — 패널은 유지(Word 기호 워크플로)
-          }}
         />
       )}
       {printOpen && (
         <PrintPreview
           store={store}
           t={t}
+          onReveal={isInApp() ? (path) => api.revealInFinder(path) : undefined}
           saved={{
             paper: state.settings.exportPaper,
+            landscape: state.settings.exportLandscape,
             margin: state.settings.exportMarginMm,
             scale: state.settings.exportScale,
           }}
-          onExport={(kind, opts) => {
-            setPrintOpen(false);
-            void runExport(kind, opts);
-          }}
+          onExport={runExport}
           onCancel={() => setPrintOpen(false)}
         />
       )}
-      <ContextMenu store={store} t={t} />
+      <ContextMenu store={store} t={t} onModalChange={setContextModalOpen} />
       {diffOpen && <DiffPanel store={store} t={t} onClose={() => setDiffOpen(false)} />}
       {viewer && (
         <ImageViewer
-          src={viewer.src}
-          alt={viewer.alt}
+          src={viewer.images[viewer.index].src}
+          alt={viewer.images[viewer.index].alt}
+          occurrence={viewer.images[viewer.index].from}
           t={t}
           onClose={() => setViewer(null)}
-          index={viewerIndex}
-          total={viewerTotal}
+          index={viewer.index}
+          total={viewer.images.length}
           onNav={(dir) => {
-            // 문서의 ![..](src) 위치 목록 — 현재 src 위치에서 이전/다음(순환).
-            const v = editorView.current;
-            if (!v) return;
-            const doc = v.state.doc.toString();
-            const positions: Array<{ src: string; at: number }> = [];
-            for (const m of doc.matchAll(/!\[[^\]]*\]\(([^)\s]+)[^)]*\)/g)) {
-              positions.push({ src: m[1]!, at: m.index ?? 0 });
-            }
-            if (positions.length === 0) return;
-            const cur = positions.findIndex((p) => p.src === viewer.src);
-            const next = positions[(cur + dir + positions.length) % positions.length] ?? positions[0]!;
-            setViewer({ src: next.src, alt: "" });
-            setViewerIndex(positions.indexOf(next));
-            setViewerTotal(positions.length);
-          }}
-          onEditAlt={() => {
-            // 문서에서 이 src의 첫 등장 위치를 찾아 편집 대화상자로.
-            const v = editorView.current;
-            if (!v) return;
-            const doc = v.state.doc.toString();
-            const needle = `](${viewer.src}`;
-            const at = doc.indexOf(needle);
-            if (at >= 0) {
+            if (!viewer.current()) {
               setViewer(null);
-              setImgEditPos(at);
+              store.toast(t.imageViewerChanged, "info");
+              return;
             }
+            setViewer((current) => current && ({ ...current,
+              index: (current.index + dir + current.images.length) % current.images.length,
+            }));
+          }}
+          onEditAlt={viewer.view.state.readOnly ? undefined : () => {
+            if (!viewer.current()) {
+              setViewer(null);
+              store.toast(t.imageViewerChanged, "info");
+              return;
+            }
+            const image = viewer.images[viewer.index];
+            const target = captureInlineLinkEdit(viewer.view, image.from, image.to);
+            if (!target) { store.toast(t.linkTargetChanged, "error"); return; }
+            setImageEdit(target);
+            setViewer(null);
           }}
         />
       )}
@@ -1455,38 +1877,6 @@ export function App(): JSX.Element {
   );
 }
 
-/** 탭의 문서 스타일 → 내보내기 옵션(라이브 프리뷰와 동일 값). */
-function exportStyleOf(tab: {
-  docStyle: {
-    font: "system" | "serif" | "round" | "mono";
-    fontSize: number;
-    lineHeight: number;
-    firstLineIndent: boolean;
-    textAlign: "left" | "center" | "right" | "justify";
-    accent: string | null;
-    highlightColor: string | null;
-  } | null;
-}): {
-  font: "system" | "serif" | "round" | "mono";
-  sizePt: number;
-  lineHeight: number;
-  firstLineIndent: boolean;
-  textAlign: "left" | "center" | "right" | "justify";
-  accent: string | null;
-  highlightColor: string | null;
-} {
-  const ds = tab.docStyle;
-  return {
-    font: ds?.font ?? "system",
-    sizePt: ds && ds.fontSize > 0 ? ds.fontSize : 11,
-    lineHeight: ds?.lineHeight ?? 0,
-    firstLineIndent: ds?.firstLineIndent ?? false,
-    textAlign: ds?.textAlign ?? "left",
-    accent: ds?.accent ?? null,
-    highlightColor: ds?.highlightColor ?? null,
-  };
-}
-
 function zoomBy(store: AppStore, dir: 1 | -1): void {
   const next = Math.min(28, Math.max(9, Math.round(store.state.settings.fontSize + dir)));
   updateSettings(store, { fontSize: next });
@@ -1494,60 +1884,9 @@ function zoomBy(store: AppStore, dir: 1 | -1): void {
 
 function updateSettings(
   store: AppStore,
-  patch: Partial<Parameters<typeof api.setSettings>[0]>,
+  patch: Parameters<typeof api.patchSettings>[0],
 ): void {
-  const next = { ...store.state.settings, ...patch };
-  store.setSettings(next);
-  if (isInApp()) void api.setSettings(next).catch(() => {});
-}
-
-/** 트리 → 자동완성 문서 목록(이름 충돌 시 상대경로 포함). */
-function wikiDocsOf(tree: import("./api").TreeNode[]): WikiDoc[] {
-  const out: WikiDoc[] = [];
-  const seen = new Map<string, number>();
-  const walk = (nodes: import("./api").TreeNode[], prefix: string): void => {
-    for (const n of nodes) {
-      if (n.kind === "dir") {
-        walk(n.children ?? [], prefix ? `${prefix}/${n.name}` : n.name);
-      } else if (n.kind === "file") {
-        const stem = n.stem ?? n.name;
-        const count = (seen.get(stem) ?? 0) + 1;
-        seen.set(stem, count);
-        out.push({ name: stem, path: n.path });
-      }
-    }
-  };
-  walk(tree, "");
-  // 동일 stem이 여러 개면 상대경로를 이름에 포함해 구분 표시(표시 전용).
-  for (const d of out) {
-    if ((seen.get(d.name) ?? 0) > 1) {
-      const rel = d.path.split("/").slice(-3, -1).join("/");
-      if (rel) d.name = `${d.name} (${rel})`;
-    }
-  }
-  return out;
-}
-
-/** 워크스페이스 트리에서 태그 후보 수집(폴더 이름 → 태그). */
-let wsTagCache: string[] | null = null;
-let wsTagCacheKey = '';
-
-function collectWorkspaceTags(tree: import('./api').TreeNode[]): string[] {
-  const key = JSON.stringify(tree.map((n) => n.path));
-  if (key === wsTagCacheKey && wsTagCache) return wsTagCache;
-  wsTagCacheKey = key;
-  const tags = new Set<string>();
-  const walk = (nodes: import('./api').TreeNode[]): void => {
-    for (const n of nodes) {
-      if (n.kind === 'dir') {
-        tags.add(n.name);
-        walk(n.children ?? []);
-      }
-    }
-  };
-  walk(tree);
-  wsTagCache = [...tags].sort();
-  return wsTagCache;
+  store.persistSettings(patch);
 }
 
 function detectBrowserLang(): Lang {

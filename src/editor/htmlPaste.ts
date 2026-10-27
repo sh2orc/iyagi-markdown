@@ -68,9 +68,12 @@ function blocks(parent: Node, depth: number): string {
       case "hr":
         out.push("---");
         break;
-      case "img":
-        out.push(`![${child.getAttribute("alt") ?? ""}](${child.getAttribute("src") ?? ""})`);
+      case "img": {
+        const src = child.getAttribute("src") ?? "";
+        const enc = src.replace(/[ ()]/g, (c) => (c === " " ? "%20" : c === "(" ? "%28" : "%29"));
+        out.push(`![${child.getAttribute("alt") ?? ""}](${enc})`);
         break;
+      }
       default: {
         // span/section/article 등 — 블록으로 재귀해 문맥 유지.
         const text = inline(child).trim();
@@ -142,12 +145,18 @@ function inline(node: Node): string {
         break;
       case "a": {
         const href = child.getAttribute("href") ?? "";
-        out += href ? `[${inner || href}](${href})` : inner;
+        // CommonMark 목적지엔 공백을 못 쓴다 — wiki.ts와 같은 퍼센트 인코딩
+        // (Word·브라우저 클립보드의 "my file.html" 같은 URL이 깨지지 않게).
+        const enc = href.replace(/[ ()]/g, (c) => (c === " " ? "%20" : c === "(" ? "%28" : "%29"));
+        out += href ? `[${inner || href}](${enc})` : inner;
         break;
       }
-      case "img":
-        out += `![${child.getAttribute("alt") ?? ""}](${child.getAttribute("src") ?? ""})`;
+      case "img": {
+        const src = child.getAttribute("src") ?? "";
+        const enc = src.replace(/[ ()]/g, (c) => (c === " " ? "%20" : c === "(" ? "%28" : "%29"));
+        out += `![${child.getAttribute("alt") ?? ""}](${enc})`;
         break;
+      }
       case "br":
         out += "\n";
         break;

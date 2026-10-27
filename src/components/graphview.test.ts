@@ -51,3 +51,45 @@ describe("zoomAt (그래프 줌 — 순수)", () => {
     expect(zoomAt(0.5, 0, 0, 0, 0, 0.5).k).toBe(0.4);
   });
 });
+
+import { buildGraph, layout } from "./GraphView";
+import { AppStore, type StoreIO } from "../app/store";
+
+describe("그래프의 문서 경로", () => {
+  it("해석된 대상만 연결하고 중복·자기 참조·트리 밖 끝점을 제외한다", () => {
+    const io: StoreIO = {
+      readDocument: async () => ({ text: "", meta: { hadBom: false, crlf: false }, mtime: 1, size: 0 }),
+      writeDocument: async () => ({ mtime: 1, size: 0 }), scanWorkspace: async () => ({ tree: [], issues: [] }),
+      saveSession: async () => {}, setAssetScope: async () => {}, watchPaths: async () => {},
+    };
+    const store = new AppStore(io);
+    store.state.tree = ["a", "b"].map((dir) => ({ kind: "dir" as const, name: dir, path: `/w/${dir}`, children: [
+      { kind: "file" as const, name: "note.md", stem: "note", path: `/w/${dir}/note.md` },
+      { kind: "file" as const, name: "ref.md", stem: "ref", path: `/w/${dir}/ref.md` },
+    ] }));
+    const graph = buildGraph(store, [
+      { from: "/w/b/ref.md", to: "/w/b/note.md" },
+      { from: "/w/b/ref.md", to: "/w/b/note.md" },
+      { from: "/w/a/ref.md", to: "/w/b/note.md" },
+      { from: "/w/a/ref.md", to: "note" }, // An unresolved name is never reinterpreted.
+      { from: "/w/a/ref.md", to: "/w/a/ref.md" },
+      { from: "/outside/ref.md", to: "/w/b/note.md" },
+      { from: "/w/a/ref.md", to: "/outside/note.md" },
+    ]);
+    expect(graph.edges).toEqual([
+      { from: "/w/b/ref.md", to: "/w/b/note.md" },
+      { from: "/w/a/ref.md", to: "/w/b/note.md" },
+    ]);
+    expect(graph.nodes.find((node) => node.id === "/w/a/note.md")?.degree).toBe(0);
+    expect(graph.nodes.find((node) => node.id === "/w/b/note.md")?.degree).toBe(2);
+  });
+
+  it("큰 그래프에서는 문서를 생략하지 않고 원형 좌표를 유지한다", () => {
+    const nodes = Array.from({ length: 251 }, (_, i) => ({
+      id: `/w/${i}.md`, name: `${i}`, degree: 0, x: i, y: i + 1, vx: 0, vy: 0,
+    }));
+    const before = nodes.map((node) => ({ ...node }));
+    layout(nodes, [{ from: nodes[0].id, to: nodes[1].id }]);
+    expect(nodes).toEqual(before);
+  });
+});

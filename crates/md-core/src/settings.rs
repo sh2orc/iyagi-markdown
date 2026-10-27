@@ -95,6 +95,17 @@ pub struct Settings {
     pub search_word: bool,
     #[serde(default)]
     pub search_query: String,
+    /// 스마트 문장부호(따옴표·대시·말줄임 자동 교정) — 프런트 기본 켬.
+    /// 이 키가 구조체에 없으면 set_settings가 serde로 무시해 버려
+    /// 끄기가 저장되지 않고 재시작마다 켜진 채로 돌아왔다.
+    #[serde(default = "default_true")]
+    pub smart_punctuation: bool,
+    /// 서식 기호 보기(Word ¶ — 공백·탭 표시).
+    #[serde(default)]
+    pub formatting_marks: bool,
+    /// 긴 문장 표시(검수 하이라이트).
+    #[serde(default)]
+    pub long_sentence_marks: bool,
     /// 마지막 내보내기 옵션(재시작에도 유지 — Word 인쇄 설정 기억).
     #[serde(default = "default_paper")]
     pub export_paper: String,
@@ -150,6 +161,23 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// 현재 저장값에 변경한 키만 병합한다. IPC 오타·null·잘못된 형식을
+    /// 조용히 기본값으로 바꾸지 않고 전체 패치를 거절한다.
+    pub fn patched(&self, patch: &serde_json::Value) -> Result<Self, String> {
+        let patch = patch
+            .as_object()
+            .ok_or("Settings patch must be an object")?;
+        let mut value = serde_json::to_value(self).map_err(|error| error.to_string())?;
+        let object = value.as_object_mut().ok_or("Invalid settings object")?;
+        for (key, field) in patch {
+            if !object.contains_key(key) || field.is_null() {
+                return Err(format!("Invalid settings field: {key}"));
+            }
+            object.insert(key.clone(), field.clone());
+        }
+        serde_json::from_value(value).map_err(|error| error.to_string())
+    }
+
     /// 파일에서 로드. 없거나 일부만 있으면 기본값 병합. 손상된 경우에도 앱은
     /// 떠야 한다 — 기본값으로 대체하고 오류 문자열을 반환해 로그로 남긴다.
     pub fn load(path: &Path) -> (Settings, Option<String>) {
@@ -173,14 +201,13 @@ impl Settings {
     }
 
     /// 원자적 저장(md-core::io 참조).
-    pub fn save(&self, path: &Path) -> Result<(), std::io::Error> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(self).unwrap_or_default())?;
-        std::fs::rename(&tmp, path)?;
-        Ok(())
+    pub fn save(&self, path: &Path) -> Result<(), crate::io::DocError> {
+        let bytes =
+            serde_json::to_vec_pretty(self).map_err(|source| crate::io::DocError::Write {
+                path: path.into(),
+                source: std::io::Error::new(std::io::ErrorKind::InvalidData, source),
+            })?;
+        crate::io::write_bytes_atomic(path, &bytes)
     }
 }
 
@@ -213,6 +240,57 @@ mod tests {
     }
 
     #[test]
+    fn independent_window_patches_preserve_each_other() {
+        let first = Settings::default()
+            .patched(&serde_json::json!({"theme": "dark"}))
+            .unwrap();
+        let second = first.patched(&serde_json::json!({"fontSize": 19})).unwrap();
+        assert_eq!(second.theme, ThemeSetting::Dark);
+        assert_eq!(second.font_size, 19.0);
+        assert_eq!(second.search_query, "");
+        assert_eq!(second.patched(&serde_json::json!({})).unwrap(), second);
+    }
+
+    #[test]
+    fn malformed_patches_do_not_reset_or_partially_change_settings() {
+        let settings = Settings {
+            font_size: 20.0,
+            ..Settings::default()
+        };
+        for patch in [
+            serde_json::json!({"theme": "dark", "fontSzie": 18}),
+            serde_json::json!({"theme": null}),
+            serde_json::json!({"fontSize": "large"}),
+            serde_json::json!({"theme": "invalid"}),
+            serde_json::json!({"ttsRate": -1}),
+            serde_json::json!([]),
+        ] {
+            assert!(settings.patched(&patch).is_err());
+        }
+        assert_eq!(settings.font_size, 20.0);
+        assert_eq!(settings.theme, ThemeSetting::Auto);
+    }
+
+    #[test]
+    fn atomic_save_does_not_reuse_a_previous_fixed_temporary_file() {
+        let path = tp("unique-temp");
+        let old_tmp = path.with_extension("json.tmp");
+        std::fs::write(&old_tmp, "unrelated previous temporary file").unwrap();
+        let settings = Settings {
+            font_size: 21.0,
+            ..Settings::default()
+        };
+        settings.save(&path).unwrap();
+        assert_eq!(Settings::load(&path).0, settings);
+        assert_eq!(
+            std::fs::read_to_string(&old_tmp).unwrap(),
+            "unrelated previous temporary file"
+        );
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(old_tmp);
+    }
+
+    #[test]
     fn partial_json_merges_defaults() {
         let p = tp("partial");
         std::fs::write(&p, r#"{"fontSize":17.5,"theme":"dark"}"#).unwrap();
@@ -231,6 +309,30 @@ mod tests {
         let (s, err) = Settings::load(&p);
         assert_eq!(s, Settings::default());
         assert!(err.is_some());
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn new_toggles_persist_roundtrip() {
+        // 프런트가 저장하지만 구조체에 없으면 serde가 조용히 버린다 —
+        // 스마트 문장부표 끄기·서식 기호/긴 문장 표시 켜기가 재시작에 살아남는지.
+        let p = tp("toggles");
+        let s = Settings {
+            smart_punctuation: false,
+            formatting_marks: true,
+            long_sentence_marks: true,
+            ..Settings::default()
+        };
+        s.save(&p).unwrap();
+        let raw = std::fs::read_to_string(&p).unwrap();
+        assert!(raw.contains("\"smartPunctuation\": false"));
+        assert!(raw.contains("\"formattingMarks\": true"));
+        assert!(raw.contains("\"longSentenceMarks\": true"));
+        let (s2, err) = Settings::load(&p);
+        assert!(err.is_none());
+        assert!(!s2.smart_punctuation);
+        assert!(s2.formatting_marks);
+        assert!(s2.long_sentence_marks);
         let _ = std::fs::remove_file(&p);
     }
 

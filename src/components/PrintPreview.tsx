@@ -1,206 +1,127 @@
-// 인쇄 미리보기(⌘P) — 내보내기 파이프라인(§4-4)으로 만든 자체 완결형 HTML을
-// 모달 안에 렌더한다. 저장은 기존 PDF 내보내기 버튼으로.
-
-import { useEffect, useState } from "react";
-
+// Print uses the same immutable document snapshot and options as PDF export.
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "../api";
-import { resolveWikiLink } from "../editor/wiki";
 import type { AppStore } from "../app/store";
-import { frontMatterMeta } from "../editor/frontmatter";
-
-const printFrame = { current: null as HTMLIFrameElement | null };
-const lastScroll = { current: 0 };
-
-/** 문서별 미리보기 본문 캐시(인쇄 슬라이더가 껍데기만 다시 조립하게). */
-export const previewBodyCache = new Map<string, string>();
 import type { Translate } from "../i18n";
-import type { PdfOptions } from "./ExportSheet";
+import { captureExportSnapshot, type ExportSnapshot } from "../export/snapshot";
+import { createPreviewRenderer, paperDimensions, snapshotHtmlOptions, type PdfOptions } from "../export/preview";
+import { imeComposing } from "../app/ime";
+import { connectPrintFrame } from "../export/printFrame";
+import type { ExportResult } from "../export/result";
+import { useExportTask } from "./useExportTask";
+import { ExportFeedback } from "./ExportFeedback";
 
 interface Props {
   store: AppStore;
   t: Translate;
-  onExport: (kind: "pdf", opts: PdfOptions) => void;
+  onExport: (kind: "pdf", opts: PdfOptions, snapshot: ExportSnapshot, html: string) => Promise<ExportResult>;
+  onReveal?: (path: string) => Promise<void>;
   onCancel: () => void;
-  /** 마지막 내보내기 옵션(설정에서 복원). */
-  saved?: { paper: "a4" | "letter" | "a5"; margin: number; scale: number };
+  saved?: { paper: "a4" | "letter" | "a5"; landscape?: boolean; margin: number; scale: number };
 }
+const readBytes = async (path: string): Promise<Uint8Array | null> => {
+  try { return new Uint8Array(await api.readFileBytes(path)); } catch { return null; }
+};
 
-export function PrintPreview({
-  store,
-  t,
-  onExport,
-  onCancel,
-  saved,
-}: Props): JSX.Element | null {
+export function PrintPreview({ store, t, onExport, onReveal, onCancel, saved }: Props): JSX.Element | null {
+  const task = useExportTask();
+  const cancel = () => { if (!task.isRunning()) onCancel(); };
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const tab = store.active;
-  const [html, setHtml] = useState<string | null>(null);
-  const [paper, setPaper] = useState<"a4" | "letter" | "a5">(saved?.paper ?? "a4");
-  const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait");
+  const [paper, setPaper] = useState<PdfOptions["paper"]>(saved?.paper ?? "a4");
+  const [orientation, setOrientation] = useState<PdfOptions["orientation"]>(saved?.landscape ? "landscape" : "portrait");
   const [margin, setMargin] = useState(saved?.margin ?? 14);
   const [scale, setScale] = useState(saved?.scale ?? 1);
-  // 옵션(용지·여백·배율) 바뀌면 재렌더 — 연속 조절에 프레임을 태우지
-  // 않게 디바운스.
-  const [renderKey, setRenderKey] = useState(0);
-  useEffect(() => {
-    const id = setTimeout(() => setRenderKey((k) => k + 1), 300);
-    return () => clearTimeout(id);
-  }, [paper, margin, scale]);
+  const [retry, setRetry] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [printError, setPrintError] = useState(false);
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const frameCleanup = useRef<(() => void) | null>(null);
+  const scroll = useRef(0);
+  const renderer = useRef<ReturnType<typeof createPreviewRenderer> | null>(null);
+  if (!renderer.current) renderer.current = createPreviewRenderer();
+  const snapshot = useMemo(() => tab ? captureExportSnapshot(tab, {
+    workspace: state.workspace, theme: "light", pageNumbers: state.settings.exportPageNumbers,
+    header: state.settings.exportHeader, wikiIndex: store.wikiIndex, lang: t.lang,
+  }) : null, [tab, tab?.state.doc, tab?.path, tab?.title, tab?.docStyle, state.workspace,
+    state.settings.exportPageNumbers, state.settings.exportHeader, store.wikiIndex, state.linksRevision, t.lang]);
+  const options = useMemo(() => ({ paper, orientation, marginMm: margin, scale }), [paper, orientation, margin, scale]);
+  const request = useMemo(() => ({ snapshot, options, retry }), [snapshot, options, retry]);
+  const currentRequest = useRef(request);
+  currentRequest.current = request;
+  const [result, setResult] = useState<{ request: typeof request; html: string; version: number } | null>(null);
+  const [loaded, setLoaded] = useState<typeof request | null>(null);
+  const ready = !!snapshot && !error && result?.request === request && loaded === request;
 
   useEffect(() => {
-    if (!tab) return;
     let alive = true;
-    const text = tab.state.doc.toString();
-    const name = tab.path ? tab.title.replace(/\.(md|markdown)$/i, "") : "untitled";
-    void (async () => {
-      // markdown-it은 여기서만 필요 — 동적 로드로 메인 청크를 가볍게 유지.
-      const { buildExportHtml, renderExportBody } = await import("../export/html");
-      const dir = tab.path ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/" : store.state.workspace ?? "";
-      // 무거운 본문 렌더는 문서가 바뀔 때만 — 슬라이더는 껍데기만 재조립.
-      let cached = previewBodyCache.get(text);
-      if (cached === undefined) {
-        cached = await renderExportBody(text, {
-          title: tab.path ? tab.title : 'untitled',
-          theme: store.state.theme,
-          baseDir: dir,
-          wikiResolve: (name: string) => resolveWikiLink(name, dir, store.wikiIndex),
-          readBytes: async (p: string) => {
-            try {
-              return new Uint8Array(await api.readFileBytes(p));
-            } catch {
-              return null;
-            }
-          },
-        });
-        previewBodyCache.set(text, cached);
-        if (previewBodyCache.size > 3) {
-          previewBodyCache.delete(previewBodyCache.keys().next().value as string);
-        }
-      }
-      const preRendered = cached;
-      // 프런트매터 메타·사이드카 — 실제 내보내기(App.runExport)와 같은 옵션으로
-      // 미리보기=결과를 보장(그동안 목차·이미지 폭이 미리보기에만 빠졌음).
-      const fm = frontMatterMeta(text);
-      const ds = tab.docStyle;
-      const built = await buildExportHtml(text, {
-        preRendered,
-        title: fm?.title || (tab.path ? tab.title : name),
-        baseDir: tab.path ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/" : store.state.workspace ?? "",
-        theme: store.state.theme,
-        forPdf: true,
-        marginMm: margin,
-        scale,
-        imageWidths: ds?.imageWidths ?? {},
-        tableWidths: ds?.tableWidths ?? {},
-        frontLists: { toc: !!fm?.toc, lof: !!fm?.lof, lot: !!fm?.lot },
-        style: {
-          font: ds?.font ?? "system",
-          sizePt: ds && ds.fontSize > 0 ? ds.fontSize : 11,
-          lineHeight: ds?.lineHeight ?? 0,
-          firstLineIndent: ds?.firstLineIndent ?? false,
-          textAlign: ds?.textAlign ?? "left",
-          accent: ds?.accent ?? null,
-        },
-        wikiResolve: (name) =>
-          resolveWikiLink(
-            name,
-            tab.path ? tab.path.substring(0, tab.path.lastIndexOf("/")) || "/" : store.state.workspace ?? "",
-            store.wikiIndex,
-          ),
-        readBytes: async (p) => {
-          try {
-            return new Uint8Array(await api.readFileBytes(p));
-          } catch {
-            return null;
-          }
-        },
-      });
-      if (alive) setHtml(built);
-    })();
-    return () => {
-      alive = false;
-    };
-    // margin·scale·renderKey — 옵션 변경 재렌더. tab.docStyle — 열 직후
-    // 비동기 로드 경합(SourcePreview와 같은 제자리 변이 함정).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, tab?.state.doc, tab?.docStyle, store, margin, scale, renderKey]);
+    setError(null); setPrintError(false);
+    const timer = setTimeout(() => {
+      if (!snapshot) return;
+      void renderer.current!(snapshot, snapshotHtmlOptions(snapshot, readBytes, options))
+        .then((html) => { if (alive) setResult((previous) => ({ request, html, version: (previous?.version ?? 0) + 1 })); })
+        .catch((reason: unknown) => { if (alive) setError(reason instanceof Error ? reason.message : String(reason)); });
+    }, 250);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [request, snapshot, options]);
+  useEffect(() => { scroll.current = 0; }, [tab?.id]);
+  useEffect(() => () => { frameCleanup.current?.(); }, []);
+  if (!snapshot) return null;
+  const [width] = paperDimensions(options);
+  const retryRender = () => { renderer.current = createPreviewRenderer(); setRetry((value) => value + 1); };
 
-  if (!tab) return null;
-
-  return (
-    <div className="overlay print-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onCancel()}>
-      <div className="print-frame">
-        <div className="print-head">
-          <span className="print-title">{t.printPreviewTitle}</span>
-          <select
-            className="print-paper"
-            value={paper}
-            onChange={(e) => setPaper(e.target.value as "a4" | "letter" | "a5")}
-            title={t.exportPaper}
-          >
-            <option value="a4">A4</option>
-            <option value="letter">Letter</option>
-            <option value="a5">A5</option>
-          </select>
-          <select
-            className="print-paper"
-            value={orientation}
-            onChange={(e) => setOrientation(e.target.value as "portrait" | "landscape")}
-            title={t.exportOrientation}
-          >
-            <option value="portrait">{t.exportPortrait}</option>
-            <option value="landscape">{t.exportLandscape}</option>
-          </select>
-          <label className="print-ctl" title={t.exportMargin}>
-            {t.exportMargin} ({margin}mm)
-            <input type="range" min={0} max={30} value={margin} onChange={(e) => setMargin(Number(e.target.value))} />
-          </label>
-          <label className="print-ctl" title={t.exportScale}>
-            {t.exportScale} ({scale.toFixed(2)}×)
-            <input type="range" min={0.5} max={2} step={0.05} value={scale} onChange={(e) => setScale(Number(e.target.value))} />
-          </label>
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              try {
-                printFrame.current?.contentWindow?.focus();
-                printFrame.current?.contentWindow?.print();
-              } catch {
-                /* 차단 시 PDF 경로 안내 */
-                onExport("pdf", { paper, orientation, marginMm: margin, scale });
-              }
-            }}
-          >
-            {t.printButton}
-          </button>
-          <button className="btn" onClick={() => onExport("pdf", { paper, orientation, marginMm: margin, scale })}>
-            PDF
-          </button>
-          <button className="btn btn-plain" onClick={onCancel}>
-            {t.cancel}
-          </button>
-        </div>
-        <p className="print-hint">{t.printPreviewHint}</p>
-        {html == null ? (
-          <div className="print-loading">
-            <div className="spinner" />
-          </div>
-        ) : (
-          <iframe
-            ref={(el) => { printFrame.current = el; }}
-            className="print-page"
-            title={t.printPreviewTitle}
-            srcDoc={html}
-            sandbox="allow-same-origin"
-            onLoad={() => {
-              // 슬라이더 재렌더에도 스크롬 위치 유지(127차 참조 보기 패턴).
-              try {
-                const win = printFrame.current?.contentWindow;
-                if (win && lastScroll.current > 0) win.scrollTo(0, lastScroll.current);
-              } catch { /* 무시 */ }
-            }}
-          />
-        )}
+  return <div className="overlay print-overlay" role="dialog" aria-modal="true" aria-label={t.printPreviewTitle}
+    aria-busy={task.busy} onClick={(event) => { if (event.target === event.currentTarget) cancel(); }}
+    onKeyDown={(event) => {
+      if (imeComposing(event)) return;
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); }
+    }}>
+    <div className="print-frame">
+      <div className="print-head">
+        <span className="print-title">{t.printPreviewTitle}</span>
+        <select className="print-paper" value={paper} aria-label={t.exportPaper} disabled={task.busy || task.complete}
+          onChange={(event) => setPaper(event.target.value as PdfOptions["paper"])}>
+          <option value="a4">A4</option><option value="letter">Letter</option><option value="a5">A5</option>
+        </select>
+        <select className="print-paper" value={orientation} aria-label={t.exportOrientation} disabled={task.busy || task.complete}
+          onChange={(event) => setOrientation(event.target.value as PdfOptions["orientation"])}>
+          <option value="portrait">{t.exportPortrait}</option><option value="landscape">{t.exportLandscape}</option>
+        </select>
+        <label className="print-ctl">{t.exportMargin} ({margin}mm)
+          <input type="range" min={0} max={30} value={margin} disabled={task.busy || task.complete} onChange={(event) => setMargin(Number(event.target.value))} />
+        </label>
+        <label className="print-ctl">{t.exportScale} ({scale.toFixed(2)}×)
+          <input type="range" min={0.5} max={2} step={0.05} value={scale} disabled={task.busy || task.complete} onChange={(event) => setScale(Number(event.target.value))} />
+        </label>
+        <button className="btn btn-primary" disabled={!ready || task.busy} onClick={() => {
+          const frame = frameRef.current?.contentWindow;
+          if (!ready || !frame || task.isRunning()) return;
+          try { frame.focus(); frame.print(); setPrintError(false); } catch { setPrintError(true); }
+        }}>{t.printButton}</button>
+        <button className="btn" disabled={!ready || task.busy || task.complete} onClick={() => {
+          if (ready && result) void task.run(() => onExport("pdf", options, snapshot, result.html));
+        }}>PDF</button>
+        <button className="btn btn-plain" disabled={task.busy} onClick={cancel}>{task.complete ? t.done : t.cancel}</button>
+      </div>
+      <p className="print-hint">{t.printPreviewHint}</p>
+      <ExportFeedback busy={task.busy} result={task.result} t={t} onReveal={onReveal} />
+      {printError && <p className="print-error" role="alert">{t.printUnavailable}</p>}
+      {error ? <div className="print-error" role="alert">
+        <p>{t.previewFailed}: {error}</p><button className="btn" onClick={retryRender}>{t.wsRetry}</button>
+      </div> : !ready && <div className="print-status" role="status">{t.loading}</div>}
+      <div className="print-preview-scroll" aria-busy={!ready && !error}>
+        {result && <iframe key={result.version} ref={frameRef} className="print-page" title={t.printPreviewTitle} tabIndex={0}
+          style={{ width: width + "mm", visibility: result.request === request && !error ? "visible" : "hidden" }}
+          srcDoc={result.html} sandbox="allow-same-origin allow-modals" referrerPolicy="no-referrer"
+          onLoad={(event) => {
+            frameCleanup.current?.(); frameCleanup.current = null;
+            const frame = event.currentTarget;
+            if (currentRequest.current !== result.request) return;
+            frameCleanup.current = connectPrintFrame(frame, scroll,
+              () => { if (currentRequest.current === result.request) setLoaded(result.request); },
+              () => { if (currentRequest.current === result.request) setError(t.previewFailed); });
+          }} />}
       </div>
     </div>
-  );
+  </div>;
 }

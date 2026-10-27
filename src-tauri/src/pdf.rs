@@ -112,41 +112,47 @@ fn run_on_main(
         let webview: *mut objc2::runtime::AnyObject =
             msg_send![webview, initWithFrame: frame, configuration: cfg];
         if webview.is_null() {
+            // initWithFrame가 실패해도 이미 alloc한 설정 개체는 해제한다.
+            let _: () = msg_send![cfg, release];
             return Err("WKWebView를 만들지 못했습니다".into());
         }
 
         let html_str = NSString::from_str(html);
-        let nil_url: *const objc2::runtime::AnyObject = std::ptr::null();
-        let _: *mut objc2::runtime::AnyObject =
-            msg_send![webview, loadHTMLString: &*html_str, baseURL: nil_url];
+        // 조기 오류 경로(로드 실패·주입 실패·측정 실패)에서도 alloc한
+        // 웹뷰·설정이 새어 나가지 않게 본문을 클로저로 감싸고 해제는
+        // 한 곳에서 한다 — WKWebView 하나가 웹 콘텐츠 프로세스 하나다.
+        let outcome = (|| -> Result<(Vec<u8>, f64), String> {
+            let nil_url: *const objc2::runtime::AnyObject = std::ptr::null();
+            let _: *mut objc2::runtime::AnyObject =
+                msg_send![webview, loadHTMLString: &*html_str, baseURL: nil_url];
 
-        // 1) 로드 시작 대기 → 완료 대기(isLoading 폴링).
-        run_loop_tick();
-        let mut saw_loading = false;
-        let start_deadline = Instant::now() + LOAD_START_TIMEOUT;
-        while Instant::now() < start_deadline {
-            let loading: bool = msg_send![webview, isLoading];
-            if loading {
-                saw_loading = true;
-                break;
-            }
+            // 1) 로드 시작 대기 → 완료 대기(isLoading 폴링).
             run_loop_tick();
-        }
-        if saw_loading {
-            spin_until(LOAD_TIMEOUT, || {
+            let mut saw_loading = false;
+            let start_deadline = Instant::now() + LOAD_START_TIMEOUT;
+            while Instant::now() < start_deadline {
                 let loading: bool = msg_send![webview, isLoading];
-                !loading
-            })?;
-        } else {
-            let settle = Instant::now() + Duration::from_millis(250);
-            while Instant::now() < settle {
+                if loading {
+                    saw_loading = true;
+                    break;
+                }
                 run_loop_tick();
             }
-        }
+            if saw_loading {
+                spin_until(LOAD_TIMEOUT, || {
+                    let loading: bool = msg_send![webview, isLoading];
+                    !loading
+                })?;
+            } else {
+                let settle = Instant::now() + Duration::from_millis(250);
+                while Instant::now() < settle {
+                    run_loop_tick();
+                }
+            }
 
-        // 2) 컬럼 페이지네이션 주입 — 문서가 가로 컬럼들로 흐른다.
-        let inject = format!(
-            r#"(function() {{
+            // 2) 컬럼 페이지네이션 주입 — 문서가 가로 컬럼들로 흐른다.
+            let inject = format!(
+                r#"(function() {{
   var W = {W}, H = {H}, M = {M};
   var body = document.body;
   var bg = getComputedStyle(body).backgroundColor || '#fff';
@@ -171,79 +177,83 @@ fn run_on_main(
     '#iyagi-page-wrap .page-break{{break-before:column;border-top:none;margin:0;}}';
   document.head.appendChild(st);
 }})();"#,
-            W = page_w,
-            H = page_h,
-            M = margin,
-        );
-        eval_js(webview, &inject)?;
-        // 페이지 장식(머리글·바닥글) — HTML 안의 데이터 아일랜드 스크립트를
-        // wrap 주입 **후에** 실행한다(로드 시점엔 wrap이 없어 조기 반환했음).
-        eval_js(
+                W = page_w,
+                H = page_h,
+                M = margin,
+            );
+            eval_js(webview, &inject)?;
+            // 페이지 장식(머리글·바닥글) — HTML 안의 데이터 아일랜드 스크립트를
+            // wrap 주입 **후에** 실행한다(로드 시점엔 wrap이 없어 조기 반환했음).
+            eval_js(
             webview,
             "(function(){var s=document.getElementById('iyagi-pdf-chrome');if(s&&s.textContent.trim()){(0,eval)(s.textContent);}})();",
         )?;
-        // 폰트/이미지 자리잡기를 위한 짧은 정산.
-        let settle = Instant::now() + Duration::from_millis(350);
-        while Instant::now() < settle {
-            run_loop_tick();
-        }
+            // 폰트/이미지 자리잡기를 위한 짧은 정산.
+            let settle = Instant::now() + Duration::from_millis(350);
+            while Instant::now() < settle {
+                run_loop_tick();
+            }
 
-        // 3) 전체 컬럼 폭 측정 → 프레임 확장.
-        let total_w = eval_number(
+            // 3) 전체 컬럼 폭 측정 → 프레임 확장.
+            let total_w = eval_number(
             webview,
             "Math.ceil(Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0))",
         )?;
-        if !(1.0..=200_000.0).contains(&total_w) {
-            return Err(format!("페이지 폭 측정 실패: {total_w}"));
-        }
-        let full_frame = rect(0.0, 0.0, total_w, page_h as f64);
-        let _: () = msg_send![webview, setFrame: full_frame];
-        let settle = Instant::now() + Duration::from_millis(300);
-        while Instant::now() < settle {
-            run_loop_tick();
-        }
-
-        // 4) createPDF — 전체 폭을 한 페이지로(전부 벡터).
-        let pdf_cfg: *mut objc2::runtime::AnyObject = msg_send![pdf_cfg_class, new];
-        let page_rect = rect(0.0, 0.0, total_w, page_h as f64);
-        let _: () = msg_send![pdf_cfg, setRect: page_rect];
-
-        let (tx, rx) = mpsc::channel::<Result<Vec<u8>, String>>();
-        let block = RcBlock::new(
-            move |data: *mut NSData, error: *mut objc2::runtime::AnyObject| {
-                if !error.is_null() {
-                    // localizedDescription는 자동해제 반환 — 오토릴리즈 풀 안에서만 쓴다.
-                    let desc: *mut NSString = msg_send![error, localizedDescription];
-                    let _ = tx.send(Err(format!("PDF 생성 실패: {}", &*desc)));
-                    return;
-                }
-                if data.is_null() {
-                    let _ = tx.send(Err("PDF 생성 실패: 결과가 비었습니다".into()));
-                    return;
-                }
-                let len = (*data).len();
-                let raw: *const std::ffi::c_void = msg_send![data, bytes];
-                let bytes = std::slice::from_raw_parts(raw as *const u8, len);
-                let _ = tx.send(Ok(bytes.to_vec()));
-            },
-        );
-        let _: () =
-            msg_send![webview, createPDFWithConfiguration: pdf_cfg, completionHandler: &*block];
-        let deadline = Instant::now() + RENDER_TIMEOUT;
-        let wide = loop {
-            if let Ok(res) = rx.try_recv() {
-                break res;
+            if !(1.0..=200_000.0).contains(&total_w) {
+                return Err(format!("페이지 폭 측정 실패: {total_w}"));
             }
-            if Instant::now() > deadline {
-                break Err("PDF 생성 시간 초과".into());
+            let full_frame = rect(0.0, 0.0, total_w, page_h as f64);
+            let _: () = msg_send![webview, setFrame: full_frame];
+            let settle = Instant::now() + Duration::from_millis(300);
+            while Instant::now() < settle {
+                run_loop_tick();
             }
-            run_loop_tick();
-        };
+
+            // 4) createPDF — 전체 폭을 한 페이지로(전부 벡터).
+            let pdf_cfg: *mut objc2::runtime::AnyObject = msg_send![pdf_cfg_class, new];
+            let page_rect = rect(0.0, 0.0, total_w, page_h as f64);
+            let _: () = msg_send![pdf_cfg, setRect: page_rect];
+
+            let (tx, rx) = mpsc::channel::<Result<Vec<u8>, String>>();
+            let block = RcBlock::new(
+                move |data: *mut NSData, error: *mut objc2::runtime::AnyObject| {
+                    if !error.is_null() {
+                        // localizedDescription는 자동해제 반환 — 오토릴리즈 풀 안에서만 쓴다.
+                        let desc: *mut NSString = msg_send![error, localizedDescription];
+                        let _ = tx.send(Err(format!("PDF 생성 실패: {}", &*desc)));
+                        return;
+                    }
+                    if data.is_null() {
+                        let _ = tx.send(Err("PDF 생성 실패: 결과가 비었습니다".into()));
+                        return;
+                    }
+                    let len = (*data).len();
+                    let raw: *const std::ffi::c_void = msg_send![data, bytes];
+                    let bytes = std::slice::from_raw_parts(raw as *const u8, len);
+                    let _ = tx.send(Ok(bytes.to_vec()));
+                },
+            );
+            let _: () =
+                msg_send![webview, createPDFWithConfiguration: pdf_cfg, completionHandler: &*block];
+            let deadline = Instant::now() + RENDER_TIMEOUT;
+            let wide = loop {
+                if let Ok(res) = rx.try_recv() {
+                    break res;
+                }
+                if Instant::now() > deadline {
+                    break Err("PDF 생성 시간 초과".into());
+                }
+                run_loop_tick();
+            };
+            let _: () = msg_send![pdf_cfg, release];
+            wide.map(|wide| (wide, total_w))
+        })();
+
+        // 어떤 경로로 끝나도(오류 포함) 자원은 여기서 정리된다.
         let _: () = msg_send![webview, stopLoading];
         let _: () = msg_send![webview, release];
         let _: () = msg_send![cfg, release];
-        let _: () = msg_send![pdf_cfg, release];
-        let wide = wide?;
+        let (wide, total_w) = outcome?;
 
         // 5) 슬라이스 재조립 — 소스는 그대로 벡터로 삽입된다.
         slice_pdf_pages(&wide, total_w, page_w as f64, pt_w, pt_h, out, page_numbers)

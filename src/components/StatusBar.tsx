@@ -1,11 +1,10 @@
 // 상태 줄 — 모드 전환·커서 위치·단어 수·설정 진입.
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { countWords, type AppStore } from "../app/store";
 import { collectHeadings, type Heading } from "../links";
 import { headingPath } from "../app/tocTree";
-import { smoothScrollIntoView } from "../editor/cm";
 import type { Translate } from "../i18n";
 
 interface Props {
@@ -20,27 +19,25 @@ interface Props {
 }
 
 export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, onOpenBacklinks, onOpenComments, onOpenTrack }: Props): JSX.Element {
-  const state = store.getSnapshot();
+  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
   // 브레드크럼 — 커서가 속한 제목 경로. 헤딩 목록은 문서가 바뀔 때만(디바운스)
   // 재스캔하고, 커서 이동은 캐시한 목록에서 경로만 즉시 계산한다(O(제목 수)).
-  const [headings, setHeadings] = useState<Heading[]>([]);
-  const [crumbs, setCrumbs] = useState<Heading[]>([]);
   const doc = tab?.state.doc;
+  const [snapshot, setSnapshot] = useState<{ id: string; doc: NonNullable<typeof doc>; headings: Heading[] } | null>(null);
   const cursor = tab?.state.selection.main.head ?? 0;
   useEffect(() => {
-    if (!doc) {
-      setHeadings([]);
+    if (!doc || !tab) {
+      setSnapshot(null);
       return;
     }
     const id = setTimeout(() => {
-      setHeadings(collectHeadings(doc.toString()));
+      setSnapshot({ id: tab.id, doc, headings: collectHeadings(doc.toString()) });
     }, 150);
     return () => clearTimeout(id);
-  }, [doc]);
-  useEffect(() => {
-    setCrumbs(headingPath(headings, cursor));
-  }, [headings, cursor]);
+  }, [doc, tab?.id]);
+  const crumbs = useMemo(() => snapshot && snapshot.id === tab?.id && snapshot.doc === doc
+    ? headingPath(snapshot.headings, cursor) : [], [snapshot, tab?.id, doc, cursor]);
   // 통계는 스토어가 증분 유지한다 — 여기서 문서를 다시 훑지 않는다.
   const dirty = tab?.dirty ?? false;
   const words = tab?.words ?? 0;
@@ -59,6 +56,7 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, 
       <div className="statusbar-left">
         <button
           className={`status-mode ${tab?.mode === "edit" ? "is-on" : ""}`}
+          aria-pressed={tab?.mode === "edit"}
           onClick={() => store.setMode("edit")}
           title={t.modeEdit}
         >
@@ -66,6 +64,7 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, 
         </button>
         <button
           className={`status-mode ${tab?.mode === "read" ? "is-on" : ""}`}
+          aria-pressed={tab?.mode === "read"}
           onClick={() => store.setMode("read")}
           title={t.modeRead}
         >
@@ -73,6 +72,7 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, 
         </button>
         <button
           className={`status-mode ${tab?.mode === "source" ? "is-on" : ""}`}
+          aria-pressed={tab?.mode === "source"}
           onClick={() => store.setMode("source")}
           title={t.modeSource}
         >
@@ -86,8 +86,8 @@ export function StatusBar({ store, t, onOpenSettings, onOpenStyle, onOpenStats, 
                 className="status-crumb"
                 onClick={() => {
                   const view = store.view;
-                  if (!view) return;
-                  smoothScrollIntoView(view, Math.min(c.pos, view.state.doc.length));
+                  if (!view || snapshot?.id !== store.active?.id || snapshot?.doc !== view.state.doc) return;
+                  store.revealLocation({ pos: c.pos });
                 }}
               >
                 {c.text}

@@ -116,4 +116,19 @@ describe("tableOps — 셀 병합/해제", () => {
     expect(back.rows[1]).toEqual(["", ""]);
     expect(merged.rows[0][1]).toBe(">");
   });
+
+  it("내림차순에서 동점 행은 원래 순서를 유지한다(안정 정렬 계약)", () => {
+    const t: ParsedTable = {
+      align: [null],
+      header: ["k"],
+      rows: [
+        ["b"],
+        ["a"],
+        ["b"],
+        ["a"],
+      ],
+    };
+    const out = sortRowsBy(t, 0, true);
+    expect(out.rows.map((r) => r[0])).toEqual(["b", "b", "a", "a"]); // 동점끼리 원 순서
+  });
 });

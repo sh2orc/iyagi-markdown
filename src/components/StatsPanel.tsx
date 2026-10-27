@@ -29,7 +29,9 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
   const paragraphs = text.split(/\n{2,}/).filter((p) => p.trim()).length;
   const headings = collectHeadings(text).length;
   const tables = (text.match(/^\|[\s:|-]+\|\s*$/gm) ?? []).length;
-  const codeBlocks = (text.match(/^```/gm) ?? []).length / 2;
+  // ``` 와 ~~~ 펜스를 모두 센다(앱 전반의 펜스 규약) — 짝이 없는 열린
+  // 펜스는 floor로 반올림된다.
+  const codeBlocks = (text.match(/^(?:```|~~~)/gm) ?? []).length / 2;
   // 문장 지표(작가용) — sentenceSpans 재활용(14차). 본문만(FM 제외).
   const body = stripFrontMatter(text);
   const spans = sentenceSpans(body);
@@ -37,10 +39,13 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
   const avgSentenceLen = sentences > 0 ? body.replace(/\s+/g, " ").length / sentences : 0;
   // 문장 길이 분포(가독성 진단 — Word 읽기 쉬운 정도 지표의 대응물).
   const sls = sentenceLengthStats(body, store.state.settings.longSentenceMin);
-  // 긴 문장(60자+) 목록 — 클릭하면 그 자리로(글쓰기 검토).
+  // 긴 문장 목록 — 클릭하면 그 자리로(글쓰기 검토). 기준은 분포 차트와
+  // 같은 사용자 설정(longSentenceMin) — 같은 패널안 두 기준이 어긋나면
+  // "보통"으로 분류된 문장이 긴 문장 목록에 등장한다.
+  const longMin = store.state.settings.longSentenceMin;
   const longSentences = spans
     .map(([a, b]) => ({ pos: a, text: body.slice(a, b).replace(/\s+/g, " ").trim() }))
-    .filter((x) => x.text.replace(/\s+/g, "").length >= 60)
+    .filter((x) => x.text.replace(/\s+/g, "").length >= longMin)
     .slice(0, 30);
   const bucketMax = Math.max(1, ...sls.buckets);
   const bucketRows: Array<[string, number, string]> = [
@@ -55,15 +60,17 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
   const goalPct = goal > 0 ? Math.min(100, (tab.words / goal) * 100) : 0;
   const dups = duplicateHeadings(collectHeadings(text));
   const rows: Array<[string, string]> = [
-    [t.f.words(tab.words), String(tab.words)],
-    [t.f.chars(tab.chars), String(tab.chars)],
+    // 라벨에는 형식화 문구(t.f.words)를 쓰지 않는다 — 값 열과 숫자가 겹쳐
+    // "단어 1,234개 | 1,234"로 두 번 보였다.
+    [t.statWords, tab.words.toLocaleString()],
+    [t.statChars, tab.chars.toLocaleString()],
     [t.statParagraphs, String(paragraphs)],
     [t.tocTitle, String(headings)],
     [t.tbTable, String(Math.floor(tables))],
     ["Code", String(Math.floor(codeBlocks))],
     [t.statReading, `${readingMinutes(text)} ${t.statMin}`],
     [t.statSentences, String(sentences)],
-    [t.statAvgSentence, `${avgSentenceLen.toFixed(1)} ${t.statChars}`],
+    [t.statAvgSentence, `${avgSentenceLen.toFixed(1)} ${t.statCharsUnit}`],
     ...(goal > 0
       ? [[t.goalTitle, `${tab.words.toLocaleString()} / ${goal.toLocaleString()} (${Math.round(goalPct)}%)`] as [string, string]]
       : []),
@@ -72,7 +79,7 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
       : []),
   ];
   return (
-    <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay modal-overlay" role="dialog" aria-modal="true" aria-label={t.statsTitle} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal settings-modal">
         <div className="modal-title">
           {t.statsTitle}
@@ -111,7 +118,7 @@ export function StatsPanel({ store, t, onClose }: Props): JSX.Element | null {
               </div>
             ))}
             <div className="sd-note">
-              {t.statLongMost} {sls.longest}{t.statChars}
+              {t.statLongMost} {sls.longest}{t.statCharsUnit}
               {sls.longCount > 0 && ` · ${sls.longCount} ${t.statLongWarn}`}
             </div>
             {longSentences.length > 0 && (

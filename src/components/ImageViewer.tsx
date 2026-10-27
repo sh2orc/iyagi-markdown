@@ -5,10 +5,12 @@ import { useEffect, useRef, useState } from "react";
 
 import { convertFileSrc, isInApp } from "../api";
 import type { Translate } from "../i18n";
+import { imeComposing } from "../app/ime";
 
 interface Props {
   src: string;
   alt: string;
+  occurrence?: number;
   t: Translate;
   onClose: () => void;
   /** 대체 텍스트 편집(뷰어 안에서) — 제공되면 ✎ 버튼. */
@@ -20,7 +22,7 @@ interface Props {
   total?: number;
 }
 
-export function ImageViewer({ src, alt, t, onClose, onEditAlt, onNav, index, total }: Props): JSX.Element {
+export function ImageViewer({ src, alt, occurrence, t, onClose, onEditAlt, onNav, index, total }: Props): JSX.Element {
   const [zoom, setZoom] = useState(1);
   const [rot, setRot] = useState(0);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -32,39 +34,60 @@ export function ImageViewer({ src, alt, t, onClose, onEditAlt, onNav, index, tot
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setRot(0); // '원본 보기' — 회전까지 되돌린다(0·1:1·더블클릭 공용)
+    drag.current = null;
+    setDragging(false);
   };
 
   useEffect(() => {
+    setZoom(1);
+    setRot(0);
     setPan({ x: 0, y: 0 });
-  }, [src]);
+    drag.current = null;
+    setDragging(false);
+  }, [src, occurrence]);
 
+  // 휠 줌 — 네이티브 비수동 리스너. React onWheel은 루트에서 passive 등록이라
+  // preventDefault가 무시된다: 핀치(ctrl+wheel)에서 페이지 줌이 함께 일어나고
+  // 확대된 이미지가 넘칠 때 컨테이너 스크롤도 같이 굴러간다.
+  const rootRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      else if (e.key === "ArrowLeft") onNav?.(-1);
-      else if (e.key === "ArrowRight") onNav?.(1);
-      else if (e.key === "+" || e.key === "=") setZoom((z) => Math.min(8, z * 1.25));
-      else if (e.key === "-") setZoom((z) => Math.max(0.1, z / 1.25));
-      else if (e.key === "0") reset();
+    const el = rootRef.current;
+    if (!el) return;
+    const onWheelNative = (e: WheelEvent): void => {
+      // 트랙패드 핀치(ctrl+wheel)와 일반 휠 모두 줌으로 — 뷰어 안에서는 스크롤이 의미 없다.
+      // 배율은 deltaY 크기에 비례(지수 곡선) — 연속 이벤트 장치에서 한 번에
+      // 최대 배율로 튀지 않고 손가락 움직임에 붙는다.
+      if (e.ctrlKey || e.deltaY !== 0) {
+        e.preventDefault();
+        setZoom((z) => Math.min(8, Math.max(0.1, z * Math.exp(-e.deltaY * 0.0015))));
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onClose]);
+    el.addEventListener("wheel", onWheelNative, { passive: false });
+    return () => el.removeEventListener("wheel", onWheelNative);
+  }, []);
 
   return (
     <div
+      ref={rootRef}
       className="imgviewer"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-      onWheel={(e) => {
-        // 트랙패드 핀치(ctrl+wheel)와 일반 휠 모두 줌으로 — 뷰어 안에서는 스크롤이 의미 없다.
-        // 배율은 deltaY 크기에 비례(지수 곡선) — 연속 이벤트 장치에서 한 번에
-        // 최대 배율로 튀지 않고 손가락 움직임에 붙는다.
-        if (e.ctrlKey || e.deltaY !== 0) {
-          e.preventDefault();
-          setZoom((z) => Math.min(8, Math.max(0.1, z * Math.exp(-e.deltaY * 0.0015))));
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt || src.split("/").pop() || t.tbImage}
+      onKeyDown={(event) => {
+        if (event.defaultPrevented || imeComposing(event) || event.metaKey || event.ctrlKey || event.altKey) return;
+        switch (event.key) {
+          case "Escape": onClose(); break;
+          case "ArrowLeft": onNav?.(-1); break;
+          case "ArrowRight": onNav?.(1); break;
+          case "+": case "=": setZoom((z) => Math.min(8, z * 1.25)); break;
+          case "-": setZoom((z) => Math.max(0.1, z / 1.25)); break;
+          case "0": reset(); break;
+          default: return;
         }
+        event.preventDefault();
+        event.stopPropagation();
       }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="imgviewer-bar">
         <span className="imgviewer-name" title={src}>
@@ -79,8 +102,12 @@ export function ImageViewer({ src, alt, t, onClose, onEditAlt, onNav, index, tot
           −
         </button>
         {index !== undefined && total !== undefined && (
-          <span className="imgviewer-index">{index + 1} / {total}</span>
+          <span className="imgviewer-index" aria-live="polite">{index + 1} / {total}</span>
         )}
+        {onNav && (total ?? 0) > 1 && <>
+          <button className="mtb-btn" title={t.imagePrevious} aria-label={t.imagePrevious} onClick={() => onNav(-1)}>←</button>
+          <button className="mtb-btn" title={t.imageNext} aria-label={t.imageNext} onClick={() => onNav(1)}>→</button>
+        </>}
         <span className="imgviewer-zoom">{Math.round(zoom * 100)}%</span>
         <button
           className="mtb-btn"
@@ -124,6 +151,8 @@ export function ImageViewer({ src, alt, t, onClose, onEditAlt, onNav, index, tot
           drag.current = null;
           setDragging(false);
         }}
+        onPointerCancel={() => { drag.current = null; setDragging(false); }}
+        onLostPointerCapture={() => { drag.current = null; setDragging(false); }}
         onDoubleClick={reset}
       >
         <img
@@ -136,7 +165,7 @@ export function ImageViewer({ src, alt, t, onClose, onEditAlt, onNav, index, tot
           draggable={false}
         />
       </div>
-      <span className="imgviewer-hint">{t.cancel} · ESC</span>
+      <span className="imgviewer-hint">{t.close} · ESC</span>
     </div>
   );
 }

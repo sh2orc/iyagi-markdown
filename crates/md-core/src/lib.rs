@@ -13,12 +13,22 @@
 //!
 //! 이 크레이트는 Tauri·macOS에 의존하지 않아 리눅스 CI에서 단위 테스트가 돈다.
 
+pub mod assets;
+pub mod broken_links;
+pub mod document_files;
+mod document_links;
+pub mod document_trash;
 pub mod i18n;
+pub mod images;
 pub mod io;
 pub mod links;
+mod markdown_rename;
+mod markdown_source;
 pub mod recent;
 pub mod search;
 pub mod session;
 pub mod settings;
 pub mod snapshots;
 pub mod tree;
+
+pub mod wiki_rename;

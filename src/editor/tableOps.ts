@@ -93,16 +93,18 @@ export function setColAlign(
 
 const natural = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
-/** 데이터 행을 col 기준으로 정렬(안정 정렬, 원문 무손실 — 순서만). */
+/** 데이터 행을 col 기준으로 정렬(안정 정렬, 원문 무손실 — 순서만).
+ *  동점 행은 내림차순에서도 원래 순서를 유지한다 — reverse()를 쓰면
+ *  동점 순서까지 뒤집혀 '안정' 계약이 깨진다. */
 export function sortRowsBy(t: ParsedTable, col: number, desc: boolean): ParsedTable {
   const next = clone(t);
   const rows = next.rows.map((row, i) => ({ row, i }));
   rows.sort((a, b) => {
     const av = a.row[col] ?? "";
     const bv = b.row[col] ?? "";
-    return natural.compare(av.trim(), bv.trim()) || a.i - b.i;
+    const cmp = natural.compare(av.trim(), bv.trim());
+    return (desc ? -cmp : cmp) || a.i - b.i;
   });
-  if (desc) rows.reverse();
   next.rows = rows.map((x) => x.row);
   return next;
 }

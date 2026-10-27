@@ -60,6 +60,13 @@ describe("flattenFiles", () => {
 describe("scoreFile", () => {
   const f = { path: "/w/notes/todo.md", name: "todo.md", rel: "notes" };
 
+  it("한글 파일명이 분해되어 있어도 검색과 접두사 점수를 동일하게 유지한다", () => {
+    const composed = { path: "/w/회의.md", name: "회의.md", rel: "프로젝트" };
+    const decomposed = { ...composed, name: composed.name.normalize("NFD"), rel: composed.rel.normalize("NFD") };
+    expect(scoreFile("회의", decomposed)).toBe(scoreFile("회의", composed));
+    expect(scoreFile("프로젝트", decomposed)).toBeGreaterThan(0);
+  });
+
   it("빈 쿼리는 통과(1), 매치 없음은 -1", () => {
     expect(scoreFile("", f)).toBe(1);
     expect(scoreFile("zzz", f)).toBe(-1);

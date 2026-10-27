@@ -8,10 +8,11 @@ import { searchKeymap, selectNextOccurrence } from "@codemirror/search";
 import { addCursorAbove, addCursorBelow } from "./multiCursor";
 import { looksLikeTsv, tsvToTable } from "./tsvTable";
 import { trackChanges } from "./trackChanges";
-import { occurrenceHighlight } from "./occurrences";
 import { copyFormat, pasteFormat } from "./formatPainter";
+import { asyncEditPlugin, captureAsyncEdit } from "./asyncEdit";
+import { clipboardNotice, pasteTextFromClipboard } from "./clipboard";
 import { Compartment, EditorState, Extension, Prec } from "@codemirror/state";
-import { crosshairCursor, EditorView, keymap, rectangularSelection, type ViewUpdate } from "@codemirror/view";
+import { crosshairCursor, EditorView, keymap, rectangularSelection, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import {
   cursorLineDown,
   cursorLineUp,
@@ -19,6 +20,8 @@ import {
   history,
   historyField,
   historyKeymap,
+  selectLineDown,
+  selectLineUp,
 } from "@codemirror/commands";
 import { GFM } from "@lezer/markdown";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
@@ -119,6 +122,7 @@ const headingFoldService = foldService.of((state, from, to) => {
 import {
   blockWidgetRangesBetween,
   findLinkAt,
+  isRevealableBlockWidget,
   livePreviewExtension,
   previewBehavior,
   previewConfigField,
@@ -155,8 +159,8 @@ function clearWikiHoverTimer(): void {
   }
 }
 import { htmlToMarkdown } from "./htmlPaste";
+import { phrases } from "../app/phrases";
 import { api, isInApp } from "../api";
-import { relPath } from "../paths";
 import * as fmt from "./format";
 import { resetSearch, searchHighlight } from "../search/searchCm";
 import { writingComp, writingConf, writingExtension } from "./writing";
@@ -199,6 +203,76 @@ function splitTableAtPlainLine(view: EditorView, u: import("@codemirror/view").V
   }
 }
 
+/** 밑줄형 제목('text\n---' H2 · 'text\n===' H1) — 타이핑하는 순간만
+ *  Word식으로 되돌린다(splitTableAtPlainLine과 같은 패턴. 파싱은 다른 앱
+ *  호환·기존 문서를 위해 그대로). 이 앱의 방침(2026-10-21): 제목은
+ *  #/## 로만 — - 나 = 입력이 앞 줄을 H2/H1로 만들지 않게, 문서도 정규화해
+ *  내보내기(comrak 표준 해석)까지 일관되게. 두 방향을 다룬다:
+ *  (A) 밑줄 줄 자체에 타이핑 — 짝이 성립하는 순간 위에 빈 줄을 올린다.
+ *      대시 3개+는 수평선이 되고(--- 입력 시 구분선이 안 생기던 주 원인),
+ *      = 어떤 개수·대시 1-2개(목록 시작)는 그냥 분리만(렌더 억제와 짝).
+ *  (B) 밑줄 바로 위 문단에 텍스트 입력 — 이미 짝이 성립한 문서에서
+ *      편집할 때 제목으로 보이는 문제(기존 문서 치유). 사이에 빈 줄.
+ *  트리에서 실제 SetextHeading1/2일 때만 동작(코드 블록 내부 --- 등 오탐
+ *  없음). 트리가 늦으면 그 입력은 건너뛰고 다음 입력에서 다시 기회.
+ *  되돌리기도 자유: 빈 줄을 지우면 다시 셋텍스트. */
+function splitSetextUnderline(view: EditorView, u: import("@codemirror/view").ViewUpdate): void {
+  const doc = u.state.doc;
+  // 변경 줄 전부를 본다(멀티커서 — splitTableAtPlainLine과 같은 순회).
+  // 한 번의 갱신에는 첫 분리 하나만(다음 입력에서 이어서).
+  const seen = new Set<number>();
+  u.changes.iterChangedRanges((fromA, toA) => {
+    const first = doc.lineAt(fromA).number;
+    const last = doc.lineAt(Math.min(toA, doc.length)).number;
+    for (let n = first; n <= last; n++) seen.add(n);
+  });
+  // 인용구 밑줄("> ---")도 판정에 넣는다 — 마커를 걷어내고 본다
+  // (2026-10-24 검토: 인용구 안에서만 제목이 되는 구멍). 분리 삽입은
+  // 줄 시작에 하므로 인용구는 밑줄 앞에서 끝나고 구분선이 된다.
+  const stripQuote = (t: string) => t.replace(/^(?:\s*>)+\s*/, "");
+  // = 는 3개부터(2026-10-24 완화 — 수학식 등 '= ' 한 글자 흐름에 빈 줄이
+  // 끼어들던 과시정). 1-2개 짝은 렌더 억제와 내보내기 정규화가 흡수한다.
+  const ruleLine = /^\s{0,3}(?:-{3,}|={3,})\s*$/;
+  const hasSetext = (from: number, to: number): boolean => {
+    let hit = false;
+    syntaxTree(u.state).iterate({
+      from,
+      to,
+      enter: (node) => {
+        if (/^SetextHeading[12]$/.test(node.name)) hit = true;
+      },
+    });
+    return hit;
+  };
+  for (const target of seen) {
+    if (target < 1 || target > doc.lines) continue;
+    const line = doc.line(target);
+    // (A) 변경 줄이 밑줄 줄 — 그 줄이 셋텍스트 밑줄인가.
+    if (ruleLine.test(stripQuote(line.text))) {
+      if (!hasSetext(line.from, line.to)) continue;
+      view.dispatch({
+        changes: { from: line.from, insert: "\n" },
+        selection: { anchor: view.state.selection.main.head + 1 },
+        userEvent: "input.setextSplit",
+      });
+      return;
+    }
+    // (B) 변경 줄 바로 아래가 밑줄 — 셋텍스트 짝의 내용 줄을 편집 중.
+    if (target >= doc.lines) continue;
+    const next = doc.line(target + 1);
+    if (!ruleLine.test(stripQuote(next.text))) continue;
+    if (!hasSetext(line.from, next.to)) continue;
+    view.dispatch({
+      changes: { from: line.to, insert: "\n" },
+      // 명시 커서 — 없으면 삽입 지점(줄 끝)에 있던 커서가 \n 뒤(밑줄 줄)로
+      // 밀려 다음 글자가 밑줄 줄에 들어간다.
+      selection: { anchor: view.state.selection.main.head },
+      userEvent: "input.setextSplit",
+    });
+    return;
+  }
+}
+
 export type ViewMode = "edit" | "read" | "source";
 
 export const editableComp = new Compartment();
@@ -223,6 +297,20 @@ export function setTagClickHandler(fn: ((tag: string) => void) | null): void {
 let linkClickHandler: ((url: string, baseDir: string) => void) | null = null;
 export function setLinkClickHandler(fn: ((url: string, baseDir: string) => void) | null) {
   linkClickHandler = fn;
+}
+
+let imageImportHandler: ((view: EditorView, files: string[] | Blob | null) => void) | null = null;
+export function setImageImportHandler(fn: typeof imageImportHandler): void {
+  imageImportHandler = fn;
+}
+
+/** 등록된 앱 링크 열기 규칙으로 위임 — 우클릭 메뉴 등 프리뷰 클릭 밖 경로가
+ *  같은 해석(마크다운 내부 열기·앵커 스크롤·외부 브라우저)을 공유하게 한다.
+ *  등록 안 됨(웹 프리뷰 등)이면 false — 호출자가 폴백을 고른다. */
+export function openLinkViaHandler(url: string, baseDir: string): boolean {
+  if (!linkClickHandler) return false;
+  linkClickHandler(url, baseDir);
+  return true;
 }
 
 export interface PreviewConfigParam {
@@ -268,11 +356,15 @@ let mdItPromise: Promise<void> | null = null;
 /** 이 크기까지의 HTML 붙여넣기는 동기 변환(즉시 서식 반영). 넘으면
  *  plain 선행 삽입 + 비동기 변환 업그레이드로 프레임을 지킨다. */
 const HTML_PASTE_SYNC_MAX = 512_000;
+const HTML_PASTE_MAX = 4 * 1024 * 1024;
 
 /** 수직 이동 가드 — CM의 시각 기준 이동이 블록 위젯(표·수식 등)을 넘어
  *  점프하며 사이 일반 줄을 건너뛰는 것을 교정한다. 이동 결과가 2줄 이상
- *  도약하고 그 사이에 위젯에 덮이지 않은 줄이 있으면 가장 가까운 줄로
- *  끊는다(열은 보존). */
+ *  도약하고 그 사이에 커서를 얹을 수 있는 줄이 있으면 가장 가까운 줄로
+ *  끊는다(열은 보존). 정차 가능 줄 판정: 위젯에 덮이지 않았거나, 편집
+ *  모드에선 커서가 오면 원문으로 물러나는 위젯(수평선·수식·머메이드·FM)
+ *  이라서 얹는 순간 텍스트가 되는 줄까지 포함한다 — 읽기 모드에선
+ *  위젯이 안 물러나므로 예전처럼 전부 건너뛴다. */
 export function guardedLineMove(view: EditorView, dir: 1 | -1): boolean {
   const sel = view.state.selection.main;
   const startLine = view.state.doc.lineAt(sel.head);
@@ -281,26 +373,58 @@ export function guardedLineMove(view: EditorView, dir: 1 | -1): boolean {
   const head = view.state.selection.main.head;
   const endLine = view.state.doc.lineAt(head);
   const crossed = dir === 1 ? endLine.number - startLine.number : startLine.number - endLine.number;
-  if (sel.empty && crossed > 1) {
-    const covered = blockWidgetRangesBetween(
-      view.state,
-      Math.min(startLine.from, endLine.from),
-      Math.max(startLine.to, endLine.to),
-    );
-    const isCovered = (pos: number): boolean => covered.some((r) => r.from <= pos && pos < r.to);
-    const col = Math.min(sel.head - startLine.from, Math.max(endLine.length, startLine.length));
-    // 이동 방향 쪽(시작 줄 바로 옆)부터 탐색 — 가장 가까운 살아 있는 줄로.
-    const first = dir === 1 ? startLine.number + 1 : startLine.number - 1;
-    const last = dir === 1 ? endLine.number : endLine.number;
-    for (let n = first; dir === 1 ? n <= last : n >= last; n += dir) {
-      const line = view.state.doc.line(n);
-      if (!isCovered(line.from)) {
-        view.dispatch({ selection: { anchor: line.from + Math.min(col, line.length) } });
-        return true;
-      }
-    }
+  // 멀티커서(⌥⌘↑↓ 등)에선 단일 선택 디스패치가 커서들을 붕괴시킨다 — 놔둔다.
+  if (sel.empty && crossed > 1 && view.state.selection.ranges.length === 1) {
+    const stop = nearestStoppableLine(view, startLine, endLine, dir, sel.head - startLine.from);
+    if (stop != null) view.dispatch({ selection: { anchor: stop } });
   }
   return true;
+}
+
+/** ⇧↑↓ 선택 확장도 같은 가드 — CM의 extendSel이 같은 moveVertically로
+ *  위젯을 넘어 도약하면 머리만 가장 가까운 정차 줄로 끊는다(앵커 고정). */
+export function guardedLineExtend(view: EditorView, dir: 1 | -1): boolean {
+  const sel = view.state.selection.main;
+  const startLine = view.state.doc.lineAt(sel.head);
+  const moved = dir === 1 ? selectLineDown(view) : selectLineUp(view);
+  if (!moved) return false;
+  const head = view.state.selection.main.head;
+  const endLine = view.state.doc.lineAt(head);
+  const crossed = dir === 1 ? endLine.number - startLine.number : startLine.number - endLine.number;
+  if (crossed > 1 && view.state.selection.ranges.length === 1) {
+    const stop = nearestStoppableLine(view, startLine, endLine, dir, sel.head - startLine.from);
+    if (stop != null) view.dispatch({ selection: { anchor: sel.anchor, head: stop } });
+  }
+  return true;
+}
+
+/** 도약 구간에서 방향 쪽 가장 가까운 '커서를 얹을 수 있는 줄'의 위치.
+ *  없으면 null(원래 이동 결과를 유지). */
+function nearestStoppableLine(
+  view: EditorView,
+  startLine: { number: number; from: number; to: number; length: number },
+  endLine: { number: number; from: number; to: number; length: number },
+  dir: 1 | -1,
+  col: number,
+): number | null {
+  const covered = blockWidgetRangesBetween(
+    view.state,
+    Math.min(startLine.from, endLine.from),
+    Math.max(startLine.to, endLine.to),
+    view.state.facet(previewBehavior) === "reveal"
+      ? (w) => !isRevealableBlockWidget(w)
+      : undefined,
+  );
+  const isCovered = (pos: number): boolean => covered.some((r) => r.from <= pos && pos < r.to);
+  const clamped = Math.min(col, Math.max(endLine.length, startLine.length));
+  // 이동 방향 쪽(시작 줄 바로 옆)부터 탐색 — 가장 가까운 살아 있는 줄로.
+  const first = dir === 1 ? startLine.number + 1 : startLine.number - 1;
+  const last = dir === 1 ? endLine.number : endLine.number;
+  for (let n = first; dir === 1 ? n <= last : n >= last; n += dir) {
+    const line = view.state.doc.line(n);
+    if (!isCovered(line.from)) return line.from + Math.min(clamped, line.length);
+  }
+  return null;
 }
 
 function baseExtensions(): Extension[] {
@@ -308,6 +432,9 @@ function baseExtensions(): Extension[] {
     historyField,
     history(),
     indentUnit.of("  "),
+    // 본문 텍스트상자 이름 — CM 기본값엔 aria-label이 없어 스크린 리더가
+    // 그냥 "textbox"로만 발음한다(접근성 트리 실측). 언어는 문구 주입 시점.
+    EditorView.contentAttributes.of({ "aria-label": phrases.editorLabel }),
     keymap.of([
       ...defaultKeymap,
       ...historyKeymap,
@@ -373,6 +500,7 @@ function baseExtensions(): Extension[] {
       addKeymap: false,
     }),
     editorSyntaxHighlighting(),
+    sourceModeClass,
     wikiAutocompletion(),
     headingFoldService,
     foldGutter(),
@@ -381,16 +509,18 @@ function baseExtensions(): Extension[] {
     livePreviewExtension(),
     indentGuidePlugin,
     searchHighlight(),
-    occurrenceHighlight(),
     trackChanges(),
     editorTheme,
     EditorView.lineWrapping,
     // 순수 ↑↓ — 위젯 점프 교정 가드. defaultKeymap의 화살표보다 먼저
     // 타야 한다(Prec.highest — 같은 배열 뒤에 넣는 것만으로는 이기지 못함).
+    // ⇧↑↓(선택 확장)도 같은 moveVertically 점프를 쓰므로 함께 가드한다.
     Prec.highest(
       keymap.of([
         { key: "ArrowUp", run: (v) => guardedLineMove(v, -1) },
         { key: "ArrowDown", run: (v) => guardedLineMove(v, 1) },
+        { key: "Shift-ArrowUp", run: (v) => guardedLineExtend(v, -1) },
+        { key: "Shift-ArrowDown", run: (v) => guardedLineExtend(v, 1) },
       ]),
     ),
     // 멀티커서 — 이 facet이 없으면 상태가 강제로 단일 선택으로 붕괴된다
@@ -401,13 +531,18 @@ function baseExtensions(): Extension[] {
     // ⌥드래그 사각(열) 선택 — 코어 @codemirror/view 내장(크로스헤어 커서 표시).
     rectangularSelection(),
     crosshairCursor(),
+    widgetClickCollapse,
     previewConfigField,
+    asyncEditPlugin,
     EditorView.updateListener.of((u) => {
       if (u.docChanged || u.selectionSet) listener?.(u);
       // 표 행 사이에 일반 문장 타이핑 — 자동 빈 줄 분리(GFM이 파이프 없는
       // 줄까지 표 행으로 삼키는 것을 방지, 표가 갈라지며 문장은 문단이 된다).
+      // 문단 바로 아래 --- 타이핑도 같은 치로 — 셋텍스트 H2가 되는 순간 빈
+      // 줄을 올려 수평선이 되게 한다.
       if (u.docChanged && u.transactions.some((tr) => tr.isUserEvent("input.type"))) {
         splitTableAtPlainLine(u.view, u);
+        splitSetextUnderline(u.view, u);
       }
       // 클릭 교정 최종 적용 — CM의 포인터 선택(userEvent select.pointer)이
       // 확정된 이 시점에 비로소 비교한다(그 전엔 덮일 수 있다).
@@ -555,6 +690,7 @@ function baseExtensions(): Extension[] {
         return false;
       },
       paste(event, view) {
+        if (view.state.readOnly) return false;
         // 이미지 붙여넣기(스크린샷) — 클립보드에 파일 아닌 이미지가 있으면
         // 문서 폴더 assets/ 에 저장하고 표준 ![...](assets/...) 참조를 삽입한다.
         // 원문은 표준 마크다운 이미지 구문만 — 무손실(§4-2).
@@ -562,55 +698,22 @@ function baseExtensions(): Extension[] {
         const imgItem = items
           ? Array.from(items).find((it) => it.kind === "file" && it.type.startsWith("image/"))
           : undefined;
-        if (imgItem) {
-          const tab = view.state.field(previewConfigField, false);
-          const baseDir = tab?.baseDir ?? "";
-          if (baseDir && isInApp()) {
-            event.preventDefault();
-            void (async () => {
-              try {
-                const abs = await api.saveClipboardImage(baseDir);
-                // relPath는 이미 assets/를 포함한다 — 다시 붙이면 이중 경로가 된다.
-                const rel = relPath(baseDir, abs);
-                const sel = view.state.selection.main;
-                view.dispatch({
-                  changes: { from: sel.from, to: sel.to, insert: `![](${rel})\n` },
-                  selection: { anchor: sel.from + 4 },
-                  userEvent: "input.pasteImage",
-                });
-              } catch (e) {
-                // 이미지 저장 실패 — 텍스트 붙여넣기로 폴백하지 않고 알린다.
-                console.warn("이미지 붙여넣기 실패", e);
-              }
-            })();
-            return true;
-          }
+        if (imgItem && isInApp() && imageImportHandler) {
+          event.preventDefault();
+          // The event owns this snapshot; never reread the mutable system clipboard.
+          imageImportHandler(view, imgItem.getAsFile());
+          return true;
         }
         const text = event.clipboardData?.getData("text/plain") ?? "";
         const sel = view.state.selection.main;
         // 이미지 파일 경로 붙여넣기 — 절대 경로 + 이미지 확장자면 assets/로
         // 임포트해 참조 삽입(드래그앤드롭과 같은 경로, Word 붙여넣기 관례).
         if (
-          isInApp() &&
-          /^\/(\S+)\.(png|jpe?g|gif|webp|svg|bmp|heic|avif|tiff?)$/i.test(text.trim())
+          isInApp() && imageImportHandler &&
+          /^\/[^\r\n\0]+\.(png|jpe?g|gif|webp|svg|bmp|heic)$/i.test(text.trim())
         ) {
           event.preventDefault();
-          void (async () => {
-            try {
-              const tab = view.state.field(previewConfigField, false);
-              const dir = tab?.baseDir ?? "";
-              if (!dir) return;
-              const abs = await api.importImage(text.trim(), dir);
-              fmt.insertImageRef(view, relPath(dir, abs));
-              view.focus();
-            } catch {
-              // 임포트 실패(존재 안 함 등) — 일반 텍스트로 폴백.
-              view.dispatch({
-                changes: { from: sel.from, to: sel.to, insert: text },
-                userEvent: "input.pastePlain",
-              });
-            }
-          })();
+          imageImportHandler(view, [text.trim()]);
           return true;
         }
         const isUrl = /^https?:\/\/\S+$/i.test(text.trim()) && !/\s/.test(text.trim());
@@ -625,7 +728,7 @@ function baseExtensions(): Extension[] {
         }
         // TSV(엑셀·시트) → 마크다운 표(Word가 엑셀 표를 표로 붙이듯).
         // 서식 없는 HTML이 있는 경우(시트 복사) text/html 경로가 이긴다.
-        if (!plainPasteQueued && looksLikeTsv(text)) {
+        if (looksLikeTsv(text)) {
           event.preventDefault();
           view.dispatch({
             changes: { from: sel.from, to: sel.to, insert: `${tsvToTable(text)}\n` },
@@ -633,44 +736,47 @@ function baseExtensions(): Extension[] {
           });
           return true;
         }
-        // 서식 없이 붙여넣기(대기 중이면) — HTML 변환·링크 스마트 모두 건너뛴다.
-        if (plainPasteQueued) {
-          plainPasteQueued = false;
-          event.preventDefault();
-          const sel = view.state.selection.main;
-          view.dispatch({
-            changes: { from: sel.from, to: sel.to, insert: text },
-            userEvent: "input.pastePlain",
-          });
-          return true;
-        }
         const html = event.clipboardData?.getData("text/html") ?? "";
         if (html.trim()) {
+          if (html.length > HTML_PASTE_MAX) {
+            event.preventDefault();
+            if (text) view.dispatch({
+              changes: { from: sel.from, to: sel.to, insert: text }, userEvent: "input.pastePlain",
+            });
+            clipboardNotice(phrases.clipboardHtmlTooLarge, "info");
+            return true;
+          }
           // 거대 HTML 붙여넣기는 변환에 프레임을 통째로 먹는다 — plain을 먼저
           // 붙이고(즉시), 변환은 다음 태스크에서 끝나면 그 범위를 마크다운으로
           // 바꿔치기한다. 그 사이 사용자가 건드렸으면(범위 검증 실패) 그대로 둔다.
           if (html.length > HTML_PASTE_SYNC_MAX) {
             event.preventDefault();
-            view.dispatch({
+            if (text) view.dispatch({
               changes: { from: sel.from, to: sel.to, insert: text },
               userEvent: "input.pastePlain",
             });
-            const from = sel.from;
-            const to = from + text.length;
+            const target = captureAsyncEdit(view, "html-upgrade", {
+              from: sel.from, to: text ? sel.from + text.length : sel.to,
+            });
             setTimeout(() => {
-              if (!view.dom.isConnected) return;
-              const md = htmlToMarkdown(html);
-              if (!md || md === text) return;
-              if (view.state.doc.sliceString(from, to) === text) {
-                view.dispatch({
-                  changes: { from, to, insert: md },
-                  userEvent: "input.pasteHtmlUpgrade",
-                });
-              }
+              if (!target) return;
+              try {
+                if (!target.current()) return;
+                const md = htmlToMarkdown(html);
+                if (md && md !== text) target.replace(md, "input.pasteHtmlUpgrade");
+              } catch {
+                clipboardNotice(phrases.clipboardHtmlFailed);
+              } finally { target.finish(); }
             }, 16);
             return true;
           }
-          const md = htmlToMarkdown(html);
+          let md: string | null;
+          try { md = htmlToMarkdown(html); }
+          catch {
+            clipboardNotice(phrases.clipboardHtmlFailed);
+            if (!text) { event.preventDefault(); return true; }
+            return false;
+          }
           if (md && md !== text) {
             event.preventDefault();
             view.dispatch({
@@ -679,6 +785,7 @@ function baseExtensions(): Extension[] {
             });
             return true;
           }
+          if (!text) { event.preventDefault(); return true; }
         }
         return false;
       },
@@ -711,14 +818,15 @@ function baseExtensions(): Extension[] {
             return true;
           }
         }
-        // 위키링크 위젯 — 해석된 절대 경로를 링크 처리기로(그대로 markdown 분류).
+        // 위키링크 위젯 — 파일명의 #/%를 URL 구분자로 오인하지 않도록 인코딩.
         const wikiEl = target?.closest?.(".md-wikilink");
         if (wikiEl) {
           event.preventDefault();
           const path = wikiEl.getAttribute("data-wiki-path");
           if (path) {
             const anchorFrag = wikiEl.getAttribute("data-wiki-anchor");
-            linkClickHandler?.(anchorFrag ? `${path}#${anchorFrag}` : path, "");
+            const href = path.split("/").map(encodeURIComponent).join("/");
+            linkClickHandler?.(anchorFrag ? `${href}#${encodeURIComponent(anchorFrag)}` : href, "");
           }
           return true;
         }
@@ -818,6 +926,24 @@ function currentPreviewConfig(view: EditorView): PreviewConfigParam {
   );
 }
 
+/** 소스 모드 표식 — previewBehavior가 "source"면 에디터 루트에 클래스를
+ *  건다. 태그 하이라이트의 제목 스타일(theme.md-tag-h*)은 이 스코프에서만
+ *  붙는다 — 편집·읽기 모드의 셋텍스트 억제를 우회하지 않게(소스 모드는
+ *  '원문 그대로'라 CommonMark 해석을 보여주는 게 오히려 정직하다). */
+const sourceModeClass = ViewPlugin.fromClass(
+  class {
+    constructor(view: EditorView) {
+      this.sync(view);
+    }
+    update(u: ViewUpdate) {
+      if (u.startState.facet(previewBehavior) !== u.state.facet(previewBehavior)) this.sync(u.view);
+    }
+    sync(view: EditorView) {
+      view.dom.classList.toggle("cm-source-mode", view.state.facet(previewBehavior) === "source");
+    }
+  },
+);
+
 /** 모드 전환 — 같은 버퍼 위에서 확장만 재구성(내용 불변, §4-2 5항 (c)). */
 export function switchMode(view: EditorView, mode: ViewMode): void {
   const editable =
@@ -879,24 +1005,36 @@ let clickedAt: { x: number; y: number } | null = null;
 /** mouseup이 등록한 클릭 교정 — select.pointer 확정 후 적용. */
 let pendingClickFix: { from: number; to: number; anchor: number } | null = null;
 
-// — 서식 없이 붙여넣기(⌥⌘⇧V) — 클립보드 읽기 실패 시 다음 붙여넣기에 적용. —
-let plainPasteQueued = false;
+/** 블록 위젯(표·이미지·수평선 등) 클릭 = 선택 해제.
+ *  위젯은 ignoreEvent=true라 CM이 그 안의 mousedown을 처리하지 않는다 —
+ *  ⌘A 뒤 표 셀을 클릭하면 화면 선택은 풀린 듯해도 CM 선택은 문서 전체로
+ *  남아, 모든 #·** 원문 마커가 노출된 채 굳었다(2026-10-16 사용자 보고).
+ *  텍스트 줄 클릭과 같게, 범위 선택이 있으면 위젯 위치 커서로 접는다.
+ *  (위젯 자체 핸들러 — 수식·펜스의 클릭=편집 — 는 이 뒤에 실행돼 덮어쓴다.) */
+const widgetClickCollapse = ViewPlugin.fromClass(
+  class {
+    constructor(readonly view: EditorView) {
+      view.contentDOM.addEventListener("mousedown", this.onDown, true);
+    }
+    onDown = (e: MouseEvent): void => {
+      const view = this.view;
+      if (e.button !== 0 || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey) return;
+      const sel = view.state.selection;
+      if (sel.ranges.length === 1 && sel.main.empty) return;
+      // contentDOM 직속 자식까지 올라간다 — 텍스트 줄(.cm-line)이 아닌 블록 위젯만.
+      let block = e.target instanceof Element ? e.target : null;
+      while (block && block.parentElement !== view.contentDOM) block = block.parentElement;
+      if (!(block instanceof HTMLElement) || block.contentEditable !== "false") return;
+      if (block.classList.contains("cm-line") || block.classList.contains("cm-gap")) return;
+      view.dispatch({ selection: { anchor: view.posAtDOM(block) }, userEvent: "select.pointer" });
+    };
+    destroy() {
+      this.view.contentDOM.removeEventListener("mousedown", this.onDown, true);
+    }
+  },
+);
 
 /** 서식 없이 붙여넣기 — HTML→MD 변환 없이 텍스트 그대로. */
 export function pasteAsPlainText(view: EditorView): boolean {
-  void (async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text) return;
-      const sel = view.state.selection.main;
-      view.dispatch({
-        changes: { from: sel.from, to: sel.to, insert: text },
-        userEvent: "input.pastePlain",
-      });
-    } catch {
-      // 클립보드 읽기 거부 — 다음 붙여넣기 이벤트에서 평문으로.
-      plainPasteQueued = true;
-    }
-  })();
-  return true;
+  return pasteTextFromClipboard(view);
 }

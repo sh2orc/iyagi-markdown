@@ -54,6 +54,23 @@ describe("frontMatterSyntax", { retry: 1 }, () => {
     const tree = parse(doc);
     expect(tree.topNode.firstChild?.name).toBe("ATXHeading1");
   });
+
+  it("닫는 --- 이 없는 첫 줄 --- 는 수평선이다(2026-10-20 보고 — 문서를 통째로 삼키던 버그)", () => {
+    const tree = parse("---\n본문입니다.\n");
+    expect(tree.topNode.firstChild?.name).toBe("HorizontalRule");
+    expect(tree.topNode.firstChild?.nextSibling?.name).toBe("Paragraph");
+  });
+
+  it("단독 --- · ---- 도 수평선", () => {
+    for (const doc of ["---\n", "---", "----\n"]) {
+      expect(parse(doc).topNode.firstChild?.name).toBe("HorizontalRule");
+    }
+  });
+
+  it("빈 줄을 지나 닫는 --- 이 있으면 프론트매터", () => {
+    const tree = parse("---\ntitle: x\n\n---\n본문\n");
+    expect(tree.topNode.firstChild?.name).toBe("FrontMatter");
+  });
 });
 
 describe("stripFrontMatter / frontMatterLen", { retry: 1 }, () => {
@@ -91,6 +108,21 @@ describe("parseFrontMatter", { retry: 1 }, () => {
 });
 
 describe("frontMatterMeta", { retry: 1 }, () => {
+  it("reads export metadata beyond the preview scan limit", () => {
+    const doc = `---\ndescription: ${"x".repeat(3000)}\ntitle: Long metadata\nauthor: Writer\ncover: false\n---\n# Body`;
+    expect(frontMatterMeta(doc)).toMatchObject({ title: "Long metadata", author: "Writer", cover: false });
+    expect(stripFrontMatter(doc)).toBe("# Body");
+  });
+
+  it("disables the EPUB cover only for explicit false values", () => {
+    for (const value of ["false", "no", "0", "FALSE"]) {
+      expect(frontMatterMeta(`---\ncover: ${value}\n---\n`)?.cover).toBe(false);
+    }
+    for (const value of ["true", "yes", "1", "unknown"]) {
+      expect(frontMatterMeta(`---\ncover: ${value}\n---\n`)?.cover).toBeUndefined();
+    }
+  });
+
   it("title·author·date를 뽑는다(대소문자 무시·따옴표 제거)", () => {
     const doc = `---
 title: "보고서 - 3분기"
@@ -157,7 +189,7 @@ describe("upsertFrontMatter", () => {
   it("키 갱신 — 다른 줄·순서 보존", () => {
     const doc = "---\ntitle: 옛제목\nauthor: 홍길동\n# 주석 아님 일반 줄\ntoc: false\n---\n\n본문";
     const out = upsertFrontMatter(doc, { title: "새제목", toc: true });
-    expect(out).toContain("title: 새제목");
+    expect(out).toContain('title: "새제목"');
     expect(out).toContain("author: 홍길동");
     expect(out).toContain("toc: true");
     expect(out).toContain("본문");
@@ -168,11 +200,43 @@ describe("upsertFrontMatter", () => {
     const doc = "---\ntitle: 제목\n---\n본문";
     const out = upsertFrontMatter(doc, { title: null, author: "이작가" });
     expect(out).not.toContain("title:");
-    expect(out).toContain("author: 이작가");
+    expect(out).toContain('author: "이작가"');
   });
 
   it("블록 없으면 새로 생성, 본문 무결", () => {
     const out = upsertFrontMatter("본문\n", { title: "제목", toc: true });
-    expect(out.startsWith("---\ntitle: 제목\ntoc: true\n---\n\n본문\n")).toBe(true);
+    expect(out).toBe('---\ntitle: "제목"\ntoc: true\n---\n\n본문\n');
+  });
+
+  it("긴 블록의 CRLF·닫는 구분선·본문·주석을 그대로 보존한다", () => {
+    const untouched = `description: ${"x".repeat(3000)}\r\n# keep\r\ncustom:\r\n  nested: yes\r\n`;
+    const source = `---\r\nTitle: old # title note\r\n${untouched}---\r\n# Body\r\n\r\n`;
+    const next = upsertFrontMatter(source, { title: "new" });
+    expect(next).toBe(`---\r\nTitle: "new" # title note\r\n${untouched}---\r\n# Body\r\n\r\n`);
+    expect(stripFrontMatter(next)).toBe(stripFrontMatter(source));
+  });
+
+  it("authors 별칭·중복 키·블록 값의 이전 내용을 남기지 않는다", () => {
+    const source = "---\nAuthors:\n  - A\n  - B\n# keep\nauthor: duplicate\ntitle: |\n  Old title\n  continued\nextra: untouched\n---";
+    expect(upsertFrontMatter(source, { author: "Writer", title: null })).toBe(
+      '---\nauthor: "Writer"\n# keep\nextra: untouched\n---',
+    );
+  });
+
+  it("입력 문자열의 구분자·주석·따옴표·줄바꿈을 값으로 왕복한다", () => {
+    const title = 'Title: #1 "quoted" \\ path\nnext';
+    const next = upsertFrontMatter("Body\n", { title, author: "O'Neill", toc: true });
+    expect(frontMatterMeta(next)).toMatchObject({ title, author: "O'Neill", toc: true });
+    expect(stripFrontMatter(next)).toBe("\nBody\n");
+    expect(frontMatterMeta("---\ntitle: 'Writer''s #1' # note\ntoc: true # enabled\n---\n")
+      ).toMatchObject({ title: "Writer's #1", toc: true });
+  });
+
+  it("빈 블록·끝 개행 유무와 삭제만 있는 패치를 보존한다", () => {
+    expect(frontMatterLen("---\n---\nBody")).toBe(8);
+    expect(upsertFrontMatter("---\n---\nBody", { title: "T" })).toBe('---\ntitle: "T"\n---\nBody');
+    expect(upsertFrontMatter("Body\r\n", { title: null, author: null })).toBe("Body\r\n");
+    expect(upsertFrontMatter("Body\r\n", { title: "T", author: null })).toBe('---\r\ntitle: "T"\r\n---\r\n\r\nBody\r\n');
+    expect(upsertFrontMatter("---\ntitle: x\n---", {})).toBe("---\ntitle: x\n---");
   });
 });

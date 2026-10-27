@@ -1,0 +1,6 @@
+{
+  "markdown": "[^unused]: # Shared\n\n[^late]: # Shared\n\n# Shared\n\n# Shared\n\nNotes[^early] then[^late].\n\n[^early]: # Shared\n\n# [@ref] Findings\n\n# [@ref] Findings\n\n# ref findings 1\n\n# First [@ref] second\n\n[jump](#ref-findings) [note jump](#shared-2)\n\n[@ref]: Reference.\n",
+  "bodyAnchors": ["shared", "shared-1", "ref-findings", "ref-findings-1", "ref-findings-1-1", "first-ref-second"],
+  "footnoteAnchors": ["shared-2", "shared-3"],
+  "bibliographyAnchors": ["ref-ref"]
+}

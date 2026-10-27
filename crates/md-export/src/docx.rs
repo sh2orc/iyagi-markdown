@@ -14,6 +14,8 @@ use std::path::Path;
 use comrak::nodes::{AstNode, NodeCodeBlock, NodeTable, NodeValue, TableAlignment};
 use comrak::{parse_document, Arena, Options};
 
+use crate::docx_comments::DocxComments;
+use crate::docx_lists::{DocxLists, ListInstance};
 use crate::mathml2omml::mathml_to_omml;
 use crate::svg2dml::svg_to_drawingml;
 use crate::xml::{esc, PRESERVE};
@@ -27,6 +29,8 @@ pub enum DocxError {
     Io(#[from] std::io::Error),
     #[error("zip 압축 실패: {0}")]
     Zip(#[from] zip::result::ZipError),
+    #[error(transparent)]
+    AtomicWrite(#[from] md_core::io::DocError),
 }
 
 const PAGE_TEXT_WIDTH_EMU: i64 = 5_486_400; // 6in — A4 210mm에서 25mm 여백.
@@ -41,43 +45,43 @@ struct Ctx<'a> {
     /// 하이퍼링크 관계 (id → URL). rId는 하이퍼링크 전용 번호로 매긴다.
     hyperlinks: Vec<String>,
     /// 그림 고유 id 시퀀스.
-    next_doc_id: i64,
-    /// 각주 정의(순서 = id). 라벨 → id(1부터).
-    footnotes: Vec<String>,
+    next_doc_id: u32,
+    /// Parser-assigned footnote ID and complete rendered block content.
+    footnotes: Vec<(u32, String)>,
+    in_footnote: bool,
     /// 문서별 표 열 폭(px) — 헤더 내용 키(사이드카).
     table_widths: std::collections::HashMap<String, Vec<u32>>,
+    /// 캡션 라벨 언어("ko"/"en") — 목차 필드 제목과 같은 규칙.
+    lang: &'a str,
     /// 그림 캡션 번호(SEQ 초기값 — Word가 갱신).
     figures: u32,
     /// 표 캡션 번호(SEQ Table).
     tables: u32,
-    /// 문서 메모 — 시작 줄 → (id, 텍스트). 문단 sourcepos로 대응.
-    comments: std::collections::HashMap<u32, (u64, String)>,
-    footnote_ids: std::collections::HashMap<String, usize>,
-    /// 북마크 슬러그 중복 카운터(GitHub식 -1 접미 — 프런트 tocMarkdown과 같은 규칙).
-    slug_seen: std::collections::HashMap<String, usize>,
-    /// 서지 정의 줄 → 키(문단 북마크)·키 → 번호(인용 하이퍼링크).
+    /// Multiple source-line comments claimed by rendered blocks.
+    comments: DocxComments,
+    lists: DocxLists,
+    /// Heading source line → reserved slug, before rendering nested inline runs.
+    heading_slugs: HashMap<usize, String>,
+    next_bookmark_id: u32,
+    /// 서지 정의 줄 → 아직 연결하지 않은 북마크 키.
     cite_lines: std::collections::HashMap<u32, String>,
-    cite_nums: std::collections::HashMap<String, usize>,
 }
 
 impl<'a> Ctx<'a> {
-    /// GitHub식 슬러그 + 문서 내 중복 -1 접미(프런트 links.ts와 같은 규칙).
-    fn bookmark_slug(&mut self, text: &str) -> String {
-        let base = md_core::links::slug_heading(text);
-        let n = self.slug_seen.entry(base.clone()).or_insert(0);
-        *n += 1;
-        let dedup = *n;
-        if dedup == 1 {
-            base
-        } else {
-            format!("{base}-{}", dedup - 1)
-        }
+    fn bookmark_xml(&mut self, name: &str) -> String {
+        let id = self.next_bookmark_id;
+        self.next_bookmark_id += 1;
+        let name = esc(name);
+        format!("<w:bookmarkStart w:id=\"{id}\" w:name=\"{name}\"/><w:bookmarkEnd w:id=\"{id}\"/>")
     }
 
-    fn add_media(&mut self, bytes: Vec<u8>, ext: &str) -> String {
-        let name = format!("media/image{}.{}", self.media.len() + 1, ext);
+    fn add_media(&mut self, bytes: Vec<u8>, ext: &str) -> (String, usize) {
+        // Package relationship IDs are independent of drawing IDs: SVG and
+        // Mermaid drawings do not add a media part.
+        let relationship_id = self.media.len() + 1;
+        let name = format!("media/image{relationship_id}.{ext}");
         self.media.push((name.clone(), bytes));
-        name
+        (name, relationship_id)
     }
 
     fn add_hyperlink(&mut self, url: &str) -> usize {
@@ -88,10 +92,128 @@ impl<'a> Ctx<'a> {
         self.hyperlinks.len()
     }
 
-    fn next_id(&mut self) -> i64 {
+    fn next_id(&mut self) -> u32 {
         self.next_doc_id += 1;
         self.next_doc_id
     }
+}
+
+/// Recover raw inline source before applying citation or other display rewrites.
+fn heading_title<'a>(node: &'a AstNode<'a>, lines: &[&str]) -> Result<String, DocxError> {
+    let mut title = String::new();
+    if let (Some(first), Some(last)) = (node.first_child(), node.last_child()) {
+        let start = first.data.borrow().sourcepos.start;
+        let end = last.data.borrow().sourcepos.end;
+        let invalid = || DocxError::Build("Could not locate heading source text".into());
+        let first_line = start.line.checked_sub(1).ok_or_else(invalid)?;
+        let rows = lines.get(first_line..end.line).ok_or_else(invalid)?;
+        let quotes = node
+            .ancestors()
+            .filter(|ancestor| {
+                matches!(
+                    ancestor.data.borrow().value,
+                    NodeValue::BlockQuote | NodeValue::MultilineBlockQuote(_)
+                )
+            })
+            .count();
+        for (index, row) in rows.iter().enumerate() {
+            let from = if index == 0 {
+                start.column.checked_sub(1).ok_or_else(invalid)?
+            } else {
+                0
+            };
+            let to = if index + 1 == rows.len() {
+                end.column
+            } else {
+                row.len()
+            };
+            let mut part = row.get(from..to).ok_or_else(invalid)?.trim();
+            if index > 0 {
+                for _ in 0..quotes {
+                    if let Some(rest) = part.strip_prefix('>') {
+                        part = rest.trim_start();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if index > 0 {
+                title.push('\n');
+            }
+            title.push_str(part);
+        }
+    }
+    Ok(title.trim().to_string())
+}
+
+/// Reserve body headings first, then rendered notes in reference order. Unused
+/// footnote definitions must neither consume suffixes nor become link targets.
+fn heading_anchors<'a>(
+    root: &'a AstNode<'a>,
+    source: &str,
+    original_root: &'a AstNode<'a>,
+    original_source: &str,
+) -> Result<HashMap<usize, String>, DocxError> {
+    let original_lines: Vec<_> = original_source.split('\n').collect();
+    let mut original_titles = HashMap::new();
+    for node in original_root.descendants() {
+        if matches!(node.data.borrow().value, NodeValue::Heading(_)) {
+            original_titles.insert(
+                node.data.borrow().sourcepos.start.line,
+                heading_title(node, &original_lines)?,
+            );
+        }
+    }
+    let note_ids: HashMap<String, u32> = root
+        .descendants()
+        .filter_map(|node| match &node.data.borrow().value {
+            NodeValue::FootnoteReference(reference) => Some((reference.name.clone(), reference.ix)),
+            _ => None,
+        })
+        .collect();
+    let mut headings = Vec::new();
+    for node in root.descendants() {
+        if !matches!(node.data.borrow().value, NodeValue::Heading(_)) {
+            continue;
+        }
+        let line = node.data.borrow().sourcepos.start.line;
+        let definition = node.ancestors().find(|ancestor| {
+            matches!(
+                ancestor.data.borrow().value,
+                NodeValue::FootnoteDefinition(_)
+            )
+        });
+        let note_id = if let Some(definition) = definition {
+            let data = definition.data.borrow();
+            let NodeValue::FootnoteDefinition(note) = &data.value else {
+                unreachable!()
+            };
+            if note.total_references == 0 {
+                continue;
+            }
+            let Some(id) = note_ids.get(&note.name) else {
+                continue;
+            };
+            *id
+        } else {
+            0
+        };
+        headings.push((note_id, line, node));
+    }
+    headings.sort_by_key(|(note_id, line, _)| (*note_id, *line));
+    let lines: Vec<_> = source.split('\n').collect();
+    let mut slugs = md_core::links::HeadingSlugs::default();
+    let mut anchors = HashMap::new();
+    for (_, line, node) in headings {
+        // Preprocessing preserves source lines. Newly created headings (e.g. an
+        // uncited bibliography entry beginning with '#') use their rendered source.
+        let title = match original_titles.get(&line) {
+            Some(title) => title.clone(),
+            None => heading_title(node, &lines)?,
+        };
+        anchors.insert(line, slugs.allocate(&title));
+    }
+    Ok(anchors)
 }
 
 /// 내보내기 옵션 묶음 — export_docx 인자가 늘어 구조체로.
@@ -157,15 +279,24 @@ pub fn export_docx(
     options.extension.tasklist = true;
     options.extension.autolink = true;
     options.extension.math_dollars = true;
+    options.extension.footnotes = true;
+    options.parse.leave_footnote_definitions = true;
 
-    // 각주는 comrak가 [\^라벨]: 를 링크 참조 정의로 소비하므로 파싱 전에 추출.
-    let (body_md, footnote_defs) = extract_footnotes(markdown);
-    // 인용·서지도 같은 이유로 사전 처리(정의 줄 → [N] 항목 문단, 인라인 → 센티넬).
-    let cites = crate::citations::Citations::extract(&body_md);
+    // Bibliography preprocessing preserves source lines; footnotes use native AST nodes.
+    let cites = crate::citations::Citations::extract(markdown);
     let body_md = cites.md.clone();
 
     let arena = Arena::new();
     let root = parse_document(&arena, &body_md, &options);
+    let has_headings = root
+        .descendants()
+        .any(|node| matches!(node.data.borrow().value, NodeValue::Heading(_)));
+    let original_root = if body_md != markdown && has_headings {
+        parse_document(&arena, markdown, &options)
+    } else {
+        root
+    };
+    let heading_slugs = heading_anchors(root, &body_md, original_root, markdown)?;
 
     let mut ctx = Ctx {
         math,
@@ -173,38 +304,22 @@ pub fn export_docx(
         images,
         media: Vec::new(),
         hyperlinks: Vec::new(),
-        next_doc_id: 100,
+        next_doc_id: 0,
         footnotes: Vec::new(),
+        in_footnote: false,
         table_widths: (*table_widths).clone(),
-        footnote_ids: std::collections::HashMap::new(),
-        slug_seen: std::collections::HashMap::new(),
+        lang: front_lang,
+        heading_slugs,
+        next_bookmark_id: 0,
         cite_lines: cites.lines.clone(),
-        cite_nums: cites.nums.clone(),
         figures: 0,
         tables: 0,
-        comments: comments
-            .iter()
-            .enumerate()
-            .map(|(i, (l, t))| (*l, (i as u64 + 1, t.clone())))
-            .collect(),
+        comments: DocxComments::new(comments, markdown.split('\n').count())
+            .map_err(DocxError::Build)?,
+        lists: DocxLists::default(),
     };
     set_hl_fill(highlight.filter(|h| !h.is_empty()).unwrap_or("FFF3A3"));
-    // 추출한 각주 정의를 Ctx에 등록 — 각각 마크다운으로 파싱해 인라인 서식
-    // (굵게·링크·수식)까지 각주 안에 유지.
-    for (label, def_md) in &footnote_defs {
-        let droot = parse_document(&arena, def_md, &options);
-        let para = droot
-            .children()
-            .find(|c| matches!(c.data.borrow().value, NodeValue::Paragraph));
-        let runs = match para {
-            Some(p) => inline_children(p, &mut ctx, 0).unwrap_or_default(),
-            None => plain_run(def_md, &RunStyle::default()),
-        };
-        ctx.footnote_ids
-            .insert(label.clone(), ctx.footnotes.len() + 1);
-        // 각주 번호 위첨자 + 정의 런(footnotes_xml이 <w:p> 골격을 낸다).
-        ctx.footnotes.push(runs);
-    }
+    render_footnotes(root, &mut ctx)?;
     let mut body = String::new();
     if *toc {
         body.push_str(&toc_field(front_lang));
@@ -216,17 +331,20 @@ pub fn export_docx(
         body.push_str(&lot_field(front_lang));
     }
     for child in root.children() {
+        let from = body.len();
+        let line = child.data.borrow().sourcepos.start.line;
+        ctx.comments
+            .attach(1, line.saturating_sub(1), &mut body, from);
         block(child, &mut ctx, &mut body, 0, false)?;
     }
+    let from = body.len();
+    ctx.comments.attach(1, usize::MAX, &mut body, from);
     let show_footer = *page_numbers || footer_text.is_some();
     body.push_str(&sect_pr(show_footer, header_title.is_some(), *columns));
 
-    // 각주 참조 자리표시자(\\u{E000}라벨\\u{E000}) → footnoteReference 런.
-    let body = resolve_footnote_refs(&body, &ctx);
-    // 인용 센티넬 → 서지 앵커 하이퍼링크.
-    let body = resolve_cite_refs(&body, &ctx);
-
-    write_docx_zip(out, &body, &ctx, opts, style.clone())?;
+    md_core::io::write_file_atomic(out, |file| {
+        write_docx_zip(file, &body, &ctx, opts, style.clone()).map_err(std::io::Error::other)
+    })?;
     Ok(())
 }
 
@@ -363,11 +481,13 @@ fn regex_like_filename(t: &str) -> bool {
 }
 
 /// 표 캡션 문단 — SEQ Table 필드. 그림 캡션과 같은 구조.
-fn table_caption_xml(alt: &str, n: u32) -> String {
+/// 라벨은 목차 필드 제목과 같은 언어 규칙("en"이면 Table).
+fn table_caption_xml(alt: &str, n: u32, lang: &str) -> String {
+    let label = if lang == "en" { "Table " } else { "표 " };
     format!(
         concat!(
             "<w:p><w:pPr><w:pStyle w:val=\"Caption\"/><w:jc w:val=\"center\"/></w:pPr>",
-            "<w:r><w:t xml:space=\"preserve\">표 </w:t></w:r>",
+            "<w:r><w:t xml:space=\"preserve\">{}</w:t></w:r>",
             "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r>",
             "<w:r><w:instrText xml:space=\"preserve\"> SEQ Table \\* ARABIC </w:instrText></w:r>",
             "<w:r><w:fldChar w:fldCharType=\"separate\"/></w:r>",
@@ -376,17 +496,20 @@ fn table_caption_xml(alt: &str, n: u32) -> String {
             "<w:r><w:t xml:space=\"preserve\"> — {}</w:t></w:r>",
             "</w:p>"
         ),
+        label,
         n,
         esc(alt)
     )
 }
 
 /// 그림 캡션 문단 — SEQ Figure 필드(Word가 번호를 계속 매김) + 설명.
-fn figure_caption_xml(alt: &str, n: u32) -> String {
+/// 라벨은 목차 필드 제목과 같은 언어 규칙("en"이면 Figure).
+fn figure_caption_xml(alt: &str, n: u32, lang: &str) -> String {
+    let label = if lang == "en" { "Figure " } else { "그림 " };
     format!(
         concat!(
             "<w:p><w:pPr><w:pStyle w:val=\"Caption\"/><w:jc w:val=\"center\"/></w:pPr>",
-            "<w:r><w:t xml:space=\"preserve\">그림 </w:t></w:r>",
+            "<w:r><w:t xml:space=\"preserve\">{}</w:t></w:r>",
             "<w:r><w:fldChar w:fldCharType=\"begin\"/></w:r>",
             "<w:r><w:instrText xml:space=\"preserve\"> SEQ Figure \\* ARABIC </w:instrText></w:r>",
             "<w:r><w:fldChar w:fldCharType=\"separate\"/></w:r>",
@@ -395,6 +518,7 @@ fn figure_caption_xml(alt: &str, n: u32) -> String {
             "<w:r><w:t xml:space=\"preserve\"> — {}</w:t></w:r>",
             "</w:p>"
         ),
+        label,
         n,
         esc(alt)
     )
@@ -517,6 +641,20 @@ fn block<'a>(
     list_level: usize,
     in_quote: bool,
 ) -> Result<(), DocxError> {
+    let from = out.len();
+    block_content(node, ctx, out, list_level, in_quote)?;
+    let pos = node.data.borrow().sourcepos;
+    ctx.comments.attach(pos.start.line, pos.end.line, out, from);
+    Ok(())
+}
+
+fn block_content<'a>(
+    node: &'a AstNode<'a>,
+    ctx: &mut Ctx<'_>,
+    out: &mut String,
+    list_level: usize,
+    in_quote: bool,
+) -> Result<(), DocxError> {
     match &node.data.borrow().value {
         NodeValue::Paragraph => {
             // 페이지 나눔 매크로 문단(`\newpage` 등) — Word의 쪽 나눔으로.
@@ -530,62 +668,51 @@ fn block<'a>(
                 let _ = writeln!(out, "<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>");
                 return Ok(());
             }
-            let runs = inline_children(node, ctx, list_level)?;
+            let InlineContent { runs, captions } = inline_children(node, ctx, list_level)?;
             let quote = if in_quote {
                 " w:val=\"IYAGIQuote\""
             } else {
                 ""
             };
-            // 서지 정의 문단 — 북마크로 감싼다(인용 하이퍼링크의 도착점).
-            let line = node.data.borrow().sourcepos.start.line as u32;
-            if let Some(key) = ctx.cite_lines.get(&line).cloned() {
-                let runs = inline_children(node, ctx, list_level)?;
-                let _ = writeln!(
-                    out,
-                    "<w:p><w:pPr><w:pStyle/></w:pPr><w:bookmarkStart w:id=\"Bref-{key}\" w:name=\"ref-{key}\"/><w:bookmarkEnd w:id=\"Bref-{key}\"/>{runs}</w:p>"
-                );
-                return Ok(());
-            }
-            let cmt = ctx.comments.get(&line).cloned();
-            let _ = match cmt {
-                Some((id, _)) => writeln!(
-                    out,
-                    "<w:p><w:pPr><w:pStyle{quote}/></w:pPr><w:commentRangeStart w:id=\"{id}\"/>{runs}<w:commentRangeEnd w:id=\"{id}\"/><w:r><w:rPr><w:rStyle w:val=\"CommentReference\"/></w:rPr><w:commentReference w:id=\"{id}\"/></w:r></w:p>"
-                ),
-                None => writeln!(out, "<w:p><w:pPr><w:pStyle{quote}/></w:pPr>{runs}</w:p>"),
-            };
-        }
-        NodeValue::Heading(h) => {
-            let runs = inline_children(node, ctx, list_level)?;
-            let level = h.level.clamp(1, 6);
-            // 북마크(내부 앵커 링크 목적지) — 슬러그는 프런트와 같은 GitHub식.
-            let text: String = node
-                .children()
-                .filter_map(|c| match &c.data.borrow().value {
-                    NodeValue::Text(t) => Some(t.to_string()),
-                    _ => None,
-                })
-                .collect();
-            let slug = ctx.bookmark_slug(&text);
-            let bm = format!(
-                "<w:bookmarkStart w:id=\"B{slug}\" w:name=\"{slug}\"/><w:bookmarkEnd w:id=\"B{slug}\"/>"
-            );
             let _ = writeln!(
                 out,
-                "<w:p><w:pPr><w:pStyle w:val=\"Heading{level}\"/></w:pPr>{bm}{runs}</w:p>"
+                "<w:p><w:pPr><w:pStyle{quote}/></w:pPr>{runs}</w:p>{captions}"
+            );
+        }
+        NodeValue::Heading(h) => {
+            let InlineContent { runs, captions } = inline_children(node, ctx, list_level)?;
+            let level = h.level.clamp(1, 6);
+            let line = node.data.borrow().sourcepos.start.line;
+            let slug = ctx
+                .heading_slugs
+                .get(&line)
+                .ok_or_else(|| DocxError::Build("Missing heading anchor".into()))?
+                .clone();
+            let bm = ctx.bookmark_xml(&slug);
+            let _ = writeln!(
+                out,
+                "<w:p><w:pPr><w:pStyle w:val=\"Heading{level}\"/></w:pPr>{bm}{runs}</w:p>{captions}"
             );
         }
         NodeValue::BlockQuote | NodeValue::MultilineBlockQuote(_) => {
+            // 콜아웃 — 첫 문단이 [!유형]으로 시작하면 한 칸 표 카드로 꾸민다.
+            if let Some((key, title)) = callout_of(node) {
+                callout_block(node, &key, &title, ctx, out)?;
+                return Ok(());
+            }
             for c in node.children() {
                 block(c, ctx, out, list_level, true)?;
             }
         }
-        NodeValue::List(_) => {
+        NodeValue::List(metadata) => {
+            let list = ctx.lists.add(metadata, list_level);
             for c in node.children() {
-                list_item(c, ctx, out, list_level)?;
+                list_item(c, ctx, out, list_level, list, in_quote)?;
             }
         }
-        NodeValue::CodeBlock(cb) => code_block(cb, ctx, out)?,
+        NodeValue::CodeBlock(cb) => {
+            code_block(cb, node.data.borrow().sourcepos.start.line, ctx, out)?
+        }
         NodeValue::ThematicBreak => {
             out.push_str(
                 "<w:p><w:pPr><w:pBdr><w:bottom w:val=\"single\" w:sz=\"8\" w:space=\"1\" w:color=\"999999\"/></w:pBdr></w:pPr></w:p>",
@@ -598,7 +725,10 @@ fn block<'a>(
         NodeValue::Math(m) if m.display_math => {
             math_paragraph(&m.literal, ctx, out);
         }
-        NodeValue::FootnoteDefinition(_) | NodeValue::DescriptionList => {
+        // Kept at the original source position for comment anchors, rendered
+        // separately into word/footnotes.xml.
+        NodeValue::FootnoteDefinition(_) => {}
+        NodeValue::DescriptionList => {
             for c in node.children() {
                 block(c, ctx, out, list_level, in_quote)?;
             }
@@ -618,69 +748,86 @@ fn list_item<'a>(
     ctx: &mut Ctx,
     out: &mut String,
     level: usize,
+    list: ListInstance,
+    in_quote: bool,
 ) -> Result<(), DocxError> {
-    let ilvl = level.min(8);
+    let task = match &node.data.borrow().value {
+        NodeValue::TaskItem(task) => Some(task.symbol.is_some()),
+        _ => None,
+    };
+    let mut first = true;
+    // Non-paragraph and empty items still own one marker. A later paragraph
+    // belongs to the same item and must not consume another number.
+    if !node
+        .first_child()
+        .is_some_and(|child| matches!(child.data.borrow().value, NodeValue::Paragraph))
+    {
+        let from = out.len();
+        list_paragraph(out, list, first, task, in_quote, InlineContent::default());
+        let line = node.data.borrow().sourcepos.start.line;
+        ctx.comments.attach(line, line, out, from);
+        first = false;
+    }
     for c in node.children() {
         match &c.data.borrow().value {
             NodeValue::Paragraph => {
-                let task = if let NodeValue::TaskItem(t) = &node.data.borrow().value {
-                    t.symbol.is_some()
-                } else {
-                    false
-                };
-                let checked = if let NodeValue::TaskItem(t) = &node.data.borrow().value {
-                    t.symbol.is_some()
-                } else {
-                    false
-                };
-                let _ = task;
-                let checkbox = if matches!(node.data.borrow().value, NodeValue::TaskItem(_)) {
-                    format!(
-                        "<w:r><w:rPr><w:sz w:val=\"22\"/></w:rPr><w:sym w:font=\"Wingdings\" w:char=\"F0{}\"/></w:r>",
-                        if checked { "FE" } else { "A8" }
-                    )
-                } else {
-                    String::new()
-                };
-                let runs = inline_children(c, ctx, level)?;
-                let _ = writeln!(
-                    out,
-                    "<w:p><w:pPr><w:numPr><w:ilvl w:val=\"{ilvl}\"/><w:numId w:val=\"{num}\"/></w:numPr></w:pPr>{checkbox}{runs}</w:p>",
-                    num = list_num_id(node),
-                );
+                let content = inline_children(c, ctx, level)?;
+                let from = out.len();
+                list_paragraph(out, list, first, task, in_quote, content);
+                first = false;
+                let pos = c.data.borrow().sourcepos;
+                ctx.comments.attach(pos.start.line, pos.end.line, out, from);
             }
-            NodeValue::List(_) => block(c, ctx, out, level + 1, false)?,
-            other => {
-                let _ = other;
-                block(c, ctx, out, level, false)?;
-            }
+            _ => block(c, ctx, out, level + 1, in_quote)?,
         }
     }
     Ok(())
 }
 
-/// 이 항목이 속한 목록이 번호 목록이면 2, 아니면 1(numbering.xml 정의 순서).
-fn list_num_id(item: &AstNode<'_>) -> i64 {
-    use comrak::nodes::ListType;
-    // Item의 부모 List 정보는 형제 구조상 Item 노드에 없다 — 실제로는 Item이
-    // NodeList를 품고 있다(comrak 관례). ordered면 2.
-    if let NodeValue::Item(nl) = &item.data.borrow().value {
-        if nl.list_type == ListType::Ordered {
-            return 2;
+fn list_paragraph(
+    out: &mut String,
+    list: ListInstance,
+    first: bool,
+    task: Option<bool>,
+    in_quote: bool,
+    content: InlineContent,
+) {
+    let properties = list.paragraph_properties(first, task.is_some());
+    let quote = if in_quote {
+        "<w:pStyle w:val=\"IYAGIQuote\"/>"
+    } else {
+        ""
+    };
+    let _ = write!(out, "<w:p><w:pPr>{quote}{properties}</w:pPr>");
+    if let Some(checked) = task.filter(|_| first) {
+        let _ = write!(out,
+            "<w:r><w:rPr><w:sz w:val=\"22\"/></w:rPr><w:sym w:font=\"Wingdings\" w:char=\"F0{}\"/></w:r>",
+            if checked { "FE" } else { "A8" });
+        if list.ordered {
+            out.push_str("<w:r><w:t xml:space=\"preserve\"> </w:t></w:r>");
+        } else {
+            out.push_str("<w:r><w:tab/></w:r>");
         }
     }
-    1
+    let InlineContent { runs, captions } = content;
+    let _ = writeln!(out, "{runs}</w:p>{captions}");
 }
 
-fn code_block(cb: &NodeCodeBlock, ctx: &mut Ctx, out: &mut String) -> Result<(), DocxError> {
+fn code_block(
+    cb: &NodeCodeBlock,
+    source_line: usize,
+    ctx: &mut Ctx,
+    out: &mut String,
+) -> Result<(), DocxError> {
     let info = cb.info.trim().to_ascii_lowercase();
     let code = cb.literal.trim_matches('\n');
     // mermaid → 편집 가능 도형 그룹(§4-3).
     if info == "mermaid" {
+        let id = ctx.next_id();
         if let Some(svg) = ctx.diagrams.get(code) {
-            match svg_to_drawingml(svg, PAGE_TEXT_WIDTH_EMU) {
+            match svg_to_drawingml(svg, PAGE_TEXT_WIDTH_EMU, id) {
                 Ok(drawing) => {
-                    let _ = writeln!(out, "<w:p>{drawing}</w:p>");
+                    let _ = writeln!(out, "<w:p><w:r>{drawing}</w:r></w:p>");
                     return Ok(());
                 }
                 Err(e) => {
@@ -695,13 +842,17 @@ fn code_block(cb: &NodeCodeBlock, ctx: &mut Ctx, out: &mut String) -> Result<(),
         return Ok(());
     }
     // 일반 코드: 각 줄을 한 문단으로(배경·고정폭).
-    for line in code.split('\n') {
+    let literal = cb.literal.strip_suffix('\n').unwrap_or(&cb.literal);
+    for (index, line) in literal.split('\n').enumerate() {
+        let from = out.len();
         let _ = writeln!(
             out,
             "<w:p><w:pPr><w:pStyle w:val=\"IYAGICode\"/><w:ind w:left=\"0\"/></w:pPr>\
 <w:r><w:rPr><w:rFonts w:ascii=\"Menlo\" w:hAnsi=\"Menlo\"/><w:sz w:val=\"18\"/></w:rPr><w:t{PRESERVE}>{}</w:t></w:r></w:p>",
             esc(line)
         );
+        let source = source_line + usize::from(cb.fenced) + index;
+        ctx.comments.attach(source, source, out, from);
     }
     Ok(())
 }
@@ -727,10 +878,12 @@ fn math_paragraph(latex: &str, ctx: &Ctx, out: &mut String) {
 
 // — 표 —
 
-/// 셀 안 텍스트 전체 수집(재귀 — 인라인 서식 안까지).
+/// 셀/이미지 설명의 텍스트 수집(재귀 — 인라인 서식과 코드 안까지).
 fn collect_text<'a>(node: &'a AstNode<'a>, out: &mut String) {
     match &node.data.borrow().value {
         NodeValue::Text(t) => out.push_str(t),
+        NodeValue::Code(c) => out.push_str(&c.literal),
+        NodeValue::SoftBreak | NodeValue::LineBreak => out.push(' '),
         _ => {
             for c in node.children() {
                 collect_text(c, out);
@@ -779,7 +932,9 @@ fn table<'a>(
         }
         None => vec![8640 / n_cols.max(1) as i64; n_cols],
     };
-    let col_tw = col_tws[0];
+    // 열 인덱스가 그리드를 넘는 셀의 폭 폴백 — col_tws가 비는 변태 표
+    // (num_columns=0)에서 [0] 인덱싱이 패닉하지 않게 안전 접근.
+    let col_tw = col_tws.first().copied().unwrap_or(8640);
     let _ = write!(
         out,
         "<w:tbl><w:tblPr><w:tblStyle w:val=\"TableGrid\"/>\
@@ -840,8 +995,9 @@ fn table<'a>(
                 out.push_str("<w:trPr><w:tblHeader/></w:trPr>");
             }
             for cell in row.children() {
+                let from = out.len();
                 let align = t.alignments.get(col_idx).copied();
-                let runs = inline_children(cell, ctx, 0)?;
+                let InlineContent { runs, captions } = inline_children(cell, ctx, 0)?;
                 let jc = match align {
                     Some(TableAlignment::Center) => "<w:jc w:val=\"center\"/>",
                     Some(TableAlignment::Right) => "<w:jc w:val=\"right\"/>",
@@ -858,8 +1014,12 @@ fn table<'a>(
                 let _ = write!(
                     out,
                     "<w:tc><w:tcPr>{shade}<w:tcW w:w=\"{cell_tw}\" w:type=\"dxa\"/></w:tcPr>\
-<w:p><w:pPr>{jc}<w:rPr>{bold}</w:rPr></w:pPr>{runs}</w:p></w:tc>"
+<w:p><w:pPr>{jc}<w:rPr>{bold}</w:rPr></w:pPr>{runs}</w:p>{captions}</w:tc>"
                 );
+                if col_idx == 0 {
+                    let pos = row.data.borrow().sourcepos;
+                    ctx.comments.attach(pos.start.line, pos.end.line, out, from);
+                }
                 col_idx += 1;
             }
             out.push_str("</w:tr>");
@@ -869,12 +1029,161 @@ fn table<'a>(
     out.push_str("</w:tbl><w:p/>");
     if let Some(cap) = caption {
         ctx.tables += 1;
-        out.push_str(&table_caption_xml(&cap, ctx.tables));
+        let from = out.len();
+        out.push_str(&table_caption_xml(&cap, ctx.tables, ctx.lang));
+        if let Some(row) = rows.last() {
+            let pos = row.data.borrow().sourcepos;
+            ctx.comments.attach(pos.start.line, pos.end.line, out, from);
+        }
     }
     Ok(())
 }
 
 // — 인라인 —
+
+/// 콜아웃 유형 — 강조색(왼쪽 테두리)과 연한 채움색. (유형, 표시문구)
+fn callout_palette(key: &str) -> (&'static str, &'static str, &'static str) {
+    match key {
+        "note" => ("448AFF", "E8F0FE", "\u{1F4DD}"),
+        "info" => ("3BA9F0", "E7F4FD", "\u{2139}\u{FE0F}"),
+        "abstract" => ("00BFBC", "E0F7F7", "\u{1F4CB}"),
+        "todo" => ("F9B24A", "FEF3E2", "\u{2611}\u{FE0F}"),
+        "tip" => ("00C9A7", "E0F8F4", "\u{1F4A1}"),
+        "success" => ("3FB950", "E9F7EE", "\u{2705}"),
+        "question" => ("BA832C", "F8F0E2", "\u{2753}"),
+        "warning" => ("E9A23B", "FDF2E1", "\u{26A0}\u{FE0F}"),
+        "failure" => ("E5484D", "FCE9EA", "\u{274C}"),
+        "danger" => ("F5493D", "FDE9E7", "\u{1F6D1}"),
+        "bug" => ("E5484D", "FCE9EA", "\u{1F41B}"),
+        "example" => ("A882FF", "F1EAFF", "\u{1F9EA}"),
+        _ => ("9E9E9E", "F0F0F0", "\u{275D}"), // quote 등 기본
+    }
+}
+
+/// 인용문 노드가 콜아웃인지 — 첫 문단 첫 줄이 `[!유형](+/-)? 제목`.
+fn callout_of<'a>(node: &'a AstNode<'a>) -> Option<(String, String)> {
+    let first = node
+        .children()
+        .find(|c| matches!(c.data.borrow().value, NodeValue::Paragraph))?;
+    // 첫 줄까지만 — softbreak(지연 연속) 뒤는 본문이다.
+    let mut text = String::new();
+    let mut stop = false;
+    for d in first.descendants() {
+        if stop {
+            break;
+        }
+        match &d.data.borrow().value {
+            NodeValue::SoftBreak | NodeValue::LineBreak => stop = true,
+            NodeValue::Text(t) => text.push_str(t),
+            _ => {}
+        }
+    }
+    let line = text.trim();
+    let rest = line.strip_prefix("[!")?;
+    let close = rest.find(']')?;
+    let raw = &rest[..close];
+    if raw.is_empty() || !raw.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return None;
+    }
+    let after = &rest[close + 1..];
+    let after = after
+        .strip_prefix('+')
+        .or_else(|| after.strip_prefix('-'))
+        .unwrap_or(after);
+    let key = normalize_callout(raw);
+    Some((key, after.trim().to_string()))
+}
+
+fn normalize_callout(raw: &str) -> String {
+    let lower = raw.to_ascii_lowercase();
+    let key = match lower.as_str() {
+        "tldr" | "summary" => "abstract",
+        "hint" | "important" => "tip",
+        "check" | "done" => "success",
+        "help" | "faq" => "question",
+        "caution" | "attention" => "warning",
+        "fail" | "missing" => "failure",
+        "error" => "danger",
+        "cite" => "quote",
+        "note" | "abstract" | "info" | "todo" | "tip" | "success" | "question" | "warning"
+        | "failure" | "danger" | "bug" | "example" | "quote" => lower.as_str(),
+        _ => "note",
+    };
+    key.to_string()
+}
+
+/// 콜아웃 본문 — 첫 문단의 첫 줄(마커·제목)을 떼고 카드 안에 넣는다.
+fn callout_block<'a>(
+    node: &'a AstNode<'a>,
+    key: &str,
+    title: &str,
+    ctx: &mut Ctx<'_>,
+    out: &mut String,
+) -> Result<(), DocxError> {
+    let (accent, fill, icon) = callout_palette(key);
+    // 본문 — 첫 문단의 첫 줄(마커·제목)을 떼고, 나머지 블록을 카드 안에.
+    // 셀 배경(tcPr shd)이 카드 색을 제공하므로 안쪽 문단은 색을 입히지 않는다.
+    let mut body = String::new();
+    let mut first = true;
+    for c in node.children() {
+        if first {
+            first = false;
+            // 첫 softbreak 이후(지연 연속 줄)의 텍스트만 본문 문단으로.
+            let mut rest = String::new();
+            let mut after_break = false;
+            let mut stop = false;
+            for d in c.descendants() {
+                if stop {
+                    break;
+                }
+                match &d.data.borrow().value {
+                    NodeValue::SoftBreak | NodeValue::LineBreak => {
+                        if after_break {
+                            stop = true;
+                        } else {
+                            after_break = true;
+                        }
+                    }
+                    NodeValue::Text(t) if after_break => rest.push_str(t),
+                    _ => {}
+                }
+            }
+            let trimmed = rest.trim();
+            if !trimmed.is_empty() {
+                let _ = write!(
+                    body,
+                    "<w:p><w:pPr><w:spacing w:after=\"40\"/></w:pPr>{}</w:p>",
+                    plain_run(trimmed, &RunStyle::default())
+                );
+            }
+            continue;
+        }
+        let mut inner = String::new();
+        for child in c.children() {
+            block(child, ctx, &mut inner, 0, false)?;
+        }
+        body.push_str(&inner);
+    }
+    let _ = write!(out,
+        "<w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/>\
+<w:tblBorders><w:top w:val=\"none\" w:sz=\"0\" w:color=\"auto\"/>\
+<w:left w:val=\"single\" w:sz=\"18\" w:color=\"{accent}\"/>\
+<w:bottom w:val=\"none\" w:sz=\"0\" w:color=\"auto\"/>\
+<w:right w:val=\"none\" w:sz=\"0\" w:color=\"auto\"/>\
+<w:insideH w:val=\"none\" w:sz=\"0\" w:color=\"auto\"/>\
+<w:insideV w:val=\"none\" w:sz=\"0\" w:color=\"auto\"/></w:tblBorders>\
+<w:tblCellMar><w:top w:w=\"60\" w:type=\"dxa\"/><w:left w:w=\"140\" w:type=\"dxa\"/>\
+<w:bottom w:w=\"60\" w:type=\"dxa\"/><w:right w:w=\"140\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr>\
+<w:tblGrid><w:gridCol w:w=\"9000\"/></w:tblGrid>\
+<w:tr><w:tc><w:tcPr><w:shd w:val=\"clear\" w:fill=\"{fill}\"/><w:tcW w:w=\"0\" w:type=\"auto\"/></w:tcPr>\
+<w:p><w:pPr><w:spacing w:after=\"40\"/></w:pPr>\
+<w:r><w:rPr><w:b/></w:rPr><w:t xml:space=\"preserve\">{icon} {}</w:t></w:r></w:p>{}\
+</w:tc></w:tr></w:tbl><w:p/>",
+        esc(title),
+        body
+    );
+    Ok(())
+}
 
 fn plain_run(text: &str, style: &RunStyle) -> String {
     if text.is_empty() {
@@ -929,187 +1238,101 @@ fn rpr(style: &RunStyle) -> String {
 
 // — 각주(Word 네이티브) —
 
-/// 마크다운에서 각주를 뽑아낸다: 정의 줄([\^라벨]: … + 들여쓰기 연속)은 제거,
-/// 참조 [\^라벨]은 자리표시자(\u{E000}라벨\u{E000})로. 코드 펜스 안은 건드리지
-/// 않는다. comrak이 [\^라벨]: 를 링크 참조 정의로 소비하므로 파싱 전에
-/// 처리한다(정의 순서 = 문서 순).
-fn extract_footnotes(markdown: &str) -> (String, Vec<(String, String)>) {
-    let mut defs: Vec<(String, String)> = Vec::new();
-    let mut out_lines: Vec<String> = Vec::new();
-    let mut in_fence = false;
-    let mut fence = "";
-    let mut collecting: Option<(usize, String)> = None; // (defs 인덱스, 모으는 정의)
-    for line in markdown.lines() {
-        let t = line.trim_start();
-        if let Some(c) = t.chars().next() {
-            if (c == '`' || c == '~') && t.len() >= 3 && t.chars().all(|x| x == c) {
-                if !in_fence {
-                    in_fence = true;
-                    fence = &t[..3];
-                } else if &t[..3] == fence && t.chars().all(|x| x == c) {
-                    in_fence = false;
-                }
-            }
-        }
-        if !in_fence {
-            if let Some(rest) = t.strip_prefix("[^") {
-                if let Some(close) = rest.find(']') {
-                    let label = &rest[..close];
-                    let after = &rest[close + 1..];
-                    if !label.is_empty()
-                        && !label.contains(char::is_whitespace)
-                        && after.starts_with(':')
-                    {
-                        let body = after[1..].trim_start().to_string();
-                        defs.push((label.to_string(), body));
-                        collecting = Some((defs.len() - 1, String::new()));
-                        continue;
-                    }
-                }
-            }
-            // 들여쓰기 연속 줄 — 모으는 정의에 붙인다.
-            if let Some((idx, acc)) = collecting.as_mut() {
-                if line.starts_with("    ") && !t.is_empty() {
-                    acc.push('\n');
-                    acc.push_str(t);
-                    defs[*idx].1.push('\n');
-                    defs[*idx].1.push_str(t);
-                    continue;
-                }
-            }
-            collecting = None;
-        }
-        out_lines.push(line.to_string());
-    }
-    // 참조 치환(펜스 밖 줄만 — 이미 줄 단위로 모았으니 다시 스캔).
-    let labels: Vec<&str> = defs.iter().map(|(l, _)| l.as_str()).collect();
-    let replaced: Vec<String> = out_lines
-        .into_iter()
-        .map(|mut line| {
-            // 펜스 추적 재계산은 복잡 — 원본 순서와 같으므로 간단 펜스 검사.
-            for label in &labels {
-                let needle = format!("[^{label}]");
-                let repl = format!("\u{E000}{label}\u{E000}");
-                line = line.replace(&needle, &repl);
-            }
-            line
-        })
-        .collect();
-    (replaced.join("\n"), defs)
-}
-
 /// 하이퍼링크 안 런들에 Hyperlink 글자 스타일 주입 — 이미 rPr가 있으면
 /// 그 안 맨 앞에 rStyle을(rPr 첫 자리가 규격 순서), 없으면 rPr를 새로 만든다.
 fn apply_hyperlink_style(runs: &str) -> String {
+    // rPr가 있는 런은 rStyle을 맨 앞에 삽입, 없는 런은 새 rPr를 만든다.
+    // rPr 뒤에 올 수 있는 모든 첫 자식(w:t·w:br·w:tab)을 커버한다.
     runs.replace(
         "<w:r><w:rPr>",
         "<w:r><w:rPr><w:rStyle w:val=\"Hyperlink\"/>",
     )
     .replace(
-        "<w:r>",
-        "<w:r><w:rPr><w:rStyle w:val=\"Hyperlink\"/></w:rPr>",
+        "<w:r><w:t",
+        "<w:r><w:rPr><w:rStyle w:val=\"Hyperlink\"/></w:rPr><w:t",
     )
     .replace(
-        "</w:rPr><w:rPr><w:rStyle w:val=\"Hyperlink\"/>",
-        "<w:rStyle w:val=\"Hyperlink\"/></w:rPr>",
+        "<w:r><w:br",
+        "<w:r><w:rPr><w:rStyle w:val=\"Hyperlink\"/></w:rPr><w:br",
+    )
+    .replace(
+        "<w:r><w:tab",
+        "<w:r><w:rPr><w:rStyle w:val=\"Hyperlink\"/></w:rPr><w:tab",
     )
 }
 
-/// 본문 문자열의 자리표시자(\u{E000}라벨\u{E000})를 footnoteReference로 치환.
-/// 등록 안 된 라벨은 원문 [^라벨]로 복원(데이터 무손실).
-fn resolve_footnote_refs(body: &str, ctx: &Ctx) -> String {
-    const SEP: char = '\u{E000}';
-    let sep_len = SEP.len_utf8();
-    let mut out = String::with_capacity(body.len());
-    let mut rest = body;
-    while let Some(i) = rest.find(SEP) {
-        out.push_str(&rest[..i]);
-        let after = &rest[i + sep_len..];
-        match after.find(SEP) {
-            Some(j) => {
-                let label = &after[..j];
-                match ctx.footnote_ids.get(label) {
-                    Some(id) => out.push_str(&format!(
-                        "<w:r><w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr><w:footnoteReference w:id=\"{id}\"/></w:r>"
-                    )),
-                    None => out.push_str(&format!("[^{label}]")),
-                }
-                rest = &after[j + sep_len..];
+fn render_footnotes<'a>(root: &'a AstNode<'a>, ctx: &mut Ctx<'_>) -> Result<(), DocxError> {
+    let ids: HashMap<String, u32> = root
+        .descendants()
+        .filter_map(|node| match &node.data.borrow().value {
+            NodeValue::FootnoteReference(reference) => Some((reference.name.clone(), reference.ix)),
+            _ => None,
+        })
+        .collect();
+    let comments = std::mem::take(&mut ctx.comments);
+    ctx.in_footnote = true;
+    let mut emitted = std::collections::HashSet::new();
+    for node in root.descendants() {
+        let id = match &node.data.borrow().value {
+            NodeValue::FootnoteDefinition(definition) if definition.total_references > 0 => {
+                ids.get(&definition.name).copied()
             }
-            None => {
-                out.push(SEP);
-                rest = after;
-            }
+            _ => None,
+        };
+        let Some(id) = id else {
+            continue;
+        };
+        if !emitted.insert(id) {
+            continue;
         }
+        let mut content = String::new();
+        for child in node.children() {
+            block(child, ctx, &mut content, 0, false)?;
+        }
+        // Number the first paragraph, including list/table-first definitions.
+        let start = match content.find("<w:p>") {
+            Some(at) => at + "<w:p>".len(),
+            None => {
+                content.insert_str(0, "<w:p></w:p>");
+                "<w:p>".len()
+            }
+        };
+        let insert = if content[start..].starts_with("<w:pPr>") {
+            start
+                + content[start..]
+                    .find("</w:pPr>")
+                    .expect("generated footnote properties")
+                + "</w:pPr>".len()
+        } else {
+            start
+        };
+        content.insert_str(insert,
+            "<w:r><w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr><w:footnoteRef/></w:r><w:r><w:t xml:space=\"preserve\"> </w:t></w:r>");
+        ctx.footnotes.push((id, content));
     }
-    out.push_str(rest);
-    out
+    ctx.footnotes.sort_by_key(|(id, _)| *id);
+    ctx.in_footnote = false;
+    // Notes on the definition source stay in the main document at that position.
+    ctx.comments = comments;
+    Ok(())
 }
 
-/// 본문 인용 센티넬(\u{E001}키\u{E003}접미사\u{E001}) → 서지 앵커 하이퍼링크.
-/// 정의 없는 키는 원문 [@키, 접미사]로 복원(데이터 무손실).
-fn resolve_cite_refs(body: &str, ctx: &Ctx) -> String {
-    const OPEN: char = '\u{E001}';
-    const SEP: char = '\u{E003}';
-    let sep_len = OPEN.len_utf8();
-    let mut out = String::with_capacity(body.len());
-    let mut rest = body;
-    while let Some(i) = rest.find(OPEN) {
-        out.push_str(&rest[..i]);
-        let after = &rest[i + sep_len..];
-        match after.find(OPEN) {
-            Some(j) => {
-                let inner = &after[..j];
-                let (key, suffix) = match inner.find(SEP) {
-                    Some(k) => (&inner[..k], &inner[k + SEP.len_utf8()..]),
-                    None => (inner, ""),
-                };
-                match ctx.cite_nums.get(key) {
-                    Some(n) => {
-                        let display = if suffix.is_empty() {
-                            format!("[{n}]")
-                        } else {
-                            format!("[{n}, {suffix}]")
-                        };
-                        out.push_str(&format!(
-                            "<w:hyperlink w:anchor=\"ref-{key}\" w:history=\"1\"><w:r><w:rPr><w:rStyle w:val=\"Hyperlink\"/><w:vertAlign w:val=\"superscript\"/></w:rPr><w:t>{}</w:t></w:r></w:hyperlink>",
-                            crate::xml::esc(&display)
-                        ));
-                    }
-                    None => {
-                        let orig = if suffix.is_empty() {
-                            format!("[@{key}]")
-                        } else {
-                            format!("[@{key}, {suffix}]")
-                        };
-                        out.push_str(&crate::xml::esc(&orig));
-                    }
-                }
-                rest = &after[j + sep_len..];
-            }
-            None => {
-                out.push(OPEN);
-                rest = after;
-            }
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
-/// word/footnotes.xml — 구분자(-1)·연속 구분자(0) + 정의(1..N).
+/// word/footnotes.xml — separators plus complete native footnote block content.
 fn footnotes_xml(ctx: &Ctx) -> String {
     let mut s = String::from(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:footnotes xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">\
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:footnotes xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" \
+xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" \
+xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\" \
+xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" \
+xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" \
+xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\" \
+xmlns:wps=\"http://schemas.microsoft.com/office/word/2010/wordprocessingShape\" \
+xmlns:wpg=\"http://schemas.microsoft.com/office/word/2010/wordprocessingGroup\">\
 <w:footnote w:type=\"separator\" w:id=\"-1\"><w:p><w:pPr><w:spacing w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr><w:r><w:separator/></w:r></w:p></w:footnote>\
 <w:footnote w:type=\"continuationSeparator\" w:id=\"0\"><w:p><w:pPr><w:spacing w:after=\"0\" w:line=\"240\" w:lineRule=\"auto\"/></w:pPr><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>",
     );
-    for (i, runs) in ctx.footnotes.iter().enumerate() {
-        let _ = write!(
-            s,
-            "<w:footnote w:id=\"{}\"><w:p><w:pPr><w:sz w:val=\"18\"/></w:pPr>{runs}</w:p></w:footnote>",
-            i + 1
-        );
+    for (id, content) in &ctx.footnotes {
+        let _ = write!(s, "<w:footnote w:id=\"{id}\">{content}</w:footnote>");
     }
     s.push_str("</w:footnotes>");
     s
@@ -1148,32 +1371,6 @@ fn highlight_run(text: &str, style: &RunStyle) -> String {
 }
 
 fn text_run(text: &str, style: &RunStyle) -> String {
-    if text.is_empty() {
-        return String::new();
-    }
-    // 각주 참조 [^라벨] → 자리표시자 런(문서 조립 뒤 치환). 하이라이트와
-    // 겹치는 경우는 드물어 각각 독립 스캔.
-    if text.contains("[^") {
-        let mut out = String::new();
-        let mut rest = text;
-        while let Some(i) = rest.find("[^") {
-            let after = &rest[i + 2..];
-            match after.find(']') {
-                Some(j) if j > 0 && !after[..j].contains(char::is_whitespace) => {
-                    let label = &after[..j];
-                    out.push_str(&highlight_text_run(&rest[..i], style));
-                    out.push_str(&plain_run(
-                        &format!("{FNSEP}{label}{FNSEP}", FNSEP = '\u{E000}'),
-                        style,
-                    ));
-                    rest = &after[j + 1..];
-                }
-                _ => break,
-            }
-        }
-        out.push_str(&highlight_text_run(rest, style));
-        return out;
-    }
     highlight_text_run(text, style)
 }
 
@@ -1214,17 +1411,34 @@ fn is_page_break(s: &str) -> bool {
     t == "\\newpage" || t == "\\pagebreak" || t == "\\page"
 }
 
+/// Captions are block content, even when their image occurs inside a link or
+/// styled text. The caller places them after the containing paragraph.
+#[derive(Default)]
+struct InlineContent {
+    runs: String,
+    captions: String,
+}
+
 fn inline_children<'a>(
     node: &'a AstNode<'a>,
     ctx: &mut Ctx<'_>,
     level: usize,
-) -> Result<String, DocxError> {
-    let mut out = String::new();
+) -> Result<InlineContent, DocxError> {
+    let mut content = InlineContent::default();
     for c in node.children() {
+        // Adjacent bibliography lines may share a Markdown paragraph. Attach
+        // every canonical destination once, not only the paragraph's first line.
+        let line = c.data.borrow().sourcepos.start.line as u32;
+        if let Some(key) = ctx.cite_lines.remove(&line) {
+            content
+                .runs
+                .push_str(&ctx.bookmark_xml(&format!("ref-{key}")));
+        }
         inline(
             c,
             ctx,
-            &mut out,
+            &mut content.runs,
+            &mut content.captions,
             &RunStyle {
                 bold: false,
                 italic: false,
@@ -1236,26 +1450,37 @@ fn inline_children<'a>(
             level,
         )?;
     }
-    Ok(out)
+    Ok(content)
 }
 
 fn inline<'a>(
     node: &'a AstNode<'a>,
     ctx: &mut Ctx<'_>,
     out: &mut String,
+    captions: &mut String,
     style: &RunStyle,
     _level: usize,
 ) -> Result<(), DocxError> {
     match &node.data.borrow().value {
+        NodeValue::FootnoteReference(reference) => {
+            if ctx.in_footnote {
+                // Keep nested references visible without emitting a nested native note.
+                out.push_str(&plain_run(&format!("[^{}]", reference.name), style));
+            } else {
+                let _ = write!(out,
+                    "<w:r><w:rPr><w:vertAlign w:val=\"superscript\"/></w:rPr><w:footnoteReference w:id=\"{}\"/></w:r>",
+                    reference.ix);
+            }
+        }
         NodeValue::Text(t) => out.push_str(&text_run(t, style)),
-        NodeValue::Code(c) => out.push_str(&text_run(
+        NodeValue::Code(c) => out.push_str(&plain_run(
             &c.literal,
             &RunStyle {
                 code: true,
                 ..*style
             },
         )),
-        NodeValue::SoftBreak => out.push(' '),
+        NodeValue::SoftBreak => out.push_str(&plain_run(" ", style)),
         NodeValue::LineBreak => out.push_str("<w:r><w:br/></w:r>"),
         NodeValue::Emph => {
             let s = RunStyle {
@@ -1263,7 +1488,7 @@ fn inline<'a>(
                 ..*style
             };
             for c in node.children() {
-                inline(c, ctx, out, &s, _level)?;
+                inline(c, ctx, out, captions, &s, _level)?;
             }
         }
         NodeValue::Strong => {
@@ -1272,7 +1497,7 @@ fn inline<'a>(
                 ..*style
             };
             for c in node.children() {
-                inline(c, ctx, out, &s, _level)?;
+                inline(c, ctx, out, captions, &s, _level)?;
             }
         }
         NodeValue::Strikethrough => {
@@ -1281,7 +1506,7 @@ fn inline<'a>(
                 ..*style
             };
             for c in node.children() {
-                inline(c, ctx, out, &s, _level)?;
+                inline(c, ctx, out, captions, &s, _level)?;
             }
         }
         NodeValue::Superscript => {
@@ -1290,7 +1515,7 @@ fn inline<'a>(
                 ..*style
             };
             for c in node.children() {
-                inline(c, ctx, out, &s, _level)?;
+                inline(c, ctx, out, captions, &s, _level)?;
             }
         }
         NodeValue::Subscript => {
@@ -1299,26 +1524,47 @@ fn inline<'a>(
                 ..*style
             };
             for c in node.children() {
-                inline(c, ctx, out, &s, _level)?;
+                inline(c, ctx, out, captions, &s, _level)?;
             }
         }
         NodeValue::Underline => {
             for c in node.children() {
-                inline(c, ctx, out, style, _level)?;
+                inline(c, ctx, out, captions, style, _level)?;
             }
         }
         NodeValue::Link(link) => {
             let mut runs = String::new();
+            let citation = link.title == crate::citations::CITATION_TITLE;
             let s = RunStyle {
-                italic: false,
+                italic: citation && style.italic,
+                sup: citation || style.sup,
+                sub: !citation && style.sub,
                 ..*style
             };
-            for c in node.children() {
-                inline(c, ctx, &mut runs, &s, _level)?;
+            if citation {
+                let mut display = String::new();
+                collect_text(node, &mut display);
+                // 강조가 링크 막을 안으로 접혀 들어온 형태(`**[@key]**` →
+                // Link>Strong)도 표시에 반영한다.
+                let mut s = s;
+                for child in node.descendants() {
+                    match &child.data.borrow().value {
+                        NodeValue::Strong => s.bold = true,
+                        NodeValue::Emph => s.italic = true,
+                        NodeValue::Strikethrough => s.strike = true,
+                        _ => {}
+                    }
+                }
+                runs.push_str(&plain_run(&display, &s));
+            } else {
+                for c in node.children() {
+                    inline(c, ctx, &mut runs, captions, &s, _level)?;
+                }
             }
             // 내부 앵커(#슬러그)는 문서 내 북마크로 — 외부 URL만 관계를 쓴다.
             if let Some(anchor) = link.url.strip_prefix('#') {
                 if !anchor.is_empty() {
+                    let anchor = esc(&md_core::links::percent_decode(anchor));
                     let _ = write!(
                         out,
                         "<w:hyperlink w:anchor=\"{anchor}\">{}</w:hyperlink>",
@@ -1335,19 +1581,14 @@ fn inline<'a>(
             );
         }
         NodeValue::Image(link) => {
-            let alt: String = node
-                .children()
-                .map(|c| match &c.data.borrow().value {
-                    NodeValue::Text(t) => t.to_string(),
-                    _ => String::new(),
-                })
-                .collect();
+            let mut alt = String::new();
+            collect_text(node, &mut alt);
             if let Some(drawing) = image_drawing(ctx, &link.url) {
                 out.push_str(&drawing);
                 // 캡션 후보 alt면 그림 캡션 문단(SEQ Figure — Word가 갱신).
                 if caption_worthy(&alt) {
                     ctx.figures += 1;
-                    out.push_str(&figure_caption_xml(&alt, ctx.figures));
+                    captions.push_str(&figure_caption_xml(&alt, ctx.figures, ctx.lang));
                 }
             } else {
                 out.push_str(&text_run(&format!("[{alt}]"), style));
@@ -1371,7 +1612,7 @@ fn inline<'a>(
         NodeValue::TaskItem(_) => {}
         _ => {
             for c in node.children() {
-                inline(c, ctx, out, style, _level)?;
+                inline(c, ctx, out, captions, style, _level)?;
             }
         }
     }
@@ -1382,21 +1623,25 @@ fn inline<'a>(
 fn image_drawing(ctx: &mut Ctx, url: &str) -> Option<String> {
     // 사이드카 폭(%) — 편집기에서 드래그한 값과 동일하게 축소.
     let pct = ctx.images.width(url).unwrap_or(100).clamp(5, 100) as f64 / 100.0;
-    let lower = url.to_ascii_lowercase();
-    if lower.ends_with(".svg") || lower.contains(".svg?") {
-        let svg = ctx.images.read(url)?;
-        let svg = String::from_utf8(svg).ok()?;
-        let drawing = svg_to_drawingml(&svg, (PAGE_TEXT_WIDTH_EMU as f64 * pct) as i64).ok()?;
-        return Some(format!("<w:p>{drawing}</w:p>"));
-    }
+    let path = ctx.images.resolve_url(url)?;
     let bytes = ctx.images.read(url)?;
+    if path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
+    {
+        let svg = String::from_utf8(bytes).ok()?;
+        let id = ctx.next_id();
+        let drawing = svg_to_drawingml(&svg, (PAGE_TEXT_WIDTH_EMU as f64 * pct) as i64, id).ok()?;
+        return Some(format!("<w:r>{drawing}</w:r>"));
+    }
     let ext = detect_image(&bytes)?;
     // 크기: 이미지 헤더에서 추출, 실패 시 4x3in.
     let (w_px, h_px) = image_dimensions(&bytes).unwrap_or((384, 288));
     let scale = (PAGE_TEXT_WIDTH_EMU as f64 / (w_px as f64 * 9525.0)).min(1.0) * pct;
     let cx = (w_px as f64 * 9525.0 * scale).round() as i64;
     let cy = (h_px as f64 * 9525.0 * scale).round() as i64;
-    let name = ctx.add_media(bytes, ext);
+    let (name, relationship_id) = ctx.add_media(bytes, ext);
     let id = ctx.next_id();
     Some(format!(
         "<w:r><w:drawing><wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\">\
@@ -1405,7 +1650,7 @@ fn image_drawing(ctx: &mut Ctx, url: &str) -> Option<String> {
 <wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect=\"1\"/></wp:cNvGraphicFramePr>\
 <a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">\
 <pic:pic><pic:nvPicPr><pic:cNvPr id=\"{id}\" name=\"{name}\"/><pic:cNvPicPr/></pic:nvPicPr>\
-<pic:blipFill><a:blip r:embed=\"rIdImg{id}\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>\
+<pic:blipFill><a:blip r:embed=\"rIdImg{relationship_id}\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>\
 <pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm>\
 <a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>\
 </a:graphicData></a:graphic></wp:inline></w:drawing></w:r>"
@@ -1421,12 +1666,15 @@ fn detect_image(bytes: &[u8]) -> Option<&'static str> {
         Some("gif")
     } else if bytes.starts_with(b"BM") {
         Some("bmp")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        // 웹에서 복사한 이미지에 흔하다 — 없으면 Word 내보내기에서 조용히 사라진다.
+        Some("webp")
     } else {
         None
     }
 }
 
-/// PNG/JPEG/GIF 크기 헤더 파싱(외부 크레이트 없이).
+/// PNG/JPEG/GIF/WebP 크기 헤더 파싱(외부 크레이트 없이).
 fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
         if bytes.len() > 24 {
@@ -1456,31 +1704,51 @@ fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
         let w = u16::from_le_bytes(bytes[6..8].try_into().ok()?) as u32;
         let h = u16::from_le_bytes(bytes[8..10].try_into().ok()?) as u32;
         return Some((w, h));
+    } else if bytes.len() >= 30 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        // 청크 포맷 — VP8X(확장)는 캔버스 크기, VP8/VP8L은 프레임 헤더에서.
+        match &bytes[12..16] {
+            b"VP8X" => {
+                // 캔버스 폭·높이 = 저장값(24비트 LE) + 1.
+                let w = (u32::from(bytes[24])
+                    | (u32::from(bytes[25]) << 8)
+                    | (u32::from(bytes[26]) << 16))
+                    + 1;
+                let h = (u32::from(bytes[27])
+                    | (u32::from(bytes[28]) << 8)
+                    | (u32::from(bytes[29]) << 16))
+                    + 1;
+                return Some((w, h));
+            }
+            b"VP8 " => {
+                // 무손실 압축 아님(유손실) — 시작 코드 9D 01 2A 뒤 LE16(&0x3FFF).
+                if bytes[23..26] == [0x9D, 0x01, 0x2A] {
+                    let w = (u16::from_le_bytes(bytes[26..28].try_into().ok()?) & 0x3FFF) as u32;
+                    let h = (u16::from_le_bytes(bytes[28..30].try_into().ok()?) & 0x3FFF) as u32;
+                    return Some((w, h));
+                }
+            }
+            b"VP8L" => {
+                // 시그니처 0x2F 뒤 32비트 LE에 폭·높이(각 14비트, -1 저장).
+                if bytes[20] == 0x2F {
+                    let v = u32::from_le_bytes(bytes[21..25].try_into().ok()?);
+                    return Some(((v & 0x3FFF) + 1, ((v >> 14) & 0x3FFF) + 1));
+                }
+            }
+            _ => {}
+        }
     }
     None
 }
 
 // — 패키지(zip) 작성 —
 
-/// comments.xml — 메모 본문(작성자·시각 포함, Word 검토 창 그대로).
+/// comments.xml — 본문에 연결된 메모와 작성자.
 fn comments_xml(ctx: &Ctx) -> String {
-    let mut s = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<w:comments xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">");
-    // 문서 순번(id)대로 정렬해 안정 출력.
-    let mut list: Vec<&(u64, String)> = ctx.comments.values().collect();
-    list.sort_by_key(|(id, _)| *id);
-    for (id, text) in list {
-        let _ = write!(
-            s,
-            "<w:comment w:id=\"{id}\" w:author=\"IYAGI Markdown\" w:initials=\"IY\"><w:p><w:pPr><w:pStyle w:val=\"CommentText\"/></w:pPr><w:r><w:t xml:space=\"preserve\">{}</w:t></w:r></w:p></w:comment>",
-            esc(text)
-        );
-    }
-    s.push_str("</w:comments>");
-    s
+    ctx.comments.xml()
 }
 
 fn write_docx_zip(
-    out: &Path,
+    file: &mut std::fs::File,
     body: &str,
     ctx: &Ctx,
     opts: &DocxExportOptions<'_>,
@@ -1496,12 +1764,11 @@ fn write_docx_zip(
         opts.header_title,
         opts.footer_text,
     );
-    let file = std::fs::File::create(out)?;
     let mut zip = zip::ZipWriter::new(file);
     let opts: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
-    let add = |zip: &mut zip::ZipWriter<std::fs::File>,
+    let add = |zip: &mut zip::ZipWriter<&mut std::fs::File>,
                name: &str,
                data: &str|
      -> Result<(), DocxError> {
@@ -1524,6 +1791,11 @@ fn write_docx_zip(
     add(&mut zip, "word/document.xml", &document(body))?;
     if has_footnotes {
         add(&mut zip, "word/footnotes.xml", &footnotes_xml(ctx))?;
+        add(
+            &mut zip,
+            "word/_rels/footnotes.xml.rels",
+            &footnote_rels(ctx),
+        )?;
     }
     if page_numbers || footer_text.is_some() {
         add(
@@ -1550,7 +1822,7 @@ fn write_docx_zip(
         ),
     )?;
     add(&mut zip, "word/styles.xml", &styles_xml(style))?;
-    add(&mut zip, "word/numbering.xml", NUMBERING)?;
+    add(&mut zip, "word/numbering.xml", &ctx.lists.xml())?;
     add(
         &mut zip,
         "word/settings.xml",
@@ -1577,6 +1849,7 @@ fn content_types(ctx: &Ctx, page_numbers: bool, has_header: bool, has_comments: 
                 "jpeg" => "image/jpeg",
                 "gif" => "image/gif",
                 "bmp" => "image/bmp",
+                "webp" => "image/webp",
                 _ => "image/png",
             };
             let _ = write!(
@@ -1687,6 +1960,20 @@ fn document_rels(ctx: &Ctx, page_numbers: bool, has_header: bool, has_comments: 
             "<Relationship Id=\"rIdFootnotes\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes\" Target=\"footnotes.xml\"/>"
         );
     }
+    append_resource_rels(ctx, &mut s);
+    s.push_str("</Relationships>");
+    s
+}
+
+fn footnote_rels(ctx: &Ctx) -> String {
+    let mut s = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">");
+    append_resource_rels(ctx, &mut s);
+    s.push_str("</Relationships>");
+    s
+}
+
+fn append_resource_rels(ctx: &Ctx, s: &mut String) {
     for (i, url) in ctx.hyperlinks.iter().enumerate() {
         let _ = write!(
             s,
@@ -1696,14 +1983,12 @@ fn document_rels(ctx: &Ctx, page_numbers: bool, has_header: bool, has_comments: 
         );
     }
     for (idx, (name, _)) in ctx.media.iter().enumerate() {
-        let id = ctx.next_doc_id - (ctx.media.len() - idx) as i64;
+        let id = idx + 1;
         let _ = write!(
             s,
             "<Relationship Id=\"rIdImg{id}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"{name}\"/>"
         );
     }
-    s.push_str("</Relationships>");
-    s
 }
 
 /// 문서별 서체(라이브 프리뷰 스타일) — 폰트·크기·행간·첫 줄 들여쓰기·강조색.
@@ -1835,38 +2120,6 @@ const STYLES_TEMPLATE: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone
 <w:basedOn w:val="Normal"/><w:pPr><w:ind w:left="480"/><w:spacing w:after="40"/></w:pPr></w:style>
 </w:styles>"#;
 
-const NUMBERING: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-<w:abstractNum w:abstractNumId="10"><w:multiLevelType w:val="hybridMultilevel"/>
-<lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="●"/><w:lvlJc w:val="left"/>
-<w:pPr><w:ind w:left="360" w:hanging="240"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/></w:rPr></lvl>
-<lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="○"/><w:lvlJc w:val="left"/>
-<w:pPr><w:ind w:left="720" w:hanging="280"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/></w:rPr></lvl>
-<lvl w:ilvl="2"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="■"/><w:lvlJc w:val="left"/>
-<w:pPr><w:ind w:left="1080" w:hanging="320"/></w:pPr><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/></w:rPr></lvl>
-<lvl w:ilvl="3"><w:numFmt w:val="bullet"/><w:lvlText w:val="●"/><w:pPr><w:ind w:left="1440" w:hanging="360"/></w:pPr></lvl>
-<lvl w:ilvl="4"><w:numFmt w:val="bullet"/><w:lvlText w:val="○"/><w:pPr><w:ind w:left="1800" w:hanging="400"/></w:pPr></lvl>
-<lvl w:ilvl="5"><w:numFmt w:val="bullet"/><w:lvlText w:val="■"/><w:pPr><w:ind w:left="2160" w:hanging="440"/></w:pPr></lvl>
-<lvl w:ilvl="6"><w:numFmt w:val="bullet"/><w:lvlText w:val="●"/><w:pPr><w:ind w:left="2520" w:hanging="480"/></w:pPr></lvl>
-<lvl w:ilvl="7"><w:numFmt w:val="bullet"/><w:lvlText w:val="○"/><w:pPr><w:ind w:left="2880" w:hanging="520"/></w:pPr></lvl>
-</w:abstractNum>
-<w:abstractNum w:abstractNumId="20"><w:multiLevelType w:val="hybridMultilevel"/>
-<lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/>
-<w:pPr><w:ind w:left="360" w:hanging="240"/></w:pPr></lvl>
-<lvl w:ilvl="1"><w:start w:val="1"/><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%2."/><w:lvlJc w:val="left"/>
-<w:pPr><w:ind w:left="720" w:hanging="280"/></w:pPr></lvl>
-<lvl w:ilvl="2"><w:start w:val="1"/><w:numFmt w:val="lowerRoman"/><w:lvlText w:val="%3."/><w:lvlJc w:val="left"/>
-<w:pPr><w:ind w:left="1080" w:hanging="320"/></w:pPr></lvl>
-<lvl w:ilvl="3"><w:numFmt w:val="decimal"/><w:lvlText w:val="%4."/><w:pPr><w:ind w:left="1440" w:hanging="360"/></w:pPr></lvl>
-<lvl w:ilvl="4"><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%5."/><w:pPr><w:ind w:left="1800" w:hanging="400"/></w:pPr></lvl>
-<lvl w:ilvl="5"><w:numFmt w:val="lowerRoman"/><w:lvlText w:val="%6."/><w:pPr><w:ind w:left="2160" w:hanging="440"/></w:pPr></lvl>
-<lvl w:ilvl="6"><w:numFmt w:val="decimal"/><w:lvlText w:val="%7."/><w:pPr><w:ind w:left="2520" w:hanging="480"/></w:pPr></lvl>
-<lvl w:ilvl="7"><w:numFmt w:val="lowerLetter"/><w:lvlText w:val="%8."/><w:pPr><w:ind w:left="2880" w:hanging="520"/></w:pPr></lvl>
-</w:abstractNum>
-<w:num w:numId="1"><w:abstractNumId w:val="10"/></w:num>
-<w:num w:numId="2"><w:abstractNumId w:val="20"/></w:num>
-</w:numbering>"#;
-
 /// settings.xml — 목차(TOC)가 있으면 열 때 필드를 갱신하게 한다(updateFields).
 fn settings_xml(toc: bool) -> String {
     format!(
@@ -1919,11 +2172,329 @@ const APP: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 mod tests {
     use super::*;
 
+    fn assert_drawing_paragraph_structure(document: &str, expected_drawings: usize) {
+        let xml = roxmltree::Document::parse(document).unwrap();
+        let ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        let drawings: Vec<_> = xml
+            .descendants()
+            .filter(|node| node.has_tag_name((ns, "drawing")))
+            .collect();
+        assert_eq!(drawings.len(), expected_drawings);
+        for drawing in drawings {
+            assert!(drawing.parent().unwrap().has_tag_name((ns, "r")));
+        }
+        for paragraph in xml
+            .descendants()
+            .filter(|node| node.has_tag_name((ns, "p")))
+        {
+            let parent = paragraph.parent().unwrap();
+            // Drawing text boxes legitimately contain their own paragraphs.
+            assert!(
+                ["body", "tc", "footnote", "txbxContent"]
+                    .iter()
+                    .any(|name| parent.has_tag_name((ns, *name))),
+                "unexpected paragraph parent: {:?}",
+                parent.tag_name()
+            );
+        }
+    }
+
+    fn assert_bookmark_ids(document: &str, expected_count: usize) {
+        let xml = roxmltree::Document::parse(document).unwrap();
+        let ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        let starts: Vec<_> = xml
+            .descendants()
+            .filter(|node| node.has_tag_name((ns, "bookmarkStart")))
+            .collect();
+        let ends: Vec<_> = xml
+            .descendants()
+            .filter(|node| node.has_tag_name((ns, "bookmarkEnd")))
+            .collect();
+        assert_eq!(starts.len(), expected_count);
+        assert_eq!(ends.len(), expected_count);
+        let mut ids = std::collections::HashSet::new();
+        for start in starts {
+            let id = start.attribute((ns, "id")).unwrap();
+            assert!(
+                id.parse::<u32>().is_ok(),
+                "bookmark ID must be numeric: {id}"
+            );
+            assert!(ids.insert(id), "duplicate bookmark ID: {id}");
+            assert_eq!(
+                ends.iter()
+                    .filter(|end| end.attribute((ns, "id")) == Some(id))
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn heading_anchors_preserve_inline_source_and_container_titles() {
+        let md = "# **Strong** `code` [link](dest.md)\n\n첫 줄\n둘째 줄\n====\n\n> 인용 첫 줄\n> 다음 줄\n> ----\n\n# A &amp; B\n\n#\n\n- # 목록\n";
+        let arena = Arena::new();
+        let root = parse_document(&arena, md, &Options::default());
+        let anchors = heading_anchors(root, md, root, md).unwrap();
+        let mut ordered: Vec<_> = anchors.into_iter().collect();
+        ordered.sort_by_key(|(line, _)| *line);
+        assert_eq!(
+            ordered,
+            [
+                (1, "strong-code-linkdestmd".to_string()),
+                (3, "첫-줄-둘째-줄".to_string()),
+                (7, "인용-첫-줄-다음-줄".to_string()),
+                (11, "a-amp-b".to_string()),
+                (13, "section".to_string()),
+                (15, "목록".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn callout_marker_detection_covers_aliases_folds_and_plain_quotes() {
+        let arena = Arena::new();
+        let parse = |md: &str| {
+            let root = parse_document(&arena, md, &Options::default());
+            root.children()
+                .find(|c| matches!(c.data.borrow().value, NodeValue::BlockQuote))
+                .unwrap()
+        };
+        let quote = parse("> [!tip] 캐시 규칙\n> 본문\n");
+        assert_eq!(callout_of(quote), Some(("tip".into(), "캐시 규칙".into())));
+        let quote = parse("> [!tldr]+ 요약\n");
+        assert_eq!(callout_of(quote), Some(("abstract".into(), "요약".into())));
+        let quote = parse("> [!warning]-\n> 경고\n");
+        assert_eq!(callout_of(quote), Some(("warning".into(), String::new())));
+        let quote = parse("> 일반 인용문\n");
+        assert_eq!(callout_of(quote), None);
+        // 마커 모양만 있고 유형이 빈 경우는 콜아웃이 아니다.
+        let quote = parse("> [!] 빈 유형\n");
+        assert_eq!(callout_of(quote), None);
+    }
+
+    #[test]
+    fn callouts_export_as_filled_card_tables() {
+        let md = "> [!success] 완료\n> 다 되었습니다.\n\n> [!question] 질문\n\n일반 문단\n";
+        let out = tmp("callouts");
+        export_docx(
+            md,
+            &DocxExportOptions {
+                math: &HashMap::new(),
+                diagrams: &HashMap::new(),
+                images: &ImageSource::new(String::new()),
+                style: None,
+                page_numbers: false,
+                table_widths: &HashMap::new(),
+                title: None,
+                author: None,
+                toc: false,
+                lof: false,
+                lot: false,
+                header_title: None,
+                highlight: None,
+                comments: &[],
+                front_lang: "ko",
+                columns: 1,
+                footer_text: None,
+            },
+            &out,
+        )
+        .unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let cursor = std::io::Cursor::new(&bytes);
+        let mut zip = zip::ZipArchive::new(cursor).unwrap();
+        let doc = {
+            let mut s = String::new();
+            use std::io::Read;
+            zip.by_name("word/document.xml")
+                .unwrap()
+                .read_to_string(&mut s)
+                .unwrap();
+            s
+        };
+        let _ = std::fs::remove_file(&out);
+        // 카드 — 유형색 왼쪽 테두리 + 연한 채움 + 굵은 제목(아이콘 포함).
+        assert!(doc.contains("w:color=\"3FB950\""), "success 강조색");
+        assert!(doc.contains("w:fill=\"E9F7EE\""), "success 채움색");
+        assert!(doc.contains("w:color=\"BA832C\""), "question 강조색");
+        assert!(doc.contains("<w:b/>"), "제목 굵게");
+        assert!(doc.contains("완료"));
+        assert!(doc.contains("다 되었습니다"));
+        assert!(doc.contains("일반 문단"));
+    }
+
     fn tmp(tag: &str) -> std::path::PathBuf {
         let p =
             std::env::temp_dir().join(format!("md-export-docx-{tag}-{}.docx", std::process::id()));
         let _ = std::fs::remove_file(&p);
         p
+    }
+
+    #[test]
+    fn citation_headings_and_note_headings_match_shared_anchor_fixture() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/heading-anchors.json")).unwrap();
+        let markdown = fixture["markdown"].as_str().unwrap();
+        let expected = |key: &str| {
+            fixture[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value.as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let out = tmp("original-heading-anchors");
+        export_docx(
+            markdown,
+            &DocxExportOptions {
+                math: &math,
+                diagrams: &diagrams,
+                images: &images,
+                style: None,
+                page_numbers: false,
+                table_widths: &HashMap::new(),
+                title: None,
+                author: None,
+                toc: false,
+                lof: false,
+                lot: false,
+                header_title: None,
+                highlight: None,
+                comments: &[],
+                front_lang: "en",
+                columns: 1,
+                footer_text: None,
+            },
+            &out,
+        )
+        .unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        use std::io::Read;
+        let mut body = String::new();
+        let mut footnotes = String::new();
+        zip.by_name("word/document.xml")
+            .unwrap()
+            .read_to_string(&mut body)
+            .unwrap();
+        zip.by_name("word/footnotes.xml")
+            .unwrap()
+            .read_to_string(&mut footnotes)
+            .unwrap();
+        let ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        let mut names = std::collections::HashSet::new();
+        let mut ids = std::collections::HashSet::new();
+        let mut body_expected = expected("bodyAnchors");
+        body_expected.extend(expected("bibliographyAnchors"));
+        for (xml, expected) in [
+            (&body, body_expected),
+            (&footnotes, expected("footnoteAnchors")),
+        ] {
+            let document = roxmltree::Document::parse(xml).unwrap();
+            let bookmarks: Vec<_> = document
+                .descendants()
+                .filter(|node| node.has_tag_name((ns, "bookmarkStart")))
+                .collect();
+            assert_eq!(
+                bookmarks
+                    .iter()
+                    .map(|node| node.attribute((ns, "name")).unwrap())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            for bookmark in bookmarks {
+                assert!(names.insert(bookmark.attribute((ns, "name")).unwrap().to_string()));
+                assert!(ids.insert(bookmark.attribute((ns, "id")).unwrap().to_string()));
+            }
+            assert_bookmark_ids(xml, expected.len());
+        }
+        let document = roxmltree::Document::parse(&body).unwrap();
+        for link in document
+            .descendants()
+            .filter(|node| node.has_tag_name((ns, "hyperlink")))
+        {
+            if let Some(anchor) = link.attribute((ns, "anchor")) {
+                assert!(names.contains(anchor), "missing target: {anchor}");
+            }
+        }
+        let heading = document
+            .descendants()
+            .find(|node| {
+                node.has_tag_name((ns, "bookmarkStart"))
+                    && node.attribute((ns, "name")) == Some("ref-findings")
+            })
+            .unwrap()
+            .parent()
+            .unwrap();
+        let text: String = heading
+            .descendants()
+            .filter(|node| node.has_tag_name((ns, "t")))
+            .filter_map(|node| node.text())
+            .collect();
+        assert_eq!(text, "[1] Findings");
+        let _ = std::fs::remove_file(out);
+    }
+
+    #[test]
+    fn docx_publishes_complete_zip_and_cleans_up_when_publication_fails() {
+        let dir = tmp("atomic").with_extension("test-dir");
+        std::fs::create_dir(&dir).unwrap();
+        let out = dir.join("book.docx");
+        let blocked = out.with_extension("blocked");
+        std::fs::create_dir_all(&blocked).unwrap();
+        std::fs::write(blocked.join("keep"), b"existing contents").unwrap();
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let widths = HashMap::new();
+        let opts = DocxExportOptions {
+            math: &math,
+            diagrams: &diagrams,
+            images: &images,
+            style: None,
+            page_numbers: false,
+            table_widths: &widths,
+            title: Some("Atomic export"),
+            author: None,
+            toc: false,
+            lof: false,
+            lot: false,
+            header_title: None,
+            highlight: None,
+            comments: &[],
+            front_lang: "en",
+            columns: 1,
+            footer_text: None,
+        };
+        assert!(export_docx("# New document", &opts, &blocked).is_err());
+        assert_eq!(
+            std::fs::read(blocked.join("keep")).unwrap(),
+            b"existing contents"
+        );
+        assert!(!std::fs::read_dir(blocked.parent().unwrap())
+            .unwrap()
+            .any(|entry| entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".iyagi-tmp-")));
+
+        std::fs::write(&out, b"old export").unwrap();
+        export_docx("# New document", &opts, &out).unwrap();
+        let mut zip = zip::ZipArchive::new(std::fs::File::open(&out).unwrap()).unwrap();
+        let mut document = String::new();
+        use std::io::Read;
+        zip.by_name("word/document.xml")
+            .unwrap()
+            .read_to_string(&mut document)
+            .unwrap();
+        assert!(document.contains("New document"));
+        assert!(zip.by_name("[Content_Types].xml").is_ok());
+        drop(zip);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -1982,6 +2553,199 @@ mod tests {
     }
 
     #[test]
+    fn lists_preserve_start_restart_continuations_tasks_and_footnotes() {
+        let markdown = concat!(
+            "3. outer-three\n\n   continuation\n\n   7) nested-seven\n   8) nested-eight\n4. outer-four\n\n",
+            "separator\n\n1. restarted\n\n",
+            "- [ ] open-task\n\n  task-continuation\n- [x] done-task\n- plain-item\n\n",
+            "separator\n\n5) [x] ordered-task\n6) ordered-next\n\n",
+            "> 9. quoted-nine\n\n",
+            "- # heading-item\n\n  heading-continuation\n\n-\n\n",
+            "note[^n]\n\n[^n]: note-text\n\n    6. note-six\n    7. note-seven\n",
+        );
+        let math = HashMap::new();
+        let diagrams = HashMap::new();
+        let images = ImageSource::new(String::new());
+        let out = tmp("list-sequences");
+        export_docx(
+            markdown,
+            &DocxExportOptions {
+                math: &math,
+                diagrams: &diagrams,
+                images: &images,
+                style: None,
+                page_numbers: false,
+                table_widths: &HashMap::new(),
+                title: None,
+                author: None,
+                toc: false,
+                lof: false,
+                lot: false,
+                header_title: None,
+                highlight: None,
+                comments: &[],
+                front_lang: "en",
+                columns: 1,
+                footer_text: None,
+            },
+            &out,
+        )
+        .unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
+        use std::io::Read;
+        let mut document = String::new();
+        let mut numbering = String::new();
+        let mut footnotes = String::new();
+        zip.by_name("word/document.xml")
+            .unwrap()
+            .read_to_string(&mut document)
+            .unwrap();
+        zip.by_name("word/numbering.xml")
+            .unwrap()
+            .read_to_string(&mut numbering)
+            .unwrap();
+        zip.by_name("word/footnotes.xml")
+            .unwrap()
+            .read_to_string(&mut footnotes)
+            .unwrap();
+        let doc = roxmltree::Document::parse(&document).unwrap();
+        let nums = roxmltree::Document::parse(&numbering).unwrap();
+        let notes = roxmltree::Document::parse(&footnotes).unwrap();
+        let ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        let paragraph = |text: &str| {
+            doc.descendants()
+                .find(|node| {
+                    node.has_tag_name((ns, "p"))
+                        && node
+                            .descendants()
+                            .filter(|child| child.has_tag_name((ns, "t")))
+                            .filter_map(|child| child.text())
+                            .collect::<String>()
+                            .trim()
+                            == text
+                })
+                .unwrap()
+        };
+        let num_id = |node: roxmltree::Node<'_, '_>| {
+            node.descendants()
+                .find(|child| child.has_tag_name((ns, "numId")))
+                .and_then(|child| child.attribute((ns, "val")))
+                .map(str::to_string)
+        };
+        let instance = |id: &str| {
+            nums.descendants()
+                .find(|node| {
+                    node.has_tag_name((ns, "num")) && node.attribute((ns, "numId")) == Some(id)
+                })
+                .unwrap()
+        };
+        let start = |id: &str| {
+            instance(id)
+                .descendants()
+                .find(|node| node.has_tag_name((ns, "startOverride")))
+                .unwrap()
+                .attribute((ns, "val"))
+                .unwrap()
+                .parse::<usize>()
+                .unwrap()
+        };
+
+        let outer = num_id(paragraph("outer-three")).unwrap();
+        assert_eq!(num_id(paragraph("outer-four")), Some(outer.clone()));
+        assert_eq!(start(&outer), 3);
+        let nested = num_id(paragraph("nested-seven")).unwrap();
+        assert_eq!(num_id(paragraph("nested-eight")), Some(nested.clone()));
+        assert_ne!(nested, outer);
+        assert_eq!(start(&nested), 7);
+        assert!(paragraph("nested-seven").descendants().any(|node| node
+            .has_tag_name((ns, "ilvl"))
+            && node.attribute((ns, "val")) == Some("1")));
+        let restarted = num_id(paragraph("restarted")).unwrap();
+        assert_ne!(restarted, outer);
+        assert_eq!(start(&restarted), 1);
+
+        for text in ["continuation", "task-continuation", "heading-continuation"] {
+            let p = paragraph(text);
+            assert_eq!(num_id(p), None, "{text}");
+            assert!(!p.descendants().any(|node| node.has_tag_name((ns, "sym"))));
+            assert!(p.descendants().any(|node| node.has_tag_name((ns, "ind"))
+                && node.attribute((ns, "left")) == Some("360")
+                && node.attribute((ns, "firstLine")) == Some("0")));
+        }
+        for (text, symbol) in [("open-task", "F0A8"), ("done-task", "F0FE")] {
+            let p = paragraph(text);
+            assert_eq!(num_id(p), None);
+            assert_eq!(
+                p.descendants()
+                    .filter(|node| node.has_tag_name((ns, "sym"))
+                        && node.attribute((ns, "char")) == Some(symbol))
+                    .count(),
+                1
+            );
+        }
+        assert!(num_id(paragraph("plain-item")).is_some());
+        let ordered_task = num_id(paragraph("ordered-task")).unwrap();
+        assert_eq!(start(&ordered_task), 5);
+        assert_eq!(
+            num_id(paragraph("ordered-next")),
+            Some(ordered_task.clone())
+        );
+        assert!(paragraph("ordered-task")
+            .descendants()
+            .any(|node| node.has_tag_name((ns, "sym"))));
+        let abstract_id = instance(&ordered_task)
+            .children()
+            .find(|node| node.has_tag_name((ns, "abstractNumId")))
+            .unwrap()
+            .attribute((ns, "val"))
+            .unwrap();
+        assert!(nums
+            .descendants()
+            .filter(|node| node.has_tag_name((ns, "abstractNum"))
+                && node.attribute((ns, "abstractNumId")) == Some(abstract_id))
+            .flat_map(|node| node.descendants())
+            .any(|node| node.has_tag_name((ns, "lvlText"))
+                && node.attribute((ns, "val")) == Some("%1)")));
+        assert!(paragraph("quoted-nine")
+            .descendants()
+            .any(|node| node.has_tag_name((ns, "pStyle"))
+                && node.attribute((ns, "val")) == Some("IYAGIQuote")));
+        assert_eq!(start(&num_id(paragraph("quoted-nine")).unwrap()), 9);
+
+        // The heading item and empty item each have a marker-only paragraph.
+        let heading_marker = paragraph("heading-item").prev_sibling_element().unwrap();
+        let heading_list = num_id(heading_marker).unwrap();
+        assert_eq!(
+            num_id(
+                paragraph("heading-continuation")
+                    .next_sibling_element()
+                    .unwrap()
+            ),
+            Some(heading_list)
+        );
+        let note_ids: Vec<_> = notes
+            .descendants()
+            .filter(|node| node.has_tag_name((ns, "p")))
+            .filter_map(num_id)
+            .collect();
+        assert_eq!(note_ids.len(), 2);
+        assert_eq!(note_ids[0], note_ids[1]);
+        assert_eq!(start(&note_ids[0]), 6);
+        assert_ne!(note_ids[0], outer);
+        // Every numbered paragraph has a concrete definition in the package.
+        for xml in [&doc, &notes] {
+            for id in xml
+                .descendants()
+                .filter(|node| node.has_tag_name((ns, "numId")))
+            {
+                instance(id.attribute((ns, "val")).unwrap());
+            }
+        }
+        let _ = std::fs::remove_file(out);
+    }
+
+    #[test]
     fn page_break_macro_becomes_word_page_break() {
         let md = "앞\n\n\\newpage\n\n뒤";
         let math = HashMap::new();
@@ -2031,7 +2795,18 @@ mod tests {
 
     #[test]
     fn citations_become_anchors_and_bibliography() {
-        let md = "연구 [@kim2020]와 [@lee2021, p. 12].\n\n[@kim2020]: Kim (2020).\n[@lee2021]: Lee (2021).\n\n끊긴 [@ghost] 인용.";
+        let md = concat!(
+            "# 연구\n\n`[@kim2020]`와 \\[@lee2021].\n\n",
+            "````markdown\n```\n[@fake]: Fake.\n[@lee2021]\n````\n\n",
+            "연구 [@kim2020]와 [@lee2021, p. 12].\n\n",
+            "**[@kim2020]**와 [@가&\", p. < & \" ==literal==].\n\n",
+            "[label [@kim2020]](https://example.com) $[@lee2021]$\n\n",
+            "원문 \u{E001}kim2020\u{E003}\u{E001} 보존.\n\n",
+            "각주[^cite].\n\n",
+            "[@kim2020]: Old Kim.\n[@kim2020]: Kim (2020).\n",
+            "[@lee2021]: Lee (2021).\n[@가&\"]: 특수 키 문헌.\n\n",
+            "끊긴 [@ghost,  p. 1] 인용.\n\n[^cite]: 각주 속 [@lee2021].\n",
+        );
         let math = HashMap::new();
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
@@ -2072,17 +2847,78 @@ mod tests {
                 .unwrap();
             s
         };
-        // 인용 → 서지 앵커 위첨자 하이퍼링크(첫 등장 순 번호).
-        assert!(doc.contains(
-            "<w:hyperlink w:anchor=\"ref-kim2020\" w:history=\"1\"><w:r><w:rPr><w:rStyle w:val=\"Hyperlink\"/><w:vertAlign w:val=\"superscript\"/></w:rPr><w:t>[1]</w:t></w:r></w:hyperlink>"
-        ));
-        assert!(doc.contains(&"<w:t>[2, p. 12]</w:t>".to_string()));
-        // 서지 문단 — 북마크 + 번호.
-        assert!(doc.contains("<w:bookmarkStart w:id=\"Bref-kim2020\" w:name=\"ref-kim2020\"/>"));
+        let ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        let parsed = roxmltree::Document::parse(&doc).unwrap();
+        let links: Vec<_> = parsed
+            .descendants()
+            .filter(|node| {
+                node.has_tag_name((ns, "hyperlink")) && node.attribute((ns, "anchor")).is_some()
+            })
+            .collect();
+        assert_eq!(links.len(), 4);
+        let labels: Vec<String> = links
+            .iter()
+            .map(|node| {
+                node.descendants()
+                    .filter(|child| child.has_tag_name((ns, "t")))
+                    .filter_map(|child| child.text())
+                    .collect()
+            })
+            .collect();
+        assert_eq!(
+            labels,
+            ["[1]", "[2, p. 12]", "[1]", "[3, p. < & \" ==literal==]"]
+        );
+        assert!(links[2]
+            .descendants()
+            .any(|node| node.has_tag_name((ns, "b"))));
+        assert_eq!(links[3].attribute((ns, "anchor")), Some("ref-가&\""));
+        assert!(!links[3]
+            .descendants()
+            .any(|node| node.has_tag_name((ns, "shd"))));
+        for link in links {
+            assert!(link.parent().unwrap().has_tag_name((ns, "p")));
+            assert!(link
+                .descendants()
+                .any(|node| node.has_tag_name((ns, "vertAlign"))
+                    && node.attribute((ns, "val")) == Some("superscript")));
+            let target = link.attribute((ns, "anchor")).unwrap();
+            assert_eq!(
+                parsed
+                    .descendants()
+                    .filter(|node| node.has_tag_name((ns, "bookmarkStart"))
+                        && node.attribute((ns, "name")) == Some(target))
+                    .count(),
+                1
+            );
+        }
+        assert!(parsed
+            .descendants()
+            .filter(|node| node.has_tag_name((ns, "t")))
+            .all(|node| node.children().all(|child| child.is_text())));
+        assert!(doc.contains("[1] Old Kim."));
         assert!(doc.contains("[1] Kim (2020)."));
         assert!(doc.contains("[2] Lee (2021)."));
-        // 정의 없는 인용 — 원문 보존.
-        assert!(doc.contains("[@ghost]"));
+        assert!(doc.contains("[@ghost,  p. 1]"));
+        assert!(doc.contains("\u{E001}kim2020\u{E003}\u{E001}"));
+        assert!(doc.contains("[@fake]: Fake."));
+        assert_bookmark_ids(&doc, 4);
+        let mut notes = String::new();
+        use std::io::Read;
+        zip.by_name("word/footnotes.xml")
+            .unwrap()
+            .read_to_string(&mut notes)
+            .unwrap();
+        let notes = roxmltree::Document::parse(&notes).unwrap();
+        let note_link = notes
+            .descendants()
+            .find(|node| node.has_tag_name((ns, "hyperlink")))
+            .unwrap();
+        assert_eq!(note_link.attribute((ns, "anchor")), Some("ref-lee2021"));
+        assert!(note_link.parent().unwrap().has_tag_name((ns, "p")));
+        assert!(note_link
+            .descendants()
+            .any(|node| node.text() == Some("[2]")));
         let _ = std::fs::remove_file(&out);
     }
 
@@ -2202,33 +3038,8 @@ mod tests {
     }
 
     #[test]
-    fn resolve_footnote_refs_unit() {
-        let ctx = Ctx {
-            math: &HashMap::new(),
-            diagrams: &HashMap::new(),
-            images: &ImageSource::new(String::new()),
-            media: Vec::new(),
-            hyperlinks: Vec::new(),
-            next_doc_id: 100,
-            footnotes: vec!["DEF".into()],
-            footnote_ids: [("a".to_string(), 1usize)].into_iter().collect(),
-            slug_seen: std::collections::HashMap::new(),
-            cite_lines: std::collections::HashMap::new(),
-            cite_nums: std::collections::HashMap::new(),
-            table_widths: HashMap::new(),
-            figures: 0,
-            tables: 0,
-            comments: HashMap::new(),
-        };
-        let body = "x\u{E000}a\u{E000}y";
-        let out = resolve_footnote_refs(body, &ctx);
-        assert!(out.contains("<w:footnoteReference w:id=\"1\"/>"));
-        assert!(!out.contains("\u{E000}"));
-    }
-
-    #[test]
     fn anchor_links_and_heading_bookmarks() {
-        let md = "# 개요\n\n[설치로](#설치) 이동.\n\n## 설치\n\n## 설치\n";
+        let md = "# 개요\n\n[설치로](#설치) [인코딩](#%EC%84%A4%EC%B9%98) [특수문자](#x%22%26y).\n\n## 설치\n\n## 설치\n\n# A\n\n# A\n\n# A 1\n\n# **Strong** `code`\n\n[서식 제목](#strong-code)\n";
         let math = HashMap::new();
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
@@ -2268,17 +3079,44 @@ mod tests {
         };
         let doc = read(&mut zip, "word/document.xml");
         // 북마크: 첫 설치는 이름 그대로, 둘째는 -1(GitHub식 — 프런트 toc와 동일).
-        assert!(doc.contains(r#"<w:bookmarkStart w:id="B설치" w:name="설치"/>"#));
+        assert!(doc.contains(r#"w:name="설치"/>"#));
         assert!(doc.contains(r#"w:name="설치-1""#));
         // 내부 링크는 관계가 아니라 anchor 속성으로.
         assert!(doc.contains(r#"<w:hyperlink w:anchor="설치">"#));
+        assert_eq!(doc.matches(r#"<w:hyperlink w:anchor="설치">"#).count(), 2);
+        assert!(doc.contains(r#"<w:hyperlink w:anchor="x&quot;&amp;y">"#));
+        assert!(doc.contains(r#"w:name="strong-code"/>"#));
+        assert!(doc.contains(r#"<w:hyperlink w:anchor="strong-code">"#));
+        let xml = roxmltree::Document::parse(&doc).unwrap();
+        let ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        let names: Vec<_> = xml
+            .descendants()
+            .filter(|node| node.has_tag_name((ns, "bookmarkStart")))
+            .map(|node| node.attribute((ns, "name")).unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            ["개요", "설치", "설치-1", "a", "a-1", "a-1-1", "strong-code"]
+        );
+        assert_bookmark_ids(&doc, 7);
         assert!(!doc.contains("rIdH"));
         let _ = std::fs::remove_file(&out);
     }
 
     #[test]
     fn footnotes_become_native_word_footnotes() {
-        let md = "본문입니다[^a]. 각주 참조 뒤 문장.\n\n[^a]: 각주 정의 **내용**.\n\n뒤 문단.\n";
+        let md = concat!(
+            "본문입니다[^b]. 다음[^a]. 반복[^b]. 미정[^missing].\n\n",
+            "\\[^b]와 `[^b] ==literal==`.\n\n",
+            "````markdown\n[^fake]: code definition\n[^b]\n```\nstill code\n````\n\n",
+            "[^a]: Second note.\n\n",
+            "[^b]: 각주 정의 **내용**와 [링크](https://example.org/note).\n",
+            "    계속 줄.\n\n",
+            "    두 번째 문단.\n\n",
+            "    - 목록 항목\n\n",
+            "    ```rust\n    let value = 1;\n    ```\n\n",
+            "[^unused]: Unreferenced note.\n\n뒤 문단.\n",
+        );
         let math = HashMap::new();
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
@@ -2326,7 +3164,66 @@ mod tests {
         let fns = read(&mut zip, "word/footnotes.xml");
         assert!(fns.contains("각주 정의"));
         assert!(fns.contains("<w:b/>")); // 정의 안 굵게 등 인라인 서식 유지
-                                         // 관계·콘텐츠 타입.
+        let ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        let document = roxmltree::Document::parse(&doc).unwrap();
+        let refs: Vec<_> = document
+            .descendants()
+            .filter(|n| n.has_tag_name((ns, "footnoteReference")))
+            .collect();
+        assert_eq!(
+            refs.iter()
+                .map(|n| n.attribute((ns, "id")).unwrap())
+                .collect::<Vec<_>>(),
+            ["1", "2", "1"]
+        );
+        assert!(refs
+            .iter()
+            .all(|n| n.parent().is_some_and(|p| p.has_tag_name((ns, "r")))));
+        assert!(refs
+            .iter()
+            .all(|n| !n.ancestors().any(|p| p.has_tag_name((ns, "t")))));
+        let literal: String = document
+            .descendants()
+            .filter(|n| n.has_tag_name((ns, "t")))
+            .filter_map(|n| n.text())
+            .collect();
+        assert!(literal.contains("[^fake]: code definition"));
+        assert!(literal.contains("[^missing]"));
+        assert!(literal.contains("[^b] ==literal=="));
+        assert!(literal.contains("still code"));
+        assert!(!doc.contains('\u{E000}'));
+
+        let notes = roxmltree::Document::parse(&fns).unwrap();
+        let first = notes
+            .descendants()
+            .find(|n| n.has_tag_name((ns, "footnote")) && n.attribute((ns, "id")) == Some("1"))
+            .unwrap();
+        assert!(first
+            .descendants()
+            .any(|n| n.has_tag_name((ns, "footnoteRef"))));
+        assert!(
+            first
+                .descendants()
+                .filter(|n| n.has_tag_name((ns, "p")))
+                .count()
+                >= 4
+        );
+        assert!(fns.contains("두 번째 문단"));
+        assert!(fns.contains("목록 항목"));
+        assert!(fns.contains("let value = 1;"));
+        assert!(!fns.contains("Unreferenced note"));
+        let note_rels = read(&mut zip, "word/_rels/footnotes.xml.rels");
+        assert!(note_rels.contains("https://example.org/note"));
+        let rel_doc = roxmltree::Document::parse(&note_rels).unwrap();
+        let rel_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        for link in first
+            .descendants()
+            .filter(|n| n.has_tag_name((ns, "hyperlink")))
+        {
+            let id = link.attribute((rel_ns, "id")).unwrap();
+            assert!(rel_doc.descendants().any(|n| n.attribute("Id") == Some(id)));
+        }
+        // 관계·콘텐츠 타입.
         let rels = read(&mut zip, "word/_rels/document.xml.rels");
         assert!(rels.contains("footnotes.xml"));
         let ct = read(&mut zip, "[Content_Types].xml");
@@ -2490,6 +3387,7 @@ mod tests {
             &doc[doc.len().min(400)..]
         );
         assert!(doc.contains("wps:txbx"), "텍스트 편집 가능 상자");
+        assert_drawing_paragraph_structure(&doc, 1);
         assert!(
             !doc.contains("<w:sym w:char=\"F0A8\"/>flowchart"),
             "코드 폴백이 아님"
@@ -2774,12 +3672,26 @@ mod tests {
 
     #[test]
     fn comments_export_native() {
-        // 2번째 줄 문단에 메모 — commentRangeStart/End + comments.xml.
-        let md = "첫 문단\n\n메모가 달린 문단\n";
+        let md = "# Heading\n\nFirst line\ncontinued\n\n- Item\n\n> Quote\n\n| H | V |\n|---|---|\n| Cell | value |\n\n```\ncode one\ncode two\n```\n\n[^a]: note\n    continuation\n\nAfter footnote[^a]\n\n<div>raw</div>\n";
         let math = HashMap::new();
         let diagrams = HashMap::new();
         let images = ImageSource::new(String::new());
-        let comments: Vec<(u32, String)> = vec![(3, "검토 필요".into())];
+        let comments: Vec<(u32, String)> = [
+            (1, "검토 필요"),
+            (1, "Second <review> & note"),
+            (4, "continuation"),
+            (6, "list"),
+            (8, "quote"),
+            (12, "table"),
+            (16, "code"),
+            (22, "after footnote"),
+            (24, "raw HTML"),
+            (2, "blank line"),
+            (19, "footnote definition"),
+        ]
+        .into_iter()
+        .map(|(line, text)| (line, text.to_string()))
+        .collect();
         let out = tmp("cmt");
         export_docx(
             md,
@@ -2822,6 +3734,76 @@ mod tests {
             .unwrap();
         assert!(cm.contains("검토 필요"));
         assert!(cm.contains("w:author=\"IYAGI Markdown\""));
+        let ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        let document = roxmltree::Document::parse(&doc).unwrap();
+        let definitions = roxmltree::Document::parse(&cm).unwrap();
+        assert_eq!(
+            definitions
+                .descendants()
+                .filter(|n| n.has_tag_name((ns, "comment")))
+                .count(),
+            comments.len()
+        );
+        for (index, (_, note)) in comments.iter().enumerate() {
+            let id = (index + 1).to_string();
+            for tag in ["commentRangeStart", "commentRangeEnd", "commentReference"] {
+                assert_eq!(
+                    document
+                        .descendants()
+                        .filter(|n| n.has_tag_name((ns, tag))
+                            && n.attribute((ns, "id")) == Some(id.as_str()))
+                        .count(),
+                    1,
+                    "{tag}: {id}"
+                );
+            }
+            let definition = definitions
+                .descendants()
+                .find(|n| {
+                    n.has_tag_name((ns, "comment")) && n.attribute((ns, "id")) == Some(id.as_str())
+                })
+                .unwrap();
+            let text: String = definition
+                .descendants()
+                .filter(|n| n.is_text())
+                .filter_map(|n| n.text())
+                .collect();
+            assert_eq!(text, *note);
+        }
+        for (id, expected) in [
+            ("1", "Heading"),
+            ("2", "Heading"),
+            ("3", "continued"),
+            ("4", "Item"),
+            ("5", "Quote"),
+            ("6", "Cell"),
+            ("7", "code two"),
+            ("8", "After footnote"),
+            ("9", ""),
+            ("10", ""),
+            ("11", ""),
+        ] {
+            let reference = document
+                .descendants()
+                .find(|n| {
+                    n.has_tag_name((ns, "commentReference")) && n.attribute((ns, "id")) == Some(id)
+                })
+                .unwrap();
+            let paragraph = reference
+                .ancestors()
+                .find(|n| n.has_tag_name((ns, "p")))
+                .unwrap();
+            let text: String = paragraph
+                .descendants()
+                .filter(|n| n.has_tag_name((ns, "t")))
+                .filter_map(|n| n.text())
+                .collect();
+            if expected.is_empty() {
+                assert_eq!(text, "");
+            } else {
+                assert!(text.contains(expected), "{id}: {text}");
+            }
+        }
         let mut ct = String::new();
         zip.by_name("[Content_Types].xml")
             .unwrap()
@@ -3000,7 +3982,7 @@ mod tests {
             .read_to_string(&mut doc)
             .unwrap();
         // 모든 하이퍼링크 런에 rStyle Hyperlink — 굵게 런(rPr 기존)도 겹침 없이.
-        assert!(doc.matches("w:rStyle w:val=\"Hyperlink\"").count() >= 3);
+        assert!(doc.matches("w:rStyle w:val=\"Hyperlink\"").count() >= 2);
         assert!(!doc.contains("</w:rPr><w:rPr>"), "rPr 중복 없음");
         let _ = std::fs::remove_file(&out);
     }
@@ -3018,7 +4000,20 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("a.png"), &png).unwrap();
         std::fs::write(dir.join("b.png"), &png).unwrap();
-        let md = "![실험 설정도](a.png)\n\n![screenshot.png](b.png)\n";
+        std::fs::write(dir.join("shape.svg"),
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><rect width="40" height="30" fill="blue"/></svg>"#).unwrap();
+        let md = concat!(
+            "앞 ![*실험* `설정도`](a.png) 중간 [![연결 설명](b.png)](https://example.com) 뒤[^note].\n\n",
+            "![screenshot.png](b.png)\n\n",
+            "- 목록 ![목록 설명](a.png) 끝\n\n",
+            "| 그림 | 값 |\n|---|---|\n| ![셀 설명](a.png) | 값 |\n\n",
+            "# 제목 ![제목 설명](a.png)\n\n",
+            "> 인용 ![인용 설명](a.png)\n\n",
+            "[@source]: 서지 ![서지 설명](a.png)\n\n",
+            "벡터 앞 ![벡터 설명](shape.svg) 벡터 뒤\n\n",
+            "![**누락** `그림`](missing.png)\n\n",
+            "[^note]: 각주 ![각주 설명](a.png) 끝\n",
+        );
         let math = HashMap::new();
         let diagrams = HashMap::new();
         let images = ImageSource::new(dir.to_string_lossy().into_owned());
@@ -3055,11 +4050,114 @@ mod tests {
             .unwrap()
             .read_to_string(&mut doc)
             .unwrap();
-        // 캡션 후보만: SEQ 필드 + 설명, 번호 1.
+        // Filename alt and missing images do not create captions.
         assert!(doc.contains(" SEQ Figure \\* ARABIC "));
         assert!(doc.contains("그림 </w:t>"));
         assert!(doc.contains(" — 실험 설정도"));
-        assert_eq!(doc.matches("SEQ Figure").count(), 1); // 파일명 alt는 제외
+        assert_eq!(doc.matches("SEQ Figure").count(), 8);
+        assert!(doc.contains("[누락 그림]"));
+        assert_drawing_paragraph_structure(&doc, 9);
+        let ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+        let xml = roxmltree::Document::parse(&doc).unwrap();
+        let captions: Vec<_> = xml
+            .descendants()
+            .filter(|node| {
+                node.has_tag_name((ns, "p"))
+                    && node.descendants().any(|child| {
+                        child.has_tag_name((ns, "pStyle"))
+                            && child.attribute((ns, "val")) == Some("Caption")
+                    })
+            })
+            .collect();
+        let descriptions: Vec<_> = captions
+            .iter()
+            .map(|caption| {
+                caption
+                    .descendants()
+                    .filter(|node| node.has_tag_name((ns, "t")))
+                    .filter_map(|node| node.text())
+                    .find(|text| text.starts_with(" — "))
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(
+            descriptions,
+            [
+                " — 실험 설정도",
+                " — 연결 설명",
+                " — 목록 설명",
+                " — 셀 설명",
+                " — 제목 설명",
+                " — 인용 설명",
+                " — 서지 설명",
+                " — 벡터 설명"
+            ]
+        );
+        for (index, caption) in captions.iter().enumerate() {
+            assert!(caption
+                .parent()
+                .unwrap()
+                .has_tag_name((ns, if index == 3 { "tc" } else { "body" })));
+            assert!(!caption.descendants().any(
+                |node| node.has_tag_name((ns, "hyperlink")) || node.has_tag_name((ns, "numPr"))
+            ));
+        }
+        let inline_paragraph = captions[0].prev_sibling_element().unwrap();
+        let inline_text: String = inline_paragraph
+            .descendants()
+            .filter(|node| node.has_tag_name((ns, "t")))
+            .filter_map(|node| node.text())
+            .collect();
+        assert_eq!(inline_text, "앞  중간  뒤.");
+        assert_eq!(
+            inline_paragraph
+                .descendants()
+                .filter(|node| node.has_tag_name((ns, "drawing")))
+                .count(),
+            2
+        );
+        assert!(inline_paragraph
+            .descendants()
+            .any(|node| node.has_tag_name((ns, "hyperlink"))
+                && node
+                    .descendants()
+                    .any(|child| child.has_tag_name((ns, "drawing")))));
+        assert_eq!(captions[1].prev_sibling_element(), Some(captions[0]));
+
+        let mut notes = String::new();
+        zip.by_name("word/footnotes.xml")
+            .unwrap()
+            .read_to_string(&mut notes)
+            .unwrap();
+        assert_drawing_paragraph_structure(&notes, 1);
+        let notes_xml = roxmltree::Document::parse(&notes).unwrap();
+        let note_caption = notes_xml
+            .descendants()
+            .find(|node| {
+                node.has_tag_name((ns, "p"))
+                    && node
+                        .descendants()
+                        .any(|child| child.text() == Some(" — 각주 설명"))
+            })
+            .unwrap();
+        assert!(note_caption
+            .parent()
+            .unwrap()
+            .has_tag_name((ns, "footnote")));
+        assert!(note_caption
+            .prev_sibling_element()
+            .unwrap()
+            .descendants()
+            .any(|node| node.has_tag_name((ns, "drawing"))));
+        assert_eq!(notes.matches("SEQ Figure").count(), 1);
+        // A bibliography image must be rendered once, including its media entry.
+        assert_eq!(
+            zip.file_names()
+                .map(|name| name.unwrap())
+                .filter(|name| name.starts_with("word/media/"))
+                .count(),
+            9
+        );
         let mut styles = String::new();
         zip.by_name("word/styles.xml")
             .unwrap()
@@ -3390,5 +4488,169 @@ mod tests {
             .all(|n| n != "word/footer1.xml"));
         let _ = std::fs::remove_file(&out);
         let _ = std::fs::remove_file(&out2);
+    }
+
+    #[test]
+    fn webp_detected_with_dimensions() {
+        // VP8X(확장) 캔버스 — w-1=111(→112), h-1=59(→60) 24비트 LE.
+        let mut vp8x = Vec::new();
+        vp8x.extend_from_slice(b"RIFF");
+        vp8x.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // RIFF 크기(내보내기 불문)
+        vp8x.extend_from_slice(b"WEBP");
+        vp8x.extend_from_slice(b"VP8X");
+        vp8x.extend_from_slice(&10u32.to_le_bytes()); // 청크 길이
+        vp8x.push(0); // 플래그
+        vp8x.extend_from_slice(&[0, 0, 0]); // 예약
+        vp8x.extend_from_slice(&[111, 0, 0]); // w-1
+        vp8x.extend_from_slice(&[59, 0, 0]); // h-1
+        assert_eq!(detect_image(&vp8x), Some("webp"));
+        assert_eq!(image_dimensions(&vp8x), Some((112, 60)));
+
+        // VP8L(무손실) — 시그니처 0x2F 뒤 32비트 LE: w-1=199, h-1=99.
+        let mut vp8l = Vec::new();
+        vp8l.extend_from_slice(b"RIFF");
+        vp8l.extend_from_slice(&[0, 0, 0, 0]);
+        vp8l.extend_from_slice(b"WEBP");
+        vp8l.extend_from_slice(b"VP8L");
+        vp8l.extend_from_slice(&5u32.to_le_bytes());
+        vp8l.push(0x2F);
+        let v: u32 = 199 | (99 << 14);
+        vp8l.extend_from_slice(&v.to_le_bytes());
+        while vp8l.len() < 30 {
+            vp8l.push(0);
+        }
+        assert_eq!(detect_image(&vp8l), Some("webp"));
+        assert_eq!(image_dimensions(&vp8l), Some((200, 100)));
+    }
+
+    #[test]
+    fn mixed_drawings_share_ids_and_resolve_encoded_media_in_each_part() {
+        // 최소 VP8X webp가 매체로 들어가고 [Content_Types]에 image/webp가 등록된다.
+        let mut webp = Vec::new();
+        webp.extend_from_slice(b"RIFF");
+        webp.extend_from_slice(&[0, 0, 0, 0]);
+        webp.extend_from_slice(b"WEBP");
+        webp.extend_from_slice(b"VP8X");
+        webp.extend_from_slice(&10u32.to_le_bytes());
+        webp.push(0);
+        webp.extend_from_slice(&[0, 0, 0]);
+        webp.extend_from_slice(&[111, 0, 0]);
+        webp.extend_from_slice(&[59, 0, 0]);
+        let dir = std::env::temp_dir().join(format!("md-export-webp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let img = dir.join("pic #?%20.webp");
+        std::fs::write(&img, &webp).unwrap();
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><rect width="40" height="30" fill="blue"/></svg>"#;
+        std::fs::write(dir.join("shape name.SVG"), svg).unwrap();
+        std::fs::write(dir.join("broken.svg"), "not an SVG").unwrap();
+        let md = concat!(
+            "![사진](pic%20%23%3F%2520.webp?download=1#preview)\n\n",
+            "![벡터](shape%20name.SVG#shape)\n\n",
+            "```mermaid\nflowchart LR\nA-->B\n```\n\n",
+            "![잘못된 SVG](broken.svg)\n\n",
+            "![반복](pic%20%23%3F%2520.webp)\n\n본문[^image].\n\n",
+            "[^image]: ![각주 벡터](shape%20name.SVG?version=2#shape) ![각주 그림](pic%20%23%3F%2520.webp)\n",
+        );
+        let math = HashMap::new();
+        let diagrams = HashMap::from([("flowchart LR\nA-->B".into(), svg.into())]);
+        let images = ImageSource::new(dir.to_string_lossy().into_owned());
+        let out = tmp("webp");
+        export_docx(
+            md,
+            &DocxExportOptions {
+                math: &math,
+                diagrams: &diagrams,
+                images: &images,
+                style: None,
+                page_numbers: false,
+                table_widths: &HashMap::new(),
+                title: None,
+                author: None,
+                toc: false,
+                lof: false,
+                lot: false,
+                header_title: None,
+                highlight: None,
+                comments: &[],
+                front_lang: "ko",
+                columns: 1,
+                footer_text: None,
+            },
+            &out,
+        )
+        .unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        let cursor = std::io::Cursor::new(&bytes);
+        let mut zip = zip::ZipArchive::new(cursor).unwrap();
+        use std::io::Read;
+        let mut doc = String::new();
+        zip.by_name("word/document.xml")
+            .unwrap()
+            .read_to_string(&mut doc)
+            .unwrap();
+        assert!(
+            doc.contains("r:embed=\"rIdImg"),
+            "webp 이미지가 문서에 없다"
+        );
+        assert!(doc.contains("[잘못된 SVG]"));
+        let mut ct = String::new();
+        zip.by_name("[Content_Types].xml")
+            .unwrap()
+            .read_to_string(&mut ct)
+            .unwrap();
+        assert!(ct.contains("Extension=\"webp\"") && ct.contains("image/webp"));
+        // Body and footnotes share drawing IDs, while media relationships have
+        // their own sequence unaffected by interleaved SVG/Mermaid drawings
+        // and the reserved drawing ID of a failed SVG conversion.
+        let rel_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        let drawing_ns = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
+        let mut drawing_ids = Vec::new();
+        let mut media_ids = Vec::new();
+        for (part, relationships, expected_drawings, expected_media) in [
+            ("word/document.xml", "word/_rels/document.xml.rels", 4, 2),
+            ("word/footnotes.xml", "word/_rels/footnotes.xml.rels", 2, 1),
+        ] {
+            let mut xml = String::new();
+            zip.by_name(part).unwrap().read_to_string(&mut xml).unwrap();
+            let mut rels = String::new();
+            zip.by_name(relationships)
+                .unwrap()
+                .read_to_string(&mut rels)
+                .unwrap();
+            let content = roxmltree::Document::parse(&xml).unwrap();
+            let rels = roxmltree::Document::parse(&rels).unwrap();
+            assert_drawing_paragraph_structure(&xml, expected_drawings);
+            drawing_ids.extend(
+                content
+                    .descendants()
+                    .filter(|node| node.has_tag_name((drawing_ns, "docPr")))
+                    .map(|node| node.attribute("id").unwrap().parse::<u32>().unwrap()),
+            );
+            let ids: Vec<_> = content
+                .descendants()
+                .filter_map(|n| n.attribute((rel_ns, "embed")))
+                .collect();
+            assert_eq!(ids.len(), expected_media);
+            for id in ids {
+                media_ids.push(id.to_string());
+                let target = rels
+                    .descendants()
+                    .find(|n| n.attribute("Id") == Some(id))
+                    .and_then(|n| n.attribute("Target"))
+                    .unwrap();
+                let mut media = Vec::new();
+                zip.by_name(&format!("word/{target}"))
+                    .unwrap()
+                    .read_to_end(&mut media)
+                    .unwrap();
+                assert_eq!(media, webp, "{part}: {id}");
+            }
+        }
+        drawing_ids.sort_unstable();
+        assert_eq!(drawing_ids, [1, 2, 3, 4, 5, 7]);
+        media_ids.sort();
+        assert_eq!(media_ids, ["rIdImg1", "rIdImg2", "rIdImg3"]);
+        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

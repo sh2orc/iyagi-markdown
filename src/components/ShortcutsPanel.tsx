@@ -15,8 +15,9 @@ const GROUPS = (t: Translate): Array<{ title: string; items: [string, string][] 
     title: t.scFile,
     items: [
       ["⌘N", t.newTab],
-      ["⌘O", t.openFolder],
+      ["⌘O / ⇧⌘O", `${t.openFile} · ${t.openFolder}`],
       ["⌘W", t.closeTab],
+      ["⇧⌘T", t.reopenClosedTab],
       ["⌘S", t.save],
       ["⇧⌘S", t.saveAs],
       ["⌘P", t.exportPdf],
@@ -28,13 +29,24 @@ const GROUPS = (t: Translate): Array<{ title: string; items: [string, string][] 
       ["⌘E", `${t.modeRead} ↔ ${t.modeEdit}`],
       ["⌘/", t.modeSource],
       ["⇧⌘B", t.toggleSidebar],
-      ["⇧⌘T", t.tocTitle],
+      ["⌥⌘T", t.tocTitle],
       ["⌘F", t.findPlaceholder],
       ["[w", t.findWordHelp],
       ["⇧⌘F", t.wsSearchTitle],
-      ["⌘G / ⇧⌘G", `${t.findNext ?? t.findPlaceholder} / ${t.findPrev ?? t.findPlaceholder}`],
+      ["⌘G / ⇧⌘G", `${t.findNext} / ${t.findPrev}`],
       ["⌘+ / ⌘− / ⌘0", `${t.zoomIn} · ${t.zoomOut}`],
-      ["⇧⌘] / ⇧⌘[", `${t.nextTab ?? t.tbBullet} / ${t.prevTab ?? t.tbBullet}`],
+      ["⇧⌘] / ⇧⌘[", `${t.nextTab} / ${t.prevTab}`],
+      ["⌥⌘← / ⌥⌘→", `${t.navigateBack} / ${t.navigateForward}`],
+    ],
+  },
+  {
+    title: t.sidebarTitle,
+    items: [
+      ["↑↓ / Home / End", t.sidebarMove],
+      ["←→", t.sidebarFolders],
+      [t.sidebarTypeKeys, t.sidebarTypeAhead],
+      ["Esc", t.sidebarFilter],
+      ["⇧F10", t.sidebarMenu],
     ],
   },
   {
@@ -110,7 +122,7 @@ export function ShortcutsPanel({ t, onClose }: Props): JSX.Element {
     .filter((g) => g.items.length > 0);
 
   return (
-    <div className="overlay modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="overlay modal-overlay" role="dialog" aria-modal="true" aria-label={t.shortcutsTitle} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal shortcuts-modal">
         <div className="modal-title">{t.shortcutsTitle}</div>
         <input

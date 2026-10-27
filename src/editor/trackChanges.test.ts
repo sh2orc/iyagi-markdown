@@ -2,8 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { changedLines, shiftLineNo } from "./trackChanges";
-import { hunksOf, revertChange } from "../components/TrackPanel";
+import { changedLines, shiftLineNo, shiftLineNumbers, hunksOf, revertChange } from "./trackChanges";
 
 describe("changedLines", () => {
   it("추가 줄 번호(1-기준)와 삭제 수", () => {
@@ -68,7 +67,7 @@ describe("revertChange", () => {
   it("del 덩어리 — 그 위치에 베이스라인 텍스트 재삽입", () => {
     const h = { kind: "del" as const, line: 2, lines: 1, preview: "b", fromLine: 0, toLine: 0, restore: "b" };
     const c = revertChange(h, line, 4);
-    expect(c?.insert).toBe("b");
+    expect(c?.insert).toBe("b\n");
     expect(c?.from).toBe(c?.to); // 순수 삽입
   });
 
@@ -96,5 +95,37 @@ describe("shiftLineNo — 저장 시 줄 재앵커", () => {
   it("변경 없음·아래 편집은 원줄", () => {
     expect(shiftLineNo(2, "a\nb\nc\n", "a\nb\nc\n")).toBe(2);
     expect(shiftLineNo(1, "a\nb\n", "a\nX\nc\n")).toBe(1);
+  });
+});
+
+
+describe("삭제 복원 줄 경계", () => {
+  const lineReader = (text: string) => (n: number) => {
+    const lines = text.split("\n");
+    const from = lines.slice(0, n - 1).reduce((size, line) => size + line.length + 1, 0);
+    return { from, to: from + lines[n - 1].length };
+  };
+  it.each([
+    ["a\nb\nc", "a\nc"],
+    ["a\nb", "a"],
+    ["a\nb\n", "a\n"],
+    ["first\nlast", "last"],
+    ["whole document", ""],
+    ["\n", ""],
+    ["a\n\nb", "a\nb"],
+  ])("삭제 복원은 줄을 붙이거나 끝 개행을 추가하지 않는다: %j", (baseline, current) => {
+    const hunk = hunksOf(baseline, current).find((item) => item.kind === "del")!;
+    const change = revertChange(hunk, lineReader(current), current.split("\n").length)!;
+    expect(current.slice(0, change.from) + change.insert + current.slice(change.to)).toBe(baseline);
+  });
+});
+
+
+describe("shiftLineNumbers", () => {
+  it("한 diff에서 입력 순서·중복·삭제 신호를 보존한다", () => {
+    expect(shiftLineNumbers([3, 1, 2, 3], "a\nb\nc", "intro\na\nc")).toEqual([3, 2, 0, 3]);
+    expect(shiftLineNumbers([2, 1, 2], "a\nb", "a\nb")).toEqual([2, 1, 2]);
+    expect(shiftLineNumbers([], "a", "b")).toEqual([]);
+    expect(shiftLineNumbers([1], "", "")).toEqual([1]);
   });
 });

@@ -18,6 +18,17 @@ describe("i18n", () => {
     }
   });
 
+  it("ko/en 형식화 함수(f) 키도 정확히 같다", () => {
+    // 한쪽 로캘에만 형식화 함수를 추가하면 반대쪽 렌더에서 t.f.x(...)가
+    // undefined 호출로 죽는다 — 문자열 패리티 검사가 f를 제외하므로 따로 잠근다.
+    const en = makeT("en").f;
+    const ko = makeT("ko").f;
+    expect(new Set(Object.keys(en))).toEqual(new Set(Object.keys(ko)));
+    for (const key of Object.keys(en)) {
+      expect(typeof (ko as unknown as Record<string, unknown>)[key], `ko 형식화 없음: ${key}`).toBe("function");
+    }
+  });
+
   it("언어 감지", () => {
     expect(detectLang(["fr-FR", "ko-KR", "en-US"])).toBe("ko");
     expect(detectLang(["en-US", "ko-KR"])).toBe("en");

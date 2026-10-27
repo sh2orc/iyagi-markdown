@@ -17,6 +17,10 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex, MutexGuard,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -36,6 +40,31 @@ pub enum DocError {
     },
     #[error("경로가 파일이 아닙니다: {path}")]
     NotAFile { path: PathBuf },
+    #[error("저장 기준과 디스크 내용이 달라 저장하지 않았습니다: {path}")]
+    Conflict { path: PathBuf, removed: bool },
+}
+
+/// 파일 감시 도착 여부와 관계없이 쓰기 직전에 확인하는 조건.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WriteExpectation {
+    Match {
+        text: String,
+        meta: DocMeta,
+    },
+    Missing,
+    /// 저장 대화상자에서 다른 대상 파일의 교체를 명시적으로 선택한 경우.
+    Overwrite,
+}
+
+static DOCUMENT_WRITES: Mutex<()> = Mutex::new(());
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+/// 앱 안의 비교-쓰기와 이름 변경을 직렬화한다. 외부 편집기의 쓰기는 잠그지 못한다.
+pub fn document_write_guard() -> MutexGuard<'static, ()> {
+    DOCUMENT_WRITES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// 문서의 원문 메타데이터 — 버퍼 텍스트와 함께 왕복하며 저장 시 되살려진다.
@@ -145,35 +174,136 @@ pub fn write_doc_atomic(path: &Path, text: &str, meta: DocMeta) -> Result<(), Do
     write_bytes_atomic(path, &bytes)
 }
 
+pub fn write_doc_checked(
+    path: &Path,
+    text: &str,
+    meta: DocMeta,
+    expected: &WriteExpectation,
+) -> Result<(), DocError> {
+    let _guard = document_write_guard();
+    if let WriteExpectation::Match { text, meta } = expected {
+        match read_doc(path) {
+            Ok(current) if current.text == *text && current.meta == *meta => {}
+            Ok(_) => {
+                return Err(DocError::Conflict {
+                    path: path.into(),
+                    removed: false,
+                })
+            }
+            Err(DocError::Read { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+                return Err(DocError::Conflict {
+                    path: path.into(),
+                    removed: true,
+                });
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    write_bytes_atomic_inner(
+        path,
+        &encode_doc(text, meta),
+        !matches!(expected, WriteExpectation::Missing),
+    )
+}
+
 /// 바이트를 원자적으로 기록한다(이미 완성된 출력물에도 쓴다 — 내보내기 등).
 pub fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> Result<(), DocError> {
+    let _guard = document_write_guard();
+    write_bytes_atomic_inner(path, bytes, true)
+}
+
+/// Install complete bytes only at a new path; never replace an existing asset.
+pub fn write_bytes_new(path: &Path, bytes: &[u8]) -> Result<(), DocError> {
+    let _guard = document_write_guard();
+    write_bytes_atomic_inner(path, bytes, false)
+}
+
+fn write_bytes_atomic_inner(path: &Path, bytes: &[u8], replace: bool) -> Result<(), DocError> {
+    write_file_atomic_inner(path, replace, false, true, |file| file.write_all(bytes))
+}
+
+/// Stream an export into a sibling temporary file; publish only after successful
+/// completion and fsync. For document compare-and-save, use write_doc_checked.
+/// The producer runs without the document-write lock; only publication takes it.
+pub fn write_file_atomic(
+    path: &Path,
+    produce: impl FnOnce(&mut fs::File) -> std::io::Result<()>,
+) -> Result<(), DocError> {
+    write_file_atomic_inner(path, true, true, true, produce)
+}
+
+/// Publish a complete stream at a new path in an existing directory. A competing
+/// file is never replaced, and missing parent directories are never recreated.
+pub fn write_file_new(
+    path: &Path,
+    produce: impl FnOnce(&mut fs::File) -> std::io::Result<()>,
+) -> Result<(), DocError> {
+    write_file_atomic_inner(path, false, true, false, produce)
+}
+
+fn write_file_atomic_inner(
+    path: &Path,
+    replace: bool,
+    lock_publication: bool,
+    create_parents: bool,
+    produce: impl FnOnce(&mut fs::File) -> std::io::Result<()>,
+) -> Result<(), DocError> {
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(dir).map_err(|source| DocError::Write {
-        path: dir.to_path_buf(),
-        source,
-    })?;
-    let tmp: PathBuf = dir.join(format!(
-        ".{}.iyagi-tmp-{}",
-        path.file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "doc".into()),
-        std::process::id(),
-    ));
+    if create_parents {
+        fs::create_dir_all(dir).map_err(|source| DocError::Write {
+            path: dir.to_path_buf(),
+            source,
+        })?;
+    }
     let write_err = |source: std::io::Error| DocError::Write {
         path: path.to_path_buf(),
         source,
     };
-    let result = (|| -> Result<(), std::io::Error> {
-        let mut f = fs::File::create(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
+    // create_new는 이전 실행의 임시 파일/심볼릭 링크를 덮어쓰지 않는다.
+    let (tmp, mut f) = loop {
+        // Keep temporary names short even when the final filename is near the
+        // filesystem's component-length limit.
+        let tmp = dir.join(format!(
+            ".iyagi-tmp-{}-{}",
+            std::process::id(),
+            TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+        {
+            Ok(file) => break (tmp, file),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(write_err(error)),
+        }
+    };
+    let result = (|| -> Result<(), DocError> {
+        produce(&mut f).map_err(write_err)?;
+        f.sync_all().map_err(write_err)?;
         drop(f);
-        fs::rename(&tmp, path)?;
+        let _guard = lock_publication.then(document_write_guard);
+        if replace {
+            fs::rename(&tmp, path).map_err(write_err)?;
+        } else {
+            // 완성한 파일을 빈 경로에만 설치. exists()+rename()의 경합을 피한다.
+            fs::hard_link(&tmp, path).map_err(|source| {
+                if source.kind() == std::io::ErrorKind::AlreadyExists {
+                    DocError::Conflict {
+                        path: path.into(),
+                        removed: false,
+                    }
+                } else {
+                    write_err(source)
+                }
+            })?;
+            let _ = fs::remove_file(&tmp);
+        }
         Ok(())
     })();
-    if let Err(source) = result {
+    if let Err(error) = result {
         let _ = fs::remove_file(&tmp);
-        return Err(write_err(source));
+        return Err(error);
     }
     // 디렉터리 엔트리까지 굳히기(가능한 파일시스템에서만).
     if let Ok(d) = fs::File::open(dir) {
@@ -283,5 +413,173 @@ mod tests {
             .collect();
         assert!(leftovers.is_empty(), "임시 파일이 남았다: {leftovers:?}");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn streaming_failure_keeps_previous_file_and_removes_partial_output() {
+        let dir = std::env::temp_dir().join(format!("md-core-stream-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("book.epub");
+        fs::write(&path, b"previous book").unwrap();
+        let result = write_file_atomic(&path, |file| {
+            file.write_all(b"partial zip")?;
+            Err(std::io::Error::other("injected producer failure"))
+        });
+        assert!(result.is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"previous book");
+        let entries: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, vec![std::ffi::OsString::from("book.epub")]);
+        // The producer may seek (ZIP central-directory generation) and does not
+        // hold the document lock during potentially expensive export work.
+        write_file_atomic(&path, |file| {
+            use std::io::{Seek, SeekFrom};
+            let _guard = document_write_guard();
+            file.write_all(b"zip000")?;
+            file.seek(SeekFrom::Start(3))?;
+            file.write_all(b"END")
+        })
+        .unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"zipEND");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn new_stream_publishes_only_complete_output_and_preserves_a_competing_file() {
+        let dir = std::env::temp_dir().join(format!("md-core-new-stream-{}", std::process::id()));
+        fs::create_dir(&dir).unwrap();
+        let path = dir.join("copy.md");
+        let result = write_file_new(&path, |file| {
+            file.write_all(b"partial")?;
+            assert!(!path.exists());
+            Err(std::io::Error::other("injected copy failure"))
+        });
+        assert!(result.is_err());
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 0);
+        // Only publication collisions are retryable, not producer errors.
+        let result = write_file_new(&path, |_| Err(std::io::ErrorKind::AlreadyExists.into()));
+        assert!(matches!(result, Err(DocError::Write { .. })));
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 0);
+        let result = write_file_new(&path, |file| {
+            file.write_all(b"our copy")?;
+            assert!(!path.exists());
+            fs::write(&path, b"competing writer")
+        });
+        assert!(matches!(result, Err(DocError::Conflict { .. })));
+        assert_eq!(fs::read(&path).unwrap(), b"competing writer");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_file(&path).unwrap();
+        write_file_new(&path, |file| {
+            file.write_all(b"complete")?;
+            assert!(!path.exists());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"complete");
+        let missing = dir.join("deleted-folder");
+        assert!(
+            write_file_new(&missing.join("new.md"), |_| panic!("producer must not run")).is_err()
+        );
+        assert!(!missing.exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_stream_supports_long_valid_document_names() {
+        let dir = std::env::temp_dir().join(format!("md-core-long-stream-{}", std::process::id()));
+        fs::create_dir(&dir).unwrap();
+        let path = dir.join(format!("{}.md", "a".repeat(240)));
+        write_file_new(&path, |file| file.write_all(b"complete")).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"complete");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn checked_writers_cannot_both_replace_the_same_baseline() {
+        let dir = std::env::temp_dir().join(format!("md-core-cas-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("shared.md");
+        let meta = DocMeta {
+            had_bom: false,
+            crlf: false,
+        };
+        write_doc_atomic(&path, "baseline", meta).unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let handles: Vec<_> = ["first window", "second window"]
+            .into_iter()
+            .map(|text| {
+                let path = path.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    write_doc_checked(
+                        &path,
+                        text,
+                        meta,
+                        &WriteExpectation::Match {
+                            text: "baseline".into(),
+                            meta,
+                        },
+                    )
+                })
+            })
+            .collect();
+        let results: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| matches!(result, Err(DocError::Conflict { removed: false, .. })))
+                .count(),
+            1
+        );
+        let final_text = fs::read_to_string(&path).unwrap();
+        assert!(["first window", "second window"].contains(&final_text.as_str()));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn missing_and_changed_encoding_require_confirmation() {
+        let dir = std::env::temp_dir().join(format!("md-core-conditions-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("document.md");
+        let meta = DocMeta {
+            had_bom: false,
+            crlf: false,
+        };
+        write_doc_atomic(&path, "existing", meta).unwrap();
+        assert!(matches!(
+            write_doc_checked(&path, "", meta, &WriteExpectation::Missing),
+            Err(DocError::Conflict { removed: false, .. })
+        ));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "existing");
+        let expected = WriteExpectation::Match {
+            text: "existing".into(),
+            meta,
+        };
+        let bom_meta = DocMeta {
+            had_bom: true,
+            crlf: false,
+        };
+        write_doc_atomic(&path, "existing", bom_meta).unwrap();
+        assert!(matches!(
+            write_doc_checked(&path, "changed", meta, &expected),
+            Err(DocError::Conflict { removed: false, .. })
+        ));
+        fs::remove_file(&path).unwrap();
+        assert!(matches!(
+            write_doc_checked(&path, "changed", meta, &expected),
+            Err(DocError::Conflict { removed: true, .. })
+        ));
+        write_doc_checked(&path, "recreated", meta, &WriteExpectation::Missing).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "recreated");
+        let _ = fs::remove_dir_all(dir);
     }
 }

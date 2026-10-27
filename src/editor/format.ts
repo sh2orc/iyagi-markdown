@@ -5,9 +5,15 @@ import { EditorSelection } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { formatTableText } from "./tableFormat";
 import { collectHeadings, tocMarkdown } from "../links";
-import { stripFrontMatter } from "./frontmatter";
 import { pageBreakMarkdown } from "./pagebreak";
 import { syntaxTree } from "@codemirror/language";
+import { isolateHistory } from "@codemirror/commands";
+
+/** Keep inserted blocks separate from the surrounding paragraphs. */
+export const blockInsertionText = (block: string): string => `\n\n${block}\n\n`;
+
+const paragraphLead = (before: string): string => before.length === 0 || /\n[ \t]*\n$/.test(before)
+  ? "" : before.endsWith("\n") ? "\n" : "\n\n";
 
 /** 선택 각 줄의 앞뒤에 마커를 넣는다(굵게/기울임/취소선/코드). */
 function wrapSelection(view: EditorView, marker: string): boolean {
@@ -103,7 +109,10 @@ export function toggleHeading(view: EditorView, level: number): boolean {
   const state = view.state;
   const sel = state.selection.main;
   const first = state.doc.lineAt(sel.from).number;
-  const last = state.doc.lineAt(sel.to).number;
+  // 선택이 마지막 줄의 시작점에서 끝나면 그 줄은 선택된 게 아니다(관례 —
+  // 줄 시작=경계). 빈 줄짜리 선택에 다음 줄까지 헤딩이 묻지 않게.
+  const lastLine = state.doc.lineAt(sel.to);
+  const last = sel.to > lastLine.from ? lastLine.number : Math.max(first, lastLine.number - 1);
   const hashes = "#".repeat(level) + " ";
   const changes: { from: number; to?: number; insert: string }[] = [];
   for (let n = first; n <= last; n++) {
@@ -286,46 +295,54 @@ export function insertImageRef(view: EditorView, rel: string, alt = ""): boolean
 }
 
 export function insertBlock(view: EditorView, block: string): boolean {
+  if (view.state.readOnly) return false;
   const sel = view.state.selection.main;
-  const line = view.state.doc.lineAt(sel.from);
-  const before = line.text.slice(0, sel.from - line.from);
-  const after = line.text.slice(sel.to - line.from);
-  const insert = `${before}\n\n${block}\n\n${after}`;
-  const cursor = line.from + before.length + 2 + block.length + 2;
-  view.dispatch(
-    { changes: { from: line.from, to: line.to, insert }, selection: { anchor: Math.min(cursor, line.from + insert.length) } },
-    { userEvent: "input.format" },
-  );
-  return true;
+  const changes = view.state.changes({ from: sel.from, to: sel.to, insert: blockInsertionText(block) });
+  const expected = changes.apply(view.state.doc);
+  view.dispatch({
+    changes, selection: { anchor: sel.to + changes.newLength - changes.length },
+    annotations: isolateHistory.of("full"), userEvent: "input.format",
+  });
+  return view.state.doc.eq(expected);
 }
 
 /**
  * 페이지 나눔 삽입(Word Ctrl+Enter). 커서 위치에서 문단을 나누고
  * `\newpage`를 자체 문단으로 둔다 — 뒤 내용이 다음 페이지로 흐른다.
  */
-export function insertPageBreak(view: EditorView): boolean {
-  const sel = view.state.selection.main;
+export function insertPageBreak(view: EditorView, sel: { from: number; to: number } = view.state.selection.main): boolean {
+  if (view.state.readOnly) return false;
   const before = view.state.sliceDoc(0, sel.from);
   // 자체 문단이 되게 앞쪽 빈 줄 확보 — 문서 첫머리/빈 줄 직후엔 덧붙이지 않는다.
-  const lead = before.length === 0 || /\n[ \t]*\n$/.test(before) ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+  const lead = paragraphLead(before);
   const insert = `${lead}${pageBreakMarkdown()}\n\n`;
+  const changes = view.state.changes({ from: sel.from, to: sel.to, insert });
+  const expected = changes.apply(view.state.doc);
   view.dispatch({
-    changes: { from: sel.from, to: sel.to, insert },
-    selection: { anchor: sel.from + insert.length },
-    userEvent: "input.pagebreak",
+    changes,
+    selection: { anchor: sel.to + changes.newLength - changes.length },
+    annotations: isolateHistory.of("full"), userEvent: "input.pagebreak",
   });
-  return true;
+  return view.state.doc.eq(expected);
+}
+
+/** rows counts body rows; the header and separator are additional lines. */
+export function tableMarkdown(rows: number, cols: number, heading = "열 제목"): string {
+  if (![rows, cols].every((n) => Number.isInteger(n) && n >= 1 && n <= 20)) {
+    throw new RangeError("Table dimensions must be integers from 1 to 20");
+  }
+  const cells = (c: number, fill: string) => Array.from({ length: c }, () => fill).join(" | ");
+  const lines = [
+    `| ${cells(cols, heading)} |`,
+    `| ${cells(cols, "---")} |`,
+    ...Array.from({ length: rows }, () => `| ${cells(cols, " ")} |`),
+  ];
+  return lines.join("\n");
 }
 
 /** 표 스캐폴드 삽입. */
 export function insertTable(view: EditorView, rows = 3, cols = 3): boolean {
-  const cells = (c: number, fill: string) => Array.from({ length: c }, () => fill).join(" | ");
-  const lines = [
-    `| ${cells(cols, "열 제목")} |`,
-    `| ${cells(cols, "---")} |`,
-    ...Array.from({ length: rows }, () => `| ${cells(cols, " ")} |`),
-  ];
-  return insertBlock(view, lines.join("\n"));
+  return insertBlock(view, tableMarkdown(rows, cols));
 }
 
 // — 표 편집(Word 표 도구) — 파이프 구조는 그대로 두고 셀 단위로만 삽입·삭제한다.
@@ -877,18 +894,23 @@ export function formatTable(view: EditorView): boolean {
 }
 
 
-/** 목차 삽입 — 제목에서 마크다운 목차를 커서에(GitHub식 앵커). 원문 무손실:
- *  순수 텍스트 삽입일 뿐이고 내보내기·렌더 모두 표준 링크로 동작한다. */
-export function insertToc(view: EditorView): boolean {
+/** 목차 삽입 — 선택을 교체한 뒤 남는 제목의 앵커로 독립된 목록을 만든다. */
+export function insertToc(view: EditorView, sel: { from: number; to: number } = view.state.selection.main): boolean {
+  if (view.state.readOnly) return false;
   const doc = view.state.doc.toString();
-  const headings = collectHeadings(stripFrontMatter(doc));
+  const before = doc.slice(0, sel.from), after = doc.slice(sel.to);
+  const lead = paragraphLead(before);
+  // Model the block's paragraph boundaries without including the command or
+  // headings being replaced. Duplicate-title slugs then match the final body.
+  const headings = collectHeadings(`${before}${lead}\n\n${after}`);
   const md = tocMarkdown(headings);
   if (!md) return false;
-  const sel = view.state.selection.main;
+  const changes = view.state.changes({ from: sel.from, to: sel.to, insert: `${lead}${md}\n\n` });
+  const expected = changes.apply(view.state.doc);
   view.dispatch({
-    changes: { from: sel.from, to: sel.to, insert: `${md}\n` },
-    selection: { anchor: sel.from },
-    userEvent: "input.insertToc",
+    changes,
+    selection: { anchor: sel.from + lead.length },
+    annotations: isolateHistory.of("full"), userEvent: "input.insertToc",
   });
-  return true;
+  return view.state.doc.eq(expected);
 }

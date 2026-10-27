@@ -6,11 +6,11 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 
 import { LinkDialog } from "./LinkDialog";
-import type { Translate } from "../i18n";
+import { makeT } from "../i18n";
 
-const t = {} as Translate; // 라벨 렌더에만 쓰임 — 동작 무관
+const t = makeT("en");
 
-function mountDialog(confirm: () => void, cancel: () => void): { host: HTMLDivElement; root: ReturnType<typeof createRoot> } {
+function mountDialog(confirm: (next: { text: string; url: string }) => void | Promise<void>, cancel: () => void): { host: HTMLDivElement; root: ReturnType<typeof createRoot> } {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -52,4 +52,66 @@ describe("링크 대화상자 IME 가드", () => {
     act(() => root.unmount());
     host.remove();
   });
+});
+
+function type(input: HTMLInputElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+function button(host: HTMLElement, text: string) {
+  return [...host.querySelectorAll("button")].find((node) => node.textContent === text)!;
+}
+
+it("적용 실패 후 입력을 유지하고 같은 내용으로 재시도할 수 있다", async () => {
+  const confirm = vi.fn().mockRejectedValueOnce(new Error("target changed")).mockResolvedValue(undefined);
+  const cancel = vi.fn();
+  const { host, root } = mountDialog(confirm, cancel);
+  try {
+    act(() => type(host.querySelector("input")!, "new [label]"));
+    await act(async () => button(host, t.save).click());
+    expect(host.textContent).toContain("target changed");
+    expect(host.querySelector("input")!.value).toBe("new [label]");
+    expect(cancel).not.toHaveBeenCalled();
+    await act(async () => button(host, t.save).click());
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(confirm).toHaveBeenLastCalledWith({ text: "new [label]", url: "https://example.com" });
+  } finally { act(() => root.unmount()); host.remove(); }
+});
+
+it("변경한 입력은 Escape로 바로 버리지 않고 확인 후 닫는다", () => {
+  const cancel = vi.fn();
+  const { host, root } = mountDialog(vi.fn(), cancel);
+  try {
+    act(() => type(host.querySelector("input")!, "keep"));
+    act(() => { host.querySelector("input")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(host.textContent).toContain(t.linkDiscardPrompt);
+    expect(cancel).not.toHaveBeenCalled();
+    act(() => button(host, t.commentKeepEditing).click());
+    expect(host.querySelector("input")!.value).toBe("keep");
+    act(() => button(host, t.cancel).click());
+    act(() => button(host, t.commentDiscard).click());
+    expect(cancel).toHaveBeenCalledTimes(1);
+  } finally { act(() => root.unmount()); host.remove(); }
+});
+
+it("처리 중 Enter 중복 제출·Escape·배경 닫기를 막고 빈 설명을 그대로 전달한다", async () => {
+  let finish!: () => void;
+  const confirm = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+  const cancel = vi.fn();
+  const { host, root } = mountDialog(confirm, cancel);
+  try {
+    act(() => type(host.querySelector("input")!, ""));
+    act(() => {
+      const input = host.querySelector("input")!;
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      host.querySelector<HTMLElement>(".overlay")!.click();
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledWith({ text: "", url: "https://example.com" });
+    expect(cancel).not.toHaveBeenCalled();
+    expect(host.querySelector("input")!.readOnly).toBe(true);
+    await act(async () => finish());
+  } finally { act(() => root.unmount()); host.remove(); }
 });

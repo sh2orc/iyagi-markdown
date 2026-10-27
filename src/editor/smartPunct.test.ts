@@ -46,6 +46,15 @@ describe("smartChar", () => {
     expect(smartChar("-", "1---")).toBeNull(); // 대시 3연속(hr 보호)
   });
 
+  it("수평선 입력 중(atDashLine) — 대시 변환하지 않는다(2026-10-21 보고)", () => {
+    expect(smartChar("-", "\n--", true)).toBeNull(); // 앞 줄이 있어도 줄 시작
+    expect(smartChar("-", "--", true)).toBeNull();
+    expect(smartChar("-", "\n–", true)).toBeNull(); // –- → — 연쇄도 차단
+    expect(smartChar("-", "  --", true)).toBeNull(); // 들여쓴 대시
+    // 문장 중간은 여전히 변환 — atDashLine이 아니면.
+    expect(smartChar("-", "12--", false)).toEqual([-2, "–"]);
+  });
+
   it("변환 대상 외는 null", () => {
     expect(smartChar("a", "x")).toBeNull();
     expect(smartChar(" ", "x")).toBeNull();

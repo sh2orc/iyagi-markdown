@@ -75,3 +75,12 @@ describe("htmlToMarkdown(스마트 붙여넣기)", () => {
     expect(md).toContain("텍스트");
   });
 });
+
+  it("URL의 공백·괄호는 퍼센트 인코딩(CommonMark 목적지 규칙)", () => {
+    const md = htmlToMarkdown(
+      `<p><a href="my file (1).html">링크</a></p><p><img src="사진 2.png" alt="a"></p>`,
+    );
+    expect(md).toContain("(my%20file%20%281%29.html)");
+    expect(md).toContain("(사진%202.png)");
+    expect(md).not.toMatch(/\]\([^)]*[ ][^)]*\)/); // 목적지에 원시 공백 없음
+  });

@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ancestorSlugs, duplicateHeadings, filterHeadings, headingPath, tocTree, visibleNodes } from "./tocTree";
-import type { Heading } from "../links";
+import { collectHeadings, type Heading } from "../links";
 
 const H = (level: number, text: string, i: number): Heading => ({
   level,
@@ -70,12 +70,18 @@ describe("filterHeadings", () => {
   it("빈 쿼리는 null(필터 아님)·부분 일치는 대소문자 무시", () => {
     expect(filterHeadings(hs, "  ")).toBeNull();
     expect(filterHeadings(hs, "설치")!.map((h) => h.text)).toEqual(["설치 가이드", "설치 오류"]);
-    expect(filterHeadings(hs, "GUIDE")).toBeNull;
+    expect(filterHeadings(hs, "GUIDE")).toEqual([]);
     expect(filterHeadings([{ ...hs[0]!, text: "Guide" }], "GUIDE")!.length).toBe(1);
   });
 
   it("매치 없음은 빈 배열", () => {
     expect(filterHeadings(hs, "없는것")).toEqual([]);
+  });
+
+  it("조합형·완성형 한글 제목과 검색어를 같은 문자열로 찾는다", () => {
+    expect(filterHeadings(hs, "설치".normalize("NFD"))).toEqual([hs[0], hs[2]]);
+    const decomposed = { ...hs[0], text: hs[0].text.normalize("NFD") };
+    expect(filterHeadings([decomposed], "설치")).toEqual([decomposed]);
   });
 });
 
@@ -103,6 +109,10 @@ describe("headingPath", () => {
 });
 
 describe("duplicateHeadings", () => {
+  it("실제 수집기가 중복 접미사를 붙인 제목도 발견한다", () => {
+    const text = "# 제목\n\n## 제목\n\n# 제목\n";
+    expect(duplicateHeadings(collectHeadings(text))).toEqual([{ text: "제목", pos: text.indexOf("## 제목") }]);
+  });
   it("같은 텍스트 제목 두 번째 등장부터 수집", () => {
     // H 헬퍼는 slug에 인덱스를 붙이므로 슬러그 동일 케이스는 직접构造.
     const mk = (text: string, slug: string, pos: number): Heading => ({ level: 1, text, slug, pos });
