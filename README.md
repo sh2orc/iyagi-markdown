@@ -1,140 +1,506 @@
 # IYAGI Markdown
 
-`.md` 파일을 더블클릭하면 즉시 깔끔하게 렌더링해 보여 주고, 같은 창에서 바로 편집·저장할 수
-있는 **경량 macOS 마크다운 리더/에디터**. Tauri 2 + Rust + React/TS + CodeMirror 6.
+**Your Interface to AGI** — Read, write, and keep your Markdown intact.
 
-- **원문 무손실**: 문서는 언제나 마크다운 텍스트 그대로다. 저장은 버퍼를 원자적으로 쓴다
-  (임시 파일 → rename). BOM·CRLF/LF·마지막 개행이 보존되고, 수정하지 않은 문서는
-  저장이 일어나지 않는다. HTML 변환을 거치는 편집 경로는 존재하지 않는다.
-- **라이브 프리뷰(WYSIWYG)**: 제목·강조·링크·표·체크박스·이미지·수식(KaTeX)·다이어그램
-  (mermaid)을 CodeMirror 6 장식·위젯으로 렌더한다. 인라인 마커(`**` 등)는 선택이
-  덮을 때만 원문이 드러나고, 위젯(표 셀·수식·다이어그램·프런트매터)은 클릭 한 번으로
-  해당 원문 위치를 편집한다.
-- **출력 불변**: 내보내기의 다이어그램·수식은 항상 대상 형식의 네이티브 벡터·편집 가능
-  객체다. PDF는 벡터 경로, DOCX는 DrawingML 도형 그룹과 OMML 수식. 래스터화 없음.
-- **가볍게**: 13MB(.app) · KaTeX·mermaid·highlight는 지연 로딩 청크 · 커서 이동당
-  재계산 = 청크 1~2개(문서 크기와 무관).
+English | **[한국어](README_KR.md)** · [Download](#download) · [Release notes](RELEASE.md)
 
-## 기능
+IYAGI Markdown is a lightweight macOS Markdown reader/editor. Double-click a `.md` file and
+it opens rendered, tidy and ready — and the same window edits and saves it. Built on
+Tauri 2 + Rust + React/TS + CodeMirror 6.
 
-### 문서 편집
-- 파일 연결(`.md`/`.markdown`) — 더블클릭·Dock 드롭·`open -a`·파일 › 열기
-- 시작 화면 — 최근 문서·템플릿 바로가기(문서가 없을 때)
-- GFM: 표(셀 제자리 편집(Word식 — 클릭해 바로 입력, Tab/Enter 셀 이동, Esc 취소)·헤더 클릭 정렬·열 폭 드래그·행/열 편집·자동 형식화·저장 시 정리 옵션), 작업 목록, 취소선, 각주
-- 표 셀 사각 다중 선택 — 드래그·⇧클릭·화살표 이동·⇧화살표 확장 + Enter/⇧Enter 편집(↓·↑)·Esc 뒤 재시작·Delete 비우기·⌘C TSV 복사·표 전용 메뉴(우클릭·⇧F10) — 전 흐름 키보드 가능·활성 셀 뷰 추종
-- 표 셀 병합 — 선택 영역을 한 셀로(`>` 왼쪽·`^` 위 마커, 앱 렌더 전용 — 다른 렌더러에서는 기호 텍스트로 강등)·병합 해제
-- 서식 도구모음·선택 미니 바(B/I/S/코드/링크)·우클릭 컨텍스트 메뉴
-- 목록 자동 계속(Enter)·Tab 들여쓰기·줄 이동(⌥↑↓)·복제(⌘D)·삭제(⌘⇧K)
-- 멀티커서 편집 — ⌥클릭 커서 추가·⌥⌘↑↓ 위/아래 커서·⌥⌘D 다음 같은 단어 선택·⌥드래그 사각(열) 선택(Esc 해제)
-- 줄 정렬(오름/내림)·중복 줄 제거 — 명령 팔레트·우클릭 메뉴(자연 숫자 정렬)
-- 이모지 자동완성 — `:기쁨`·`:coffee` 입력 중 후보(한국어 별칭 포함, 문자로 삽입)
-- 입력 보조: 괄호 쌍·마커 감싸기(`$`·`` ` ``·`*`·`~`)·강제 줄바꿈(⇧⏎)·페이지 나누기(⇧⌘↵ — Word 쪽나눔, `\newpage` 문단)
-- 스마트 붙여넣기: HTML→마크다운 변환(Word/브라우저→IYAGI)·URL→링크·이미지 붙여넣기·TSV→표(엑셀·시트)
-- 이미지 드래그 앤 드롭 — 문서 폴더 assets/로 복사해 참조 삽입
-- 그림 캡션 — `![설명](이미지)`의 대체 텍스트가 캡션으로
-- 표 캡션 — 표 다음 `: 설명` 줄(Pandoc 규약), 내보내기에서 '표 N' 번호
-- 문서 메모(주석) — 줄 앵커 사이드카·패널(편집·해결·삭제·클릭 이동), 원문 불변
-- 메모 DOCX 내보내기 — Word 원생 메모(검토 창에서 그대로)
-- 문서 검수 허브 — 끊긴 링크(원클릭 생성)·긴 문장·인용(끊긴 키 ⚠·서지로 이동)·고아 이미지(휴지통 이동 — Finder 복구 가능)를 한곳에서
-- 제목·목록·코드펜스·인용 접기(거터 ▾) · 모두 접기/펼치기 · 시스템 맞춤법 검사(옵션)
-- 코드펜스 언어 자동완성 — ```py 입력 중 후보(Python 등), 코드 블록 안 키워드 완성
-- 들여쓰기 가이드 — 중첩 목록 2공백 단위 세로 안내선(공백 폭 실측, 코드펜스 제외)
-- 서식 복사(⌥⌘C/⌥⌘V) — 굵게·기울임·코드·취소·형광펜 서식을 평문에 붙여넣기
-- 도구모음 실행 취소/다시 실행·문단 정렬 — 명령 팔레트 단축키 칩(kbd) 표시
-- 서식 없이 붙여넣기(⌥⌘⇧V) — 마크다운 변환 없이 순수 텍스트로
-- 서식 복사: 마크다운 문법이 있는 선택을 복사하면 HTML도 클립보드에(Word/메일에 서식 유지)
-- 자동 저장(옵션) — 원자적 저장 경로 그대로
+- **Lossless source.** The document is always Markdown text and nothing else. Saving writes
+  the buffer atomically (temp file → rename). BOM, CRLF/LF and the trailing newline are
+  preserved, and an unmodified document is never written. There is no HTML-conversion
+  editing path.
+- **Live preview (WYSIWYG).** Headings, emphasis, links, tables, checkboxes, images, math
+  (KaTeX) and diagrams (mermaid) render as CodeMirror 6 decorations and widgets. Inline
+  markers (`**` and friends) reveal their source only while the caret or a selection endpoint
+  touches them — ⌘A or a wide drag keeps the rendering intact with the highlight simply
+  layered on top (Typora-style). Widgets (table cells, math, diagrams, front matter) open
+  their source position on click. Headings are created with `#`/`##` (ATX) only — underlined
+  (Setext, `---`/`===`) lines are not headings: at typing time they are separated by a blank
+  line (Word-style) and `---` becomes a horizontal rule. External documents that were never
+  separated still render as paragraph + rule, and exports apply the same interpretation by
+  inserting blank lines to normalize the pair.
+- **Faithful output.** Diagrams and math in exports are always native vector, editable
+  objects of the target format: vector paths in PDF, DrawingML shape groups and OMML math in
+  DOCX. No rasterization, ever.
+- **Lightweight.** 14 MB (.app) · KaTeX, mermaid and highlight.js are lazy-loaded
+  chunks · every caret move recomputes only 1–2 chunks, regardless of document size.
 
-### 문서별 스타일(SQLite 사이드카 — 원문 불변)
-- 폰트 4종(시스템/세리프/라운드/고정폭)·크기·행간·문단 간격·정렬(양쪽 포함)·들여쓰기·강조색
-- 프리셋: 보고서·블로그·메모·논문·개발 노트
-- 이미지 크기(개별)·표 열 폭(개별)·책갈피
-- 편집기·HTML·PDF·DOCX 4경로에 동일 적용
+## Download
 
-### 노트 체계
-- 위키링크 `[[이름]]` + 자동완성(`[[` 입력 시 목록) + 백링크 패널("🔗 N" 클릭)
-- 문서 그래프 — 위키링크 연결 관계 시각화(노드 크기=연결 수·활성 문서 강조), 휠 줌(커서 고정)·드래그 팬·노드 더블클릭 열기·배경 더블클릭 리셋·키보드 탐색(←→↑↓ 이동·Enter 열기·+/−/0 줌)
-- 링크 호버 미리보기(위키·내부 마크다운·각주 — 렌더 팝오버) · 끊긴 링크 검사·원클릭 생성 · 목차 삽입·그림/표 목차(lof/lot)·HTML/PDF 정적 목차(제목 앵커)·문서 정리(빈 줄 정규화+표 정렬)
-- 태그 `#태그` + 자동완성(`#` 입력 시 목록) + 클릭 → 워크스피이스 검색
-- 빠른 열기(명령 팔레트에서 파일 퍼지 검색)
-- 폴더 전체 검색(⇧⌘F) + 모두 바꾸기(원자적 저장·메타 보존)
-- 버전 기록: 저장 직전 스냅숏 30개 + diff 미리보기 + 복원
-- 메모(Word "메모"): 줄 앵커 사이드카 — 우클릭 추가·호버·패널 검토·DOCX 원생 메모로 내보내기
-- 문서 검수 허브: 끊긴 링크·긴 문장(점선 표시 토글)·고아 이미지 정리
-- 파일 관리: 사이드바 우클릭 — 새 문서·이름 변경·복제 · 이름 변경 시 [[위키링크]] 일괄 전파
-- 문서 비교(diff 뷰 — 다른 파일 또는 디스크 버전과)
-- 하이라이트 `==텍스트==`(색 5종 선택) · YAML 프런트매터(문서 정보 편집 폼)
-- 저장 파일명에 프런트매터 제목 반영 · 탭 우클릭 'Finder에서 보기'
+Installers are published as **[GitHub Releases](https://github.com/sh2orc/iyagi-markdown/releases)**.
 
-### 집필 모드
-- 타이프라이터 스크롤(입력 시 커서 줄 세로 중앙) · 포커스 모드(커서 블록 외 흐림)
-- 문장 포커스(현재 문장만 또렷하게)
-- 소리내어 읽기 — 시스템 목소리·속도·목소리 선택·읽는 중 표시(선택 또는 문서 전체)
+**Latest: [0.1.0](https://github.com/sh2orc/iyagi-markdown/releases/tag/v0.1.0)** (2026-10-27)
+— the first public release. See [what's new](#whats-new-in-010).
 
-### 탐색·도구
-- 명령 팔레트(⌘⇧P) — 모든 명령 퍼지 검색 · `@` 문서 내 제목 점프 · 최근 명령 우선
-- 목차(TOC) 패널 — 스크롤 추적·현재 제목 강조·드래그로 섹션 통째 재배치
-- 분할 편집(참조 보기) — 옆에 고정한 문서를 바로 수정, 비례 동시 스크롤
-- 변경 추적 — Word Track Changes의 마크다운 판: 삽입·삭제 표시·변경 내용 패널·상태 줄 ✎ +N −R·덩어리별 되돌리기('거부')·다음/이전 변경 탐색·삭제 블록 본문 표시(취소선)·클릭 ↺ 되돌리기
-- 문서 통계(단어·글자·문단·표·읽기 시간·문장 길이 분포·긴 문장 클릭 이동) · 선택 통계("3단어 · 12자") · 할 일 진행률(☑ 3/7)
-- 같은 단어 강조(커서 단어의 발생 — Word 표준) · 참조 보기(탭을 옆에 고정해 나란히)
-- 긴 문장 표시(옵션) — 편집기에서 60자+ 점선 밑줄(작가 보조)
-- 서식 기호 보기(설정·팔레트) — 공백 ·· 탭 → 줄끝 ¶(Word 서식 기호, 중복·끝공백 가시화)
-- 인용·서지 — 본문 `[@key]` → [N] 위첨자(첫 등장 순)·서지 정의 `[@key]: 항목`(HTML 링크·번호 매김, 편집기 툴팁·끊긴 인용 표시) + `[@` 자동완성(문서 내 정의 키)
-- 인용·서지 DOCX — 인용이 서지 앵커 하이퍼링크(위첨자)·서지 문단이 북마크(Word에서 클릭 이동), 끊긴 인용은 원문 보존
-- 상태 줄 브레드크럼 — 현재 제목 경로 표시·클릭 이동
-- 키보드 단축키 도움말(도움말 › 키보드 단축키)
-- 인쇄 미리보기(⌘P) — 여백·배율 조절, 내보내기 옵션은 재시작에도 유지
+[![Download for macOS](https://img.shields.io/badge/Download-macOS%20%C2%B7%20Apple%20Silicon-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/sh2orc/iyagi-markdown/releases/latest)
 
-### 출력
-- HTML: 자체 완결형 단일 파일(이미지·폰트 인라인, DOMPurify)
-- PDF: 벡터·용지·여백·배율·페이지 번호(N / M)
-- DOCX: Word 기본 스타일 + 문서별 스타일 + OMML 수식 + DrawingML 도형 + 표 + 페이지 번호(옵션) + 페이지 나눔(`\newpage` → 쪽 나눔)
-- HTML/PDF: `\newpage` 문단이 페이지 나눔으로(인쇄·PDF는 물론 화면에서도 점선 표시)
-- 다단 레이아웃 — 프런트매터 `columns: 2`(·3): HTML·인쇄 CSS 다단(h1·h2는 단 관통), PDF 타일링이 단 폭 재계산, DOCX sectPr w:cols(Word Layout > Columns와 동일)
-- 머리글/바닥글 자유 텍스트 — 프런트매터 `header:`·`footer:`: 머리글은 문서 제목 대신, 바닥글은 쪽번호와 함께(HTML·PDF·DOCX footer1.xml — Word 실행 머리글/바닥글)
-- EPUB: EPUB 3 전자책(목차·챕터·표지·본문 이미지 임베딩)
+| Platform | File | Size | SHA-256 |
+|---|---|---|---|
+| macOS · Apple Silicon | [`IYAGI.Markdown_0.1.0_aarch64.dmg`](https://github.com/sh2orc/iyagi-markdown/releases/download/v0.1.0/IYAGI.Markdown_0.1.0_aarch64.dmg) | 7.9 MB | `8330ed4d0e27fe656fc82605bb33d2d44e80c0cda1305cf894ea9c89d633f83c` |
 
-### 보기·창
-- 라이브 프리뷰·읽기(⌘E)·소스(⌘/) 모드 — 전환에 변환 없음
-- 읽기 모드 페이지 카드(종이 느낌) · 창 폭 가득(Word 방식)
-- 소스 모드 분할 미리보기 — 왼쪽 소스·오른쪽 읽기 렌더(내보내기 파이프라인과 동일 결과, 스크롤 비례 동기) · 폭 드래그 · 팔레트/설정으로 끄기(순수 소스)
-- 탭(드래그 순서·새 창 ⤢·잠금 🔒·세션 복원 — 참조 보기 고정·폴더 접힘 포함) · 폴더 사이드바(트리·파일 감시)
-- 라이트/다크 자동(시스템 추종) · 글꼴 크기·읽기 단 폭 설정
-- 고아 이미지 정리(assets/에서 참조 없는 파일 검색·삭제)
-- 외부 변경 감지 — 수정 중이면 충돌 안내, 아니면 자동 다시 읽기
-- 최근 문서, 미저장 확인, 창 상태 복원(위치·크기 포함)
-- 한국어/영어 UI
+Check the download before opening it:
 
-## 개발
+```sh
+shasum -a 256 ~/Downloads/IYAGI.Markdown_0.1.0_aarch64.dmg
+```
+
+The result must match the hash above, the hash in [RELEASE.md](RELEASE.md) and the digest
+GitHub shows next to the asset on the release page.
+
+<details>
+<summary>Signing & trust on macOS</summary>
+
+The app and the DMG are signed with a Developer ID, built with hardened runtime and
+notarized, with the ticket stapled to the DMG, so it opens without Gatekeeper warnings.
+
+Installers are still built and notarized on a release Mac rather than in CI. The
+release-integrity roadmap — CI-built releases on protected tags, an independent hash
+channel — is in [RELEASE.md](RELEASE.md).
+</details>
+
+<details>
+<summary>Requirements & building from source</summary>
+
+macOS 13.0 or later, Apple Silicon. IYAGI Markdown is a macOS-only app; CI
+([.github/workflows/ci.yml](.github/workflows/ci.yml)) also checks the OS-independent Rust
+core (md-core, md-export) on Linux.
+
+From source: `npm ci && npm run tauri build` (see [Development](#development)).
+</details>
+
+## What's new in 0.1.0
+
+First public release:
+
+- Live-preview Markdown editor on CodeMirror 6 — the source is never converted, markers
+  reveal only under the caret (Typora-style), widgets edit in place on click
+- GFM tables with in-place cell editing, rectangular multi-select, merges and captions;
+  task lists, strikethrough, footnotes
+- Note system — wikilinks and backlinks, note embeds, callouts, tags, document graph,
+  daily notes, heading rename with workspace-wide link updates
+- Per-document styles (fonts, spacing, presets) in a SQLite sidecar — the source stays
+  untouched — applied identically to the editor, HTML, PDF and DOCX
+- Exports: self-contained HTML, vector PDF, DOCX (OMML math, DrawingML diagrams, native
+  comments, footnotes, multi-column, headers/footers), EPUB 3
+- Review hub, track changes, version snapshots, citations & bibliography, templates,
+  multi-cursor, smart paste, recovery drafts
+- Korean and English UI; Korean word boundaries in find & replace
+
+## Quick start
+
+1. Open the DMG and drag **IYAGI Markdown** into Applications.
+2. Double-click any `.md`/`.markdown` file — it opens rendered. Or use File › Open, drop a
+   file onto the Dock icon, or pick from the start screen.
+3. Live preview is the default. Switch to read mode with ⌘E and to raw source with ⌘/.
+4. Everything lives in the command palette: ⌘⇧P. Print preview ⌘P, folder-wide search ⌘⇧F,
+   quick open from the palette.
+
+## Why IYAGI Markdown
+
+Most Markdown editors quietly trade away the two things a `.md` file is for: the source
+and the output. IYAGI Markdown keeps both honest:
+
+- **The file on disk is the document.** No database, no lock-in, no HTML round-trip. Saves
+  are atomic (temp file → rename), bytes are preserved (BOM, line endings, final newline),
+  and an unmodified document is never written.
+- **What you see is what is in the file.** Live preview is a view over the text, not a
+  conversion of it — every rendering is rebuildable from the bytes on disk.
+- **Exports stay editable.** Math and diagrams export as native objects of the target
+  format — vector paths in PDF, OMML and DrawingML in DOCX — never as rasterized pictures.
+- **Small stays small.** A 14 MB app, lazy-loaded heavy renderers, and incremental
+  decoration updates that cost the same on a 10-page and a 500-page document.
+
+
+## Features
+
+**Document editing**
+
+- File association (`.md`/`.markdown`) — double-click, Dock drop, `open -a`, File › Open
+- Start screen — recent documents and template shortcuts when no document is open
+- Recent folders — reopen from the sidebar, start screen or command palette; keeps up to 20
+  across restarts, synced between windows; remove or clear from the list only
+- Template picker — searchable from the start screen and command palette; preview the source
+  before creating in a new tab. 8 Korean/English templates (incl. project plan, weekly plan,
+  decision record), stamped with the local date at creation
+- My templates — save the current document's source or write a new one; edit name,
+  description and body, delete; concurrent-edit protection keeps a separate copy per window.
+  Up to 100 locally, 512 KiB each; image files are not copied
+- Template backup & move — export selected user templates as JSON and review sources on
+  import; bulk-add without overwriting existing entries; up to 64 MiB per file
+- GFM: tables (in-place cell editing, Word-style — click and type; Tab/Enter move between
+  cells; Esc cancels; header-click alignment; column-width drag; row/column editing;
+  auto-formatting; tidy-on-save option), task lists, strikethrough, footnotes
+- Rectangular multi-select in table cells — drag, ⇧-click, arrow moves, ⇧-arrow extends;
+  Enter/⇧Enter edit (↓/↑), Esc then restart, Delete clears, ⌘C copies TSV, table context menu
+  (right-click/⇧F10) — fully keyboard-driven, view follows the active cell
+- Merged table cells — merge a selection into one cell (`>` left / `^` above markers,
+  app-render only — degrade to marker text in other renderers) and unmerge
+- Formatting toolbar, selection mini-bar (B/I/S/code/link), right-click context menu
+- List continuation (Enter), Tab indent, move line (⌥↑↓), duplicate (⌘D), delete (⌘⇧K)
+- Multi-cursor — ⌥-click adds a cursor, ⌥⌘↑↓ adds one above/below, ⌥⌘D selects the next
+  occurrence, ⌥-drag makes a rectangular (column) selection (Esc dismisses)
+- Sort lines (asc/desc) & remove duplicates — command palette and context menu (natural
+  numeric sort)
+- `/` menu (Notion-style block insert) — type `/` at the start of a line (or after
+  whitespace) to insert headings, lists, tables, code, math, images, links, horizontal
+  rules, page breaks, TOC and more; search in Korean or English, Enter applies
+- Emoji autocomplete — Korean aliases (`:기쁨`) and exact names (`:coffee`) first; inserts
+  the characters without colons; handles existing closing colons and a single undo
+- Input helpers — bracket pairs, wrap in markers (`$`, `` ` ``, `*`, `~`), hard line break
+  (⇧⏎), page break (⇧⌘↵ — Word page break, a `\newpage` paragraph)
+- Smart paste — HTML→Markdown (Word/browsers→IYAGI), URL→link, image paste, TSV→table
+  (Excel/sheets)
+- Clipboard edit protection — image event data saved verbatim, document and selection
+  checked for delayed pastes, cut only after a successful copy
+- Image drop, paste and file picker — copies into the document folder's assets/, fixes the
+  insert position while typing, one undo for many images, reports partial failures
+  (32 at a time, 32 MiB per file)
+- Figure captions — the alt text of `![caption](image)` becomes the caption
+- Table captions — a `: caption` line after the table (Pandoc convention), numbered
+  'Table N' in exports
+- Document comments — line-anchored sidecar + panel (edit, resolve, delete, click to jump);
+  the source is untouched
+- Comments in DOCX export — native Word comments (as-is in the review pane)
+- Review hub — broken links (one-click create), long sentences, citations (broken-key ⚠,
+  jump to bibliography) and orphan images (move to Trash — recoverable in Finder) in one place
+- Folding for headings, lists, code fences and quotes (gutter ▾), fold/expand all, system
+  spell check (optional)
+- Code-fence language autocomplete — searches names and aliases like `py`/`js`, covers long
+  fences and code blocks inside lists/quotes, replaces the existing language token while
+  preserving metadata, keyword and local-variable suggestions inside blocks
+- Indent guides — vertical guides for nested lists every 2 spaces (measured space width),
+  excluding code fences
+- Copy formatting (⌥⌘C/⌥⌘V) — paste bold/italic/code/strikethrough/highlight onto plain text;
+  paragraph formats such as heading level and quotes copy too (pasting body formatting
+  strips the heading marker — Word format-brush replacement semantics)
+- Toolbar undo/redo & paragraph alignment — the command palette shows shortcut chips (kbd)
+- Paste without formatting (⌥⌘⇧V) — plain text, no Markdown conversion
+- Copy with formatting: copying a selection containing Markdown syntax also puts HTML on
+  the clipboard (formatting survives in Word/mail)
+- Autosave (optional) — batches input per document (tabs and split views) and saves
+  atomically; turning it off cancels pending saves
+- Recovery drafts — keeps unsaved content per document, restores or discards it; discarded
+  drafts do not reappear on restart
+
+**Per-document style (SQLite sidecar — source untouched)**
+
+- 4 font families (system/serif/round/monospace), size, line height, paragraph spacing,
+  alignment (incl. justified), indent, accent color
+- Presets: report, blog, memo, thesis, dev notes
+- Per-image sizes, per-table column widths, bookmarks
+- Applied identically across the editor, HTML, PDF and DOCX
+
+**Note system**
+
+- Wikilinks `[[name]]` + autocomplete (list on `[[`) + backlinks panel (click '🔗 N'; covers
+  regular inline and reference Markdown links too)
+- Note embeds `![[name]]` — the target document's source inline as a card (click opens,
+  caret reveals the source). Expanded to real content before export (HTML/PDF/EPUB/DOCX
+  share the path) with depth 4 and cycle protection — unreadable targets stay verbatim
+- Callouts `> [!type] title` — 13 card types from the quote's first line (note…quote, 27
+  aliases normalized). Icon and type-colored cards in live preview, card styles in
+  HTML/EPUB/PDF, filled table cards in DOCX. The source stays a plain quote and degrades
+  harmlessly in other renderers
+- Rename heading (command palette) — edits the heading at the caret and updates every
+  `[[doc#anchor]]`/`[[#anchor]]` link that points at it, workspace-wide (both display and
+  slug spellings; other files applied safely against on-disk expectations)
+- Daily note (palette 'open today's document') — opens today's (local date) document or
+  creates it (root-first search)
+- Jump to `#heading` positions of document links · line jumps from search and backlink
+  results · preserves later tab selection and the caret while files open asynchronously
+- Navigation history — back/forward (⌥⌘←/→) across tab, link, TOC and bookmark moves,
+  restores selection and reading position, compensates edit positions, per window
+- Reopen closed tab (⇧⌘T) — restores the window's last 20 files from the tab bar, File menu
+  and palette; re-reads the newest file and restores tab order, view mode, lock and
+  selection; discarded content is not restored
+- Document graph — visualizes the real connections of wiki and regular Markdown links
+  (node size = link count, active document highlighted), cursor-anchored wheel zoom, drag
+  pan, double-click opens, background double-click resets, keyboard navigation (←→↑↓,
+  Enter, +/−/0); workspaces over 250 documents use a circular layout
+- Link hover preview (wiki, internal Markdown, footnotes — render popover) · broken
+  local-link check of the current text (distinguishes real images, reference links,
+  unverifiable) · create missing documents · insert TOC and lists of figures/tables (lof/lot)
+  · static HTML/PDF TOC (heading anchors) · document tidy (blank-line normalization +
+  table alignment)
+- Tags `#tag` + autocomplete (list on `#`) + click → workspace search
+- Quick open (fuzzy file search from the command palette)
+- Folder-wide search (⇧⌘F) — shows miss reasons, files read and result caps, refreshes after
+  saves · replace all (review changes, backup, per-file diff-and-save, metadata preserved)
+- Version history: 30 snapshots taken just before each save + diff preview + restore
+- Comments (Word-style): line-anchored sidecar — right-click to add, hover, panel review,
+  exported as native DOCX comments
+- Review hub: broken links, long sentences (dotted-underline toggle), orphan-image cleanup
+- File management: sidebar right-click — new document, rename, duplicate · rename previews
+  wiki and Markdown (inline/reference) link updates with backup, compared application and
+  review-job restart recovery
+- Document compare (diff view — against another file or the on-disk version)
+- Highlight `==text==` (choice of 5 colors) · YAML front matter (document info form)
+- Front-matter title reflected in save file names · tab right-click 'Reveal in Finder'
+
+
+**Writing mode**
+
+- Typewriter scroll (keeps the caret line vertically centered while typing) · focus mode
+  (dims everything but the current block)
+- Sentence focus (crisp current sentence)
+- Read aloud — system voices, rate and voice choice, reading indicator (selection or whole
+  document)
+
+**Navigation & tools**
+
+- Command palette (⌘⇧P) — fuzzy search over every command · `@` in-document heading jump ·
+  recent commands first
+- TOC panel — ATX and Setext headings, scroll tracking with the current heading highlighted,
+  root-section drag-move that preserves source whitespace
+- TOC keyboard navigation — ↑/↓/Home/End move focus, ←/→ fold/expand and parent/child moves,
+  Korean jamo search, Enter opens, Escape returns to the search box
+- Heading links — anchor-collision prevention for duplicate headings and automatic
+  numbering, the same duplicate-assignment rules in HTML and DOCX, DOCX styled headings and
+  encoded internal links handled
+- DOCX heading anchors — generated from the source before quote conversion; body headings
+  assigned first, quoted headings in reference order
+- Split editing (reference view) — edit a pinned document beside the current one, with
+  proportional synced scrolling
+- Track changes — Word Track Changes for Markdown: insertion/deletion marks, changes panel,
+  status bar ✎ +N −R, per-hunk revert ('reject'), next/previous navigation, deleted blocks
+  shown in the text (strikethrough), click ↺ to revert
+- Document statistics (words, characters, paragraphs, tables, reading time, sentence-length
+  distribution, click-to-jump long sentences) · selection stats ('3 words · 12 chars') ·
+  task progress (☑ 3/7)
+- Same-word highlight (occurrences of the caret word — Word standard) · reference view
+  (pin a tab beside)
+- Long-sentence marker (optional) — dotted underline for 60+ characters in the editor
+  (writer's aid)
+- Show formatting marks (settings/palette) — space ··, tab →, line end ¶ (Word formatting
+  marks; exposes doubled and trailing spaces)
+- Citations & bibliography — `[@key]` in the text → superscript [N] (first-appearance order)
+  · `[@key]: entry` definitions (HTML links and numbering, editor tooltips and
+  broken-citation marks) + `[@` autocomplete (bibliography descriptions, existing brackets
+  and page notations preserved, candidates refresh)
+- Citations in DOCX — citations become superscript hyperlinks to the bibliography anchor,
+  bibliography paragraphs are bookmarked (click-to-jump in Word), broken citations preserved
+  verbatim
+- DOCX citation guard — excludes markers inside code, existing links, images and math;
+  handles special-character suffixes and footnote citations; preserves jump targets of
+  adjacent entries
+- Citation review & preview — shared parsing avoids code-example/metadata false positives,
+  prevents nested citation links in HTML, preserves image alt text
+- Status-bar breadcrumb — current heading path, click to jump
+- Keyboard shortcuts help (Help › Keyboard Shortcuts)
+- Command palette — Enter opens even when only files match, keeps the selection while lists
+  refresh, arrow/Page Up/Down navigation keeps the input focus
+- Dialog keyboard support — focus moves on open, Tab cycles inside overlaid and progress
+  windows, returns to the previous button/input on close
+- Command routing — background-document commands blocked while a dialog has input, shortcuts
+  the input handled are respected, native-menu wiring for version history, folder search,
+  symbols and link checks
+- Document info editing — confirms the target document and external changes, confirms draft
+  discard, applies only edited fields while preserving body, line endings and other metadata
+- Link & image editing — tracks target positions, blocks conflicting changes, keeps drafts
+  on errors, handles special characters, preserves existing link titles and unmodified
+  formatting
+- Image viewer — distinguishes the source positions of duplicate images, previous/next
+  navigation excluding code/math/metadata, keeps descriptions, per-image zoom/rotation reset
+- Table insert — tracks the original selection, keeps input on document switch, change
+  conflict or rejected apply, previews header vs body rows, multi-line selection replacement
+  with individual undo
+- Symbol insert — continuous inserts from the original selection, keeps search focus,
+  separates search editing from result navigation, warns on document switch or failed insert
+- Slash commands — Korean/English alias search with restore after clearing, excluded inside
+  code/math/links, source-preserving TOC/page-break inserts with a single undo
+- Wiki & tag autocomplete — distinguishes the real paths of same-named documents,
+  substitutes Markdown links for special file names, preserves existing brackets/anchors/
+  aliases, refreshes candidates and reflects nested-folder changes
+- Find & replace — Korean word boundaries, exact Unicode positions, regex capture
+  substitution, reserved searches and tab-switch handling, replace after full-count
+  confirmation, protects changed documents
+- Search responsiveness — regex and large-document searches computed in the background,
+  cancelled on change or close, timeout notices and retries, caret position preserved while
+  waiting
+- Search navigation — browse results beyond the display cap with next/previous, keeping only
+  the needed window with whole-document ordinals and totals, wrapping at the ends
+- Print preview (⌘P) — paper, orientation, margins and scale; blocks printing before ready,
+  retries errors, keyboard navigation. Reuses the confirmed HTML for PDF generation; export
+  options persist across restarts
+- Export keeps the window and options after cancel or failure and retries with the same
+  document; on completion shows the actual saved path and Reveal in Finder; prevents
+  duplicate runs and closing mid-export
+
+**Export**
+
+- HTML: self-contained single file (images and fonts inlined, DOMPurify)
+- PDF: vector, paper size, margins, scale, page numbers (N / M)
+- DOCX: Word default styles + per-document styles + OMML math + DrawingML shapes + tables +
+  page numbers (optional) + page breaks (`\newpage` → Word page break)
+- HTML/PDF: `\newpage` paragraphs become page breaks (dotted in the on-screen preview too)
+- Multi-column layout — front matter `columns: 2` (or 3): CSS columns in HTML and print
+  (h1/h2 span the columns), PDF tiling recomputes column widths, DOCX sectPr w:cols (same as
+  Word Layout › Columns)
+- Free-text headers/footers — front matter `header:`/`footer:`: the header replaces the
+  document title, the footer joins the page number (HTML, PDF, DOCX footer1.xml — live Word
+  headers/footers)
+- EPUB: EPUB 3 e-book (TOC, chapters, cover, embedded images), split at top-level headings
+  with round-trip links between chapter titles and footnotes
+- EPUB save protection — replaces the file only after the ZIP completes, reports missing
+  images and cover errors, handles special-character paths and reference-style cover images
+- Export consistency — captures the text, styles, settings and comments as of the start;
+  DOCX also replaces the file only after the ZIP completes
+- DOCX comments — preserves multiple comments per line, attaches to headings, list items,
+  table rows and code lines, keeps line positions after footnote processing
+- DOCX footnotes — parser-based reference processing, preserves multi-paragraph lists and
+  code, links footnotes and figures
+- DOCX figures — standalone captions after paragraphs, keeps captions in lists, table cells
+  and footnotes, repairs SVG/Mermaid figure structure
+- DOCX image linking — prevents ID collisions across figure kinds, handles whitespace and
+  special-character URLs and local images with query or fragment identifiers
+- DOCX lists — preserves start numbers, per-list restarts, nested numbering and parenthesized
+  delimiters; prevents duplicated numbers and checkboxes on continuation paragraphs
+- HTML/PDF/EPUB bibliographies — emphasis, code, link and footnote formatting; preserves jump
+  targets per adjacent entry and inside nested lists
+
+**View & windows**
+
+- Live preview, read (⌘E) and source (⌘/) modes — switching without conversion
+- Read-mode page cards (paper feel) · full-window width (Word style)
+- Source-mode split preview — source left, rendered right (the same pipeline as exports),
+  proportional sync, width drag, off via palette/settings (pure source)
+- Tabs (drag to reorder, new window ⤢, lock 🔒, session restore — incl. pinned references
+  and folder folding) · folder sidebar (tree, file watching)
+- Tab keyboard control — ←/→/Home/End then Enter/Space select, Delete confirms close,
+  Shift+F10 menu and reorder, focus returns when a tab closes · the wheel scrolls the tab list
+- Sidebar keyboard navigation — type-to-filter filenames, repeated-letter cycling,
+  Korean-normalized search, focus recovery on deleted rows, skips disabled menu items and
+  restores the row after the menu closes
+- Document favorites — register/unregister from the File and tab menus, reach from the
+  sidebar, start screen and palette, synced across windows, kept across restarts, follows
+  renames
+- Favorites reorder — arrow buttons or Option/Alt+↑/↓, position notice and focus kept after
+  saving, re-confirms on concurrent changes from other windows
+- New folder — create from the sidebar root button or the folder menu, name-collision and
+  reserved-name notices with retry, expands the parent and moves into the new folder
+- Create/duplicate document — prevents double runs, shows progress, result path and failure
+  retry, prevents late completions from auto-switching while moving/editing; created files
+  reopen via 'Open document'
+- New-document default names follow the Korean/English setting · duplicates preserve the
+  original bytes and register only completed files; on a name collision the existing file wins
+- Move document to Trash — confirms the path and recovery method from the File menu, parks
+  the open text in recovery drafts first, re-confirms on file changes, restores from the
+  Finder Trash
+- Light/dark auto (follows the system) · font size and reading column-width settings
+- Orphan-image cleanup (find and delete unreferenced files in assets/)
+- External change detection — conflict notice while editing, auto-reload otherwise
+- Conflict resolution — keeps unsaved text in version history before reloading, saves as a
+  different file, keeps recovery drafts of open text for deleted files, progress/failure/
+  target-change notices
+- Recent documents, unsaved confirmation, window state restore (incl. position and size)
+- Close confirmation — target file list, save progress and failure retry, prevents double
+  closes, detects changes during discard and restores partially deleted recovery drafts,
+  re-checks documents just before the window closes
+- Korean and English UI
+
+
+## Architecture
+
+```text
+src/              React app (editor, panels, dialogs, export UI)
+src-tauri/        Tauri shell (commands, menus, watcher, WKWebView PDF, style DB, drafts)
+crates/
+  md-core/        Pure Rust: Markdown model, links, search, sessions, snapshots, i18n, tree
+  md-export/      Exporters: HTML, PDF, DOCX (OMML/DrawingML), EPUB, citations, svg2dml
+  md-macos/       macOS platform layer (Trash integration)
+```
+
+The UI never touches files directly: every read, write, search and export goes through the
+Rust core, which owns atomic saving, link resolution and byte-level preservation.
+
+**Tech stack:** React 18 · TypeScript · CodeMirror 6 · Vite · Vitest · KaTeX · mermaid ·
+highlight.js · DOMPurify · Tauri 2 · Rust 2021 (MSRV 1.89).
+
+## Development
+
+Requirements: Rust ≥ 1.89 (MSRV), Node 22 LTS, macOS 13.0+.
 
 ```sh
 npm install
-npm run tauri dev      # 개발 실행(포트 1422)
-npm run test:unit      # 프런트 단위 테스트(원문 보존 3종 포함)
-cargo test --workspace # Rust 테스트(md-core·md-export)
+npm run tauri dev      # dev run (port 1422)
+npm run test:unit      # frontend unit tests (incl. source-preservation suites)
+cargo test --workspace # Rust tests (md-core · md-export)
 npm run tauri build    # .app + DMG
 ```
 
-구조와 설계 원칙은 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)을, 구현 상세는
-[docs/architecture.md](docs/architecture.md)를 본다.
+`npm run tauri build` signs the bundle with the sole Developer ID Application certificate
+in the login keychain and enables hardened runtime (`scripts/tauri.mjs`; falls back to
+ad-hoc signing when no certificate exists — details in the script header).
 
-## 성능 — 목표(§1-2)와 실측치(2026-10-12, Apple Silicon·릴리스 빌드)
+Design principles live in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md); implementation
+detail in [docs/architecture.md](docs/architecture.md).
 
-| 지표 | 목표 | 실측 |
+### Releasing
+
+Releases are tagged `v<version>` and published as GitHub Releases with the signed, notarized
+DMG attached. The full checklist — version bump, build, notarization, `gh release create` —
+is in [RELEASE.md](RELEASE.md). Tag pushes also run the protected-ref CI jobs, including the
+macOS bundle build ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
+
+## Performance
+
+Targets (spec §1-2) and measured values (2026-10-12, Apple Silicon, release build):
+
+| Metric | Target | Measured |
 |---|---|---|
-| 설치 크기(.app) | ≤ 20MB | **13MB** (DMG 8.1MB, 바이너리 12.4MB) |
-| 콜드 스타트 | ≤ 700ms | 프로세스→Rust 기동 0.02s, 첫 페인트는 프런트 준비 후 표시 |
-| 창 1개 유휴 메모리(RSS) | ≤ 120MB | **102MB** (WKWebView 포함) |
-| 0.9MB 한글 문서 열기 | 체감 끊김 없음 | 열림 — 장식은 뷰포트 청크 증분, 1MB 초과 시 소스 모드 권유 |
-| 무거운 기능 | 지연 로딩 | KaTeX·mermaid·highlight.js 별도 청크 — 문서에 있을 때만 |
+| Install size (.app) | ≤ 20 MB | **14 MB** (DMG 7.9 MB, binary 14.1 MB) |
+| Cold start | ≤ 700 ms | process → Rust up in 0.02 s; first paint once the frontend is ready |
+| Idle RSS (one window) | ≤ 120 MB | **102 MB** (incl. WKWebView) |
+| Open a 0.9 MB Korean document | no perceptible stutter | opens — decorations increment per viewport chunk; suggests source mode over 1 MB |
+| Heavy features | lazy loading | KaTeX · mermaid · highlight.js as separate chunks, loaded only when present |
 
-## 테스트
+## Documentation
 
-**프런트 323개**(vitest) + **Rust 85개**(cargo test) = **408개** 통과 · clippy 0 경고.
+| Document | Content |
+|---|---|
+| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Structure and design principles |
+| [docs/architecture.md](docs/architecture.md) | Implementation detail |
+| [RELEASE.md](RELEASE.md) | Release notes for every version, and how releases are built and published |
+| [README_KR.md](README_KR.md) | This README in Korean |
 
-## 라이선스
+## Status & roadmap
 
-Apache-2.0. 형제 프로젝트: [iyagi-layout](../iyagi-layout), [iyagi-term](../iyagi-term).
+**0.1.0** is the current and first public release — macOS (Apple Silicon). CI checks the
+Rust core on Linux, the workspace on GitHub-hosted macOS, and builds the DMG on a
+self-hosted macOS runner for protected refs.
 
-- 뷰어 위치 표시 — N / M
+- **CI-built releases on protected tags** — build and publish the installer from CI instead
+  of the release Mac (needs the signing identity on a self-hosted runner)
+- **Independent hash/signature channel** — publish build provenance or signatures that do
+  not depend on the same GitHub account
+- Continued editor and export polish — see [RELEASE.md](RELEASE.md)
+
+## The name
+
+IYAGI reads as *iyagi* — 이야기, the Korean word for story — with **AGI** hiding in plain
+sight:
+
+```text
+IY AGI
+   ───
+```
+
+You don't merely issue commands to AI — you talk with it, and it thinks and executes
+alongside you. IYAGI Markdown belongs to the knowledge side of that family:
+
+```text
+IYAGI Terminal     → AI Coding / Agentic Engineering   (shipped — sh2orc/iyagi-term)
+IYAGI Markdown     → Knowledge / Work                  (this repository)
+IYAGI Agent        → Autonomous Tasks
+IYAGI Studio       → Build & Orchestrate Agents
+```
+
+Sibling repositories: [iyagi-term](https://github.com/sh2orc/iyagi-term) (AI coding
+terminal), [iyagi-layout](https://github.com/sh2orc/iyagi-layout) (layout engine).
+
+## License
+
+Apache-2.0. See [LICENSE.md](LICENSE.md).
