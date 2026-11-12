@@ -128,9 +128,10 @@ export function pasteFormat(view: EditorView): boolean {
   // 글자 서식 — 이미 같은 서식이면 덧씌우지 않는다(set 의미론, 토글 아님).
   // 감싸기는 선택 전체를 다시 쓰므로 한 번에 순차 누적한다.
   const order: Array<[string, CharMark]> = [
+    // 코드가 가장 안쪽 — 코드 안에 넣은 마커는 글자로 찍힌다.
+    ["`", "code"],
     ["**", "strong"],
     ["*", "em"],
-    ["`", "code"],
     ["~~", "strike"],
     ["==", "highlight"],
   ];

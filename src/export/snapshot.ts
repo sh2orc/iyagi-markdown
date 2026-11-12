@@ -3,6 +3,7 @@ import type { DocxManifest } from "../api";
 import type { ExportHtmlOptions } from "./html";
 import { frontMatterLen, frontMatterMeta, stripFrontMatter } from "../editor/frontmatter";
 import { normalizeUnderlineRules } from "../links";
+import { normalizeMathDelimiters } from "../editor/mathDelims";
 import { inlineEmbeds, resolveWikiLink, wikiLinksToMarkdown } from "../editor/wiki";
 import { shiftLineNumbers } from "../editor/trackChanges";
 
@@ -30,7 +31,7 @@ export function captureExportSnapshot(
   // setext 정규화(2026-10-24) — 밑줄형 제목 짝에 빈 줄을 넣어 에디터 뷰와
   // comrak 내보내기가 일치하게(붙여넣기·오래된 문서 경로 흡수). 코멘트
   // 줄번호는 insertLines로 보정한다.
-  const norm = normalizeUnderlineRules(wikiLinksToMarkdown(stripFrontMatter(raw), wikiResolve, baseDir));
+  const norm = normalizeUnderlineRules(wikiLinksToMarkdown(normalizeMathDelimiters(stripFrontMatter(raw)), wikiResolve, baseDir));
   const text = norm.text;
   const markdown = raw.slice(0, frontMatterLen(raw)) + text;
   const fm = frontMatterMeta(raw);
@@ -87,7 +88,8 @@ export async function applyEmbeds(
 ): Promise<ExportSnapshot> {
   if (!/!\[\[/.test(snapshot.markdown)) return snapshot;
   if (snapshot.comments.length > 0) return snapshot;
-  const inlined = await inlineEmbeds(snapshot.markdown, snapshot.wikiResolve, read);
+  // 끌어온 노트의 MathJax식 수식도 같은 표기로 맞춘다(줄 수 불변).
+  const inlined = normalizeMathDelimiters(await inlineEmbeds(snapshot.markdown, snapshot.wikiResolve, read));
   if (inlined === snapshot.markdown) return snapshot;
   return { ...snapshot, markdown: inlined, text: stripFrontMatter(inlined) };
 }

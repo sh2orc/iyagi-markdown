@@ -5,7 +5,9 @@
 export function looksLikeTsv(text: string): boolean {
   const lines = text.replace(/\r\n?/g, "\n").split("\n").filter((l) => l.trim() !== "");
   if (lines.length < 2) return false;
-  const tabbed = lines.filter((l) => l.includes("\t")).length;
+  // 탭이 줄 머리에만 있으면 들여쓴 코드(Go·Makefile)지 표가 아니다 — 들여쓰기
+  // 뒤에도 탭(열 구분)이 있어야 한다.
+  const tabbed = lines.filter((l) => l.replace(/^\t+/, "").includes("\t")).length;
   return tabbed >= Math.ceil(lines.length * 0.8);
 }
 

@@ -2,6 +2,7 @@
 // 모든 위젯은 원문을 수정하지 않는 표시물일 뿐이고, 상호작용(체크박스 등)은
 // 원문 텍스트 편집으로 번역된다(§4-1).
 
+import { tableLinePrefix } from "./tableFormat";
 import { EditorState } from "@codemirror/state";
 import { captionWorthy } from "./caption";
 import { EditorView, WidgetType } from "@codemirror/view";
@@ -416,7 +417,8 @@ export function parseTable(src: string): ParsedTable | null {
   const lines = src.split("\n").filter((l) => l.trim().length > 0);
   if (lines.length < 2) return null;
   const splitRow = (line: string): string[] => {
-    let s = line.trim();
+    // 인용구·목록 안 표 — 이어지는 줄의 `> `·들여쓰기는 표 내용이 아니다.
+    let s = line.slice(tableLinePrefix(line).length).trim();
     if (s.startsWith("|")) s = s.slice(1);
     if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
     const cells: string[] = [];
@@ -494,7 +496,8 @@ const tableCellText = (raw: string): DocumentFragment => {
 let pendingCellFocus: { line: number; row: number; col: number } | null = null;
 
 export function serializeTable(t: ParsedTable): string {
-  const n = Math.max(t.header.length, 1);
+  // 가장 넓은 행 기준 — 헤더보다 셀이 많은 행의 넘치는 셀을 버리지 않는다.
+  const n = Math.max(t.header.length, 1, ...t.rows.map((r) => r.length));
   const esc = (c: string) => c.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ");
   const fix = (r: string[]) => Array.from({ length: n }, (_, i) => esc(r[i] ?? ""));
   const line = (r: string[]) => `| ${fix(r).join(" | ")} |`;
@@ -562,7 +565,9 @@ export class TableWidget extends WidgetType {
       const from = view.posAtDOM(wrap);
       const to = from + this.src.length;
       if (view.state.sliceDoc(from, to) !== this.src) return;
-      const text = serializeTable(next);
+      // 이어지는 줄의 문맥 접두(목록 들여쓰기·인용구 `> `)를 되붙인다.
+      const prefix = tableLinePrefix(this.src.split("\n")[1] ?? "");
+      const text = serializeTable(next).split("\n").map((l, i) => (i ? prefix + l : l)).join("\n");
       if (focus) pendingCellFocus = { line: view.state.doc.lineAt(from).number, ...focus };
       if (text === this.src) {
         if (focus) restoreFocus(wrap);
@@ -919,6 +924,13 @@ export class TableWidget extends WidgetType {
         cell.textContent = "";
         cell.append(tableCellText(raw));
         if (value === raw && !focus) return;
+        // 값이 그대로면 이동만 한다 — 다시 직렬화하면 손대지 않은 표가 재배열되어
+        // 문서가 '수정됨'이 된다. (새 행이 필요한 이동은 아래에서 실제로 편집한다.)
+        if (value === raw && focus && focus.row <= parsed.rows.length) {
+          pendingCellFocus = { line: startLine(), ...focus };
+          restoreFocus(wrap);
+          return;
+        }
         const next: ParsedTable = {
           align: parsed.align,
           header: [...parsed.header],

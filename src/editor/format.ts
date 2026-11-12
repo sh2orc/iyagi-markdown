@@ -173,7 +173,7 @@ export function insertFootnote(view: EditorView): boolean {
     ],
     selection: {
       // 참조 삽입(+ref.length) 뒤의 정의 끝 = 문서 끝.
-      anchor: doc.length + tail.length + 1 + ref.length * 2 + 2,
+      anchor: doc.length - (sel.to - sel.from) + tail.length + 1 + ref.length * 2 + 2,
     },
     userEvent: "input.insertFootnote",
   });
@@ -436,7 +436,8 @@ export function tableAround(view: EditorView): TableBlock | null {
   const doc = view.state.doc;
   const start = doc.lineAt(view.state.selection.main.head).number;
   const isRow = (n: number) => /^\s*\|.*\|\s*$/.test(doc.line(n).text) || /^\s*\|/.test(doc.line(n).text);
-  const isSep = (n: number) => /^\s*\|[\s:|-]+\|\s*$/.test(doc.line(n).text);
+  // 대시가 하나는 있어야 구분 줄 — 빈 본문 행(`|   |   |`)을 구분 줄로 보면 그 아래 행이 표에서 빠진다.
+  const isSep = (n: number) => /^\s*\|(?=.*-)[\s:|-]+\|\s*$/.test(doc.line(n).text);
   if (start < 1 || start > doc.lines) return null;
   // 커서 줄이 파이프 행이 아니면 인접 줄로 확장(표 위젯 클릭 직후 등).
   // 경계 검사를 먼저 — isRow(0)/isRow(lines+1)는 doc.line()이 던진다.
@@ -735,6 +736,9 @@ export function typePair(view: EditorView, ch: string): boolean {
     // (간단히: 커서 앞이 같은 열림이고 뒤가 이미 닫힘이면 닫는 문자만 삽입)
     const before = view.state.sliceDoc(Math.max(0, sel.head - 1), sel.head);
     const after = view.state.sliceDoc(sel.head, Math.min(view.state.doc.length, sel.head + 1));
+    // 글자·숫자 바로 뒤의 따옴표는 아포스트로피·닫는 따옴표다(don't, 5') — 쌍을
+    // 만들지 않고 일반 입력(스마트 따옴표 포함)으로 넘긴다.
+    if ((ch === "'" || ch === "\"") && /[\p{L}\p{N}]/u.test(before)) return false;
     if (ch === close && before === ch && after === close) {
       view.dispatch({ selection: { anchor: sel.head + 1 } });
       return true;
@@ -818,8 +822,10 @@ export function deleteLines(view: EditorView): boolean {
   const sel = view.state.selection.main;
   const fromLine = doc.lineAt(sel.from);
   const toLine = doc.lineAt(sel.to);
-  const from = fromLine.from;
-  const to = toLine.number < doc.lines ? toLine.to + 1 : Math.max(from - 1, fromLine.from);
+  // 마지막 줄까지 지울 때는 뒤따르는 개행이 없으므로 앞 줄의 개행을 함께 지운다.
+  const last = toLine.number === doc.lines;
+  const from = last ? Math.max(0, fromLine.from - 1) : fromLine.from;
+  const to = last ? toLine.to : toLine.to + 1;
   view.dispatch({
     changes: { from, to },
     userEvent: "delete.deleteLines",

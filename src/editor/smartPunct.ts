@@ -83,7 +83,8 @@ export function smartPunctExtension(enabled: boolean): Extension {
     // 커서 줄이 (공백·인용구 마커·)대시류로만 이뤄지면 수평선 입력 중 —
     // 대시 변환 금지. 인용구 안("> ---")도 포함(2026-10-24 검토 구멍).
     const line = view.state.doc.lineAt(from);
-    const atDashLine = /^[\s–—>\-]*$/.test(view.state.doc.sliceString(line.from, from));
+    // 표 구분 줄(`|---|:--:|`)도 같다 — 파이프·콜론까지 대시 줄로 본다.
+    const atDashLine = /^[\s–—>\-|:]*$/.test(view.state.doc.sliceString(line.from, from));
     const repl = smartChar(text, before, atDashLine);
     if (!repl) return false;
     if (inRawContext(from, syntaxTree(view.state))) return false;

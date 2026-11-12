@@ -3,6 +3,8 @@
 // 경로로 넘겨 markdown 분류시켜 연다. 파일 존재 확인은 파일시스템이 아니라
 // 워크스페이스 트리로(store가 인덱스를 만들어 프리뷰 설정에 실어 보낸다).
 
+import { stripFrontMatter } from "./frontmatter";
+import { inRanges, literalRanges } from "./literalRanges";
 import type { MarkdownExtension } from "@lezer/markdown";
 
 import type { TreeNode } from "../api";
@@ -68,12 +70,19 @@ export function parseWikiLink(raw: string): {
   return { name, anchor, display };
 }
 
+/** 인덱스 키 — 대소문자 무시 + 유니코드 정규화. macOS에서 압축 해제·동기화로
+ *  들어온 파일명은 자모 분해형(NFD)이라 IME로 친 `[[한글노트]]`(NFC)와 글자 열이
+ *  다르다. */
+export function wikiKey(name: string): string {
+  return name.normalize("NFC").toLowerCase();
+}
+
 /** 트리 → 위키링크 인덱스: key(소문자) → 경로들(도달 순).
  *  key는 stem 과 상대경로/stem 두 종류(`[[note]]`, `[[folder/note]]`). */
 export function buildWikiIndex(tree: TreeNode[]): Map<string, string[]> {
   const idx = new Map<string, string[]>();
   const add = (key: string, path: string) => {
-    const k = key.toLowerCase();
+    const k = wikiKey(key);
     const arr = idx.get(k);
     if (arr) arr.push(path);
     else idx.set(k, [path]);
@@ -98,7 +107,7 @@ export function buildWikiIndex(tree: TreeNode[]): Map<string, string[]> {
 /** 이름 해석 — 같은 디렉터리 우선, 그다음 도달 순 첫 번째. 없으면 null. */
 export function resolveWikiLink(name: string, docDir: string, index: Map<string, string[]>): string | null {
   if (!name) return null;
-  const cands = index.get(name.toLowerCase());
+  const cands = index.get(wikiKey(name));
   if (!cands || cands.length === 0) return null;
   const same = cands.find((p) => p.slice(0, p.lastIndexOf("/")) === docDir);
   return same ?? cands[0];
@@ -115,7 +124,9 @@ export async function inlineEmbeds(
   depth = 0,
   seen: ReadonlySet<string> = new Set(),
 ): Promise<string> {
-  const matches = [...text.matchAll(/!\[\[([^\]\n]+)\]\]/g)];
+  // 코드 안의 `![[..]]`는 글자다 — 대상 문서를 코드 블록에 쏟아 넣지 않는다.
+  const literal = literalRanges(text);
+  const matches = [...text.matchAll(/!\[\[([^\]\n]+)\]\]/g)].filter((m) => !inRanges(literal, m.index));
   const out: string[] = [];
   let cursor = 0;
   for (const m of matches) {
@@ -151,9 +162,8 @@ export async function inlineEmbeds(
 }
 
 function stripFrontMatterForExport(text: string): string {
-  if (!text.startsWith("---\n")) return text;
-  const end = text.indexOf("\n---\n", 4);
-  return end >= 0 ? text.slice(end + 5) : text;
+  // 편집기·통계와 같은 규칙(CRLF·닫는 줄 뒤 공백 포함).
+  return stripFrontMatter(text);
 }
 
 /** 내보내기용: [[..]]를 마크다운 링크로 바꾼다. resolve는 이름→절대 경로
@@ -165,7 +175,10 @@ export function wikiLinksToMarkdown(
 ): string {
   // ![[이름]](노트 임베드)은 건드리지 않는다 — 이미지로 오변환되기 전에
   // 임베드 인라인(inlineEmbeds)이 먼저 처리한다(?<!! 룩비하인드).
-  return text.replace(/(?<!!)\[\[([^\]\n]+)\]\]/g, (whole, inner: string) => {
+  // 코드 펜스·인라인 코드 안은 그대로 — bash의 `[[ -f x ]]`가 링크로 바뀌면 안 된다.
+  const literal = literalRanges(text);
+  return text.replace(/(?<!!)\[\[([^\]\n]+)\]\]/g, (whole, inner: string, at: number) => {
+    if (inRanges(literal, at)) return whole;
     if (inner.trim().startsWith("^")) return whole; // 블록 참조(^id)는 그대로
     const { name, anchor, display } = parseWikiLink(`[[${inner}]]`);
     if (!name) return whole;

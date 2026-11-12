@@ -2,6 +2,7 @@
 // Scrivener 참조). 내보내기 파이프라인(buildExportHtml)으로 렌더해
 // 문서 스타일·캡션·목차까지 본문과 동일하게 보인다.
 
+import { blockFrameNavigation } from "../export/printFrame";
 import { useEffect, useRef, useState } from "react";
 import { EditorView } from "@codemirror/view";
 
@@ -108,6 +109,14 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
     };
   }, [editMode, store.view, html]);
 
+  // 같은 문서가 주 편집기에 뜨면 분할 편집을 끝낸다 — 두 편집기가 한 문서를
+  // 따로 들고 있으면 저장이 어느 쪽 내용을 쓸지 어긋난다.
+  const blockRemote = !store.state.settings.remoteImages;
+  const activeHere = tabId !== null && tabId === store.state.activeId;
+  useEffect(() => {
+    if (activeHere) setEditMode(false);
+  }, [activeHere]);
+
   // 분할 편집 뷰 — 탭 상태를 그대로 얹는다(확장 포함). 스토어 라우팅용 등록.
   useEffect(() => {
     if (!editMode || !tab || !editHost.current) {
@@ -160,6 +169,7 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
             highlightColor: tab.docStyle?.highlightColor ?? null,
           },
           wikiResolve: (name) => resolveWikiLink(name, baseDir, store.wikiIndex),
+          blockRemote,
           readBytes: async (p) => {
             try {
               return new Uint8Array(await api.readFileBytes(p));
@@ -187,7 +197,7 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
     // tab.docStyle — 제자리 변이라 객체 자체를 의존성에 넣어야 스타일 변경이
     // 재렌더된다(SourcePreview와 같은 함정).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc, tab?.path, store.state.theme, editMode, tab?.docStyle]);
+  }, [doc, tab?.path, store.state.theme, editMode, tab?.docStyle, blockRemote]);
 
   if (!tab) return null;
 
@@ -249,6 +259,7 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
           srcDoc={html}
           sandbox="allow-same-origin"
           onLoad={() => {
+            blockFrameNavigation(frameRef.current);
             try {
               if (frameScroll.current > 0) {
                 frameRef.current?.contentWindow?.scrollTo(0, frameScroll.current);

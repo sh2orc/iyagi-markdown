@@ -30,3 +30,16 @@ export function connectPrintFrame(frame: HTMLIFrameElement, scroll: { current: n
     win.removeEventListener("scroll", saveScroll);
   };
 }
+
+/** 미리보기 iframe 안 링크 클릭이 프레임 자체를 다른 주소로 보내지 못하게 한다
+ *  (문서 안 #앵커 이동만 허용). 스크립트가 꺼진 프레임이라 부모가 건다. */
+export function blockFrameNavigation(frame: HTMLIFrameElement | null): void {
+  try {
+    frame?.contentDocument?.addEventListener("click", (native) => {
+      const anchor = (native.target as Element | null)?.closest?.("a");
+      if (anchor && !anchor.getAttribute("href")?.startsWith("#")) native.preventDefault();
+    });
+  } catch {
+    /* 접근 거부 — 프레임이 이미 교체됨 */
+  }
+}

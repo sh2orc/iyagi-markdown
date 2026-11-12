@@ -164,7 +164,7 @@ import { api, isInApp } from "../api";
 import * as fmt from "./format";
 import { resetSearch, searchHighlight } from "../search/searchCm";
 import { writingComp, writingConf, writingExtension } from "./writing";
-import { smartPunctComp, smartPunctExtension } from "./smartPunct";
+import { inRawContext, smartPunctComp, smartPunctExtension } from "./smartPunct";
 import { indentGuidePlugin } from "./indentGuide";
 
 /** 파이프 없는 텍스트 줄이 표 행(| 시작) 사이에 끼면 빈 줄로 분리한다.
@@ -188,6 +188,13 @@ function splitTableAtPlainLine(view: EditorView, u: import("@codemirror/view").V
     const before = prev !== null && /^\s*\|/.test(prev.text);
     const after = next !== null && /^\s*\|/.test(next.text);
     if (!before && !after) continue;
+    // 코드 펜스·수식·프런트매터·HTML 블록 안의 `|` 줄은 표가 아니다(셸 파이프
+    // 이어 쓰기, 패턴 매칭 가지, LaTeX 등) — 빈 줄을 끼우면 내용이 망가진다.
+    let raw = false;
+    for (let node: import("@lezer/common").SyntaxNode | null = syntaxTree(u.state).resolveInner(line.from, 1); node; node = node.parent) {
+      if (/^(FencedCode|CodeBlock|MathBlock|FrontMatter|HTMLBlock|CommentBlock)$/.test(node.name)) { raw = true; break; }
+    }
+    if (raw) continue;
     const insertBefore = before ? "\n" : "";
     const insertAfter = after ? "\n" : "";
     const head = view.state.selection.main.head;
@@ -728,7 +735,7 @@ function baseExtensions(): Extension[] {
         }
         // TSV(엑셀·시트) → 마크다운 표(Word가 엑셀 표를 표로 붙이듯).
         // 서식 없는 HTML이 있는 경우(시트 복사) text/html 경로가 이긴다.
-        if (looksLikeTsv(text)) {
+        if (looksLikeTsv(text) && !inRawContext(sel.from, syntaxTree(view.state))) {
           event.preventDefault();
           view.dispatch({
             changes: { from: sel.from, to: sel.to, insert: `${tsvToTable(text)}\n` },

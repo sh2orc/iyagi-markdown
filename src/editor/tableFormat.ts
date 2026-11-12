@@ -20,9 +20,15 @@ export function cellWidth(text: string): number {
   return w;
 }
 
+/** 표 줄 앞의 문맥 접두 — 목록 안 들여쓰기·인용구 마커(`> `). 표를 다시 쓸 때
+ *  그대로 되붙여야 표가 목록·인용구 밖으로 빠져나가지 않는다. */
+export function tableLinePrefix(line: string): string {
+  return /^[ \t]*(?:>[ \t]?)*[ \t]*/.exec(line)?.[0] ?? "";
+}
+
 /** 이스케이프를 존중해 행을 셀로 나눈다(양끝 파이프는 제거). */
 function splitRow(line: string): string[] {
-  const t = line.trim();
+  const t = line.slice(tableLinePrefix(line).length).trim();
   const body = t.startsWith("|") ? t.slice(1) : t;
   const body2 = body.endsWith("|") && !body.endsWith("\\|") ? body.slice(0, -1) : body;
   const cells: string[] = [];
@@ -97,7 +103,7 @@ export function formatTableText(tableText: string): string | null {
         cells.push(" ".repeat(l) + cell + " ".repeat(gap - l));
       } else cells.push(pad(cell, widths[c]));
     }
-    return `| ${cells.join(" | ")} |`;
+    return `${tableLinePrefix(lines[r]!)}| ${cells.join(" | ")} |`;
   });
   const result = out.join("\n") + (tableText.endsWith("\n") ? "\n" : "");
   return result === tableText ? null : result;

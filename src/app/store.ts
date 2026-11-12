@@ -4,6 +4,7 @@
 //
 // 순수 로직(의존 주입형 IO)이라 단위 테스트가 가능하다.
 
+import { merge3, minimalChange } from "../editor/diff";
 import { EditorState } from "@codemirror/state";
 import { isolateHistory } from "@codemirror/commands";
 import { formatAllTables } from "../editor/tableFormat";
@@ -784,6 +785,13 @@ export class AppStore {
   }
 
   /** 활성 탭 기록(스크롤 등) 후 다른 탭으로. */
+  /** 분할 편집 뷰의 최신 상태를 탭에 반영한다. 같은 문서가 주 편집기에도 떠
+   *  있으면(활성 탭) 주 편집기가 원본이므로 덮어쓰지 않는다 — 덮어쓰면 저장이
+   *  분할 뷰의 옛 내용을 디스크에 쓰고 방금 입력한 내용을 잃는다. */
+  private syncSplitState(tab: Tab): void {
+    if (this.splitView && this.splitTabId === tab.id && tab.id !== this.state.activeId) tab.state = this.splitView.state;
+  }
+
   activate(id: string, recordHistory = true): void {
     ++this.navigationRevision;
     if (!this.state.tabs.some((tab) => tab.id === id)) return;
@@ -793,6 +801,10 @@ export class AppStore {
       prev.scroll = this.view.scrollDOM.scrollTop;
       prev.state = this.view.state;
     }
+    // 분할 편집 중이던 문서를 주 편집기로 가져오면 분할 쪽 편집을 먼저 넘겨받는다.
+    // 이후로는 주 편집기가 원본이다(syncSplitState가 활성 탭을 건너뛴다).
+    const next = this.state.tabs.find((tab) => tab.id === id);
+    if (next) this.syncSplitState(next);
     this.state.activeId = id;
     const tab = this.active;
     if (tab && this.view) {
@@ -1351,7 +1363,7 @@ export class AppStore {
       if (!this.state.tabs.includes(tab)) return false;
     }
     this.syncActiveState();
-    if (this.splitView && this.splitTabId === id) tab.state = this.splitView.state;
+    this.syncSplitState(tab);
     // Save As may have waited for another write or metadata loading. Recheck the
     // caller's reviewed document before formatting or writing any contents.
     if (!isCurrent()) return false;
@@ -1380,12 +1392,15 @@ export class AppStore {
       if (fmt !== newText) {
         const liveView = tab.id === this.state.activeId ? this.view
           : this.splitTabId === id ? this.splitView : null;
+        // 바뀐 구간만 교체한다 — 문서 전체를 갈아 끼우면 커서가 문서 맨 앞으로
+        // 튀어(자동 저장 중 입력이 엉뚱한 곳에 들어감) 실행 취소도 통째가 된다.
+        const changes = minimalChange(newText, fmt);
         if (liveView) {
-          liveView.dispatch({ changes: { from: 0, to: liveView.state.doc.length, insert: fmt } });
+          liveView.dispatch({ changes });
           tab.state = liveView.state;
         } else {
           this.navigationHistory.invalidate(tab.id, fmt.length);
-          tab.state = tab.state.update({ changes: { from: 0, to: tab.state.doc.length, insert: fmt } }).state;
+          tab.state = tab.state.update({ changes }).state;
         }
         newText = fmt;
       }
@@ -1414,7 +1429,7 @@ export class AppStore {
       tab.savedMtime = res.mtime;
       tab.savedAt = Date.now();
       this.syncActiveState();
-      if (this.splitView && this.splitTabId === id) tab.state = this.splitView.state;
+      this.syncSplitState(tab);
       tab.dirty = tab.state.doc.toString() !== newText;
       tab.conflict = null;
       this.autosaveFailNotified = false;
@@ -1767,9 +1782,7 @@ export class AppStore {
       const tabs = this.state.tabs.filter((tab) => tab.path === path);
       await Promise.all([this.documentOps.get(path), ...tabs.map((tab) => this.documentOps.get(tab.id))]);
       this.syncActiveState();
-      if (this.splitView && tabs.some((tab) => tab.id === this.splitTabId)) {
-        tabs.find((tab) => tab.id === this.splitTabId)!.state = this.splitView.state;
-      }
+      for (const tab of tabs) this.syncSplitState(tab);
       const snapshots = tabs.map((tab) => ({ tab, doc: tab.state.doc }));
       const unchanged = () => current() && this.state.tabs.filter((tab) => tab.path === path).length === tabs.length &&
         snapshots.every(({ tab, doc }) => this.state.tabs.includes(tab) && tab.path === path && tab.state.doc === doc &&
@@ -1840,8 +1853,9 @@ export class AppStore {
     // 같으면 외부 변경이 아니다(직접 편집 중인데 충돌 모달이 뜨는 오남용 방지).
     void (async () => {
       let sameAsSaved = false;
+      let disk: Awaited<ReturnType<StoreIO["readDocument"]>> | null = null;
       try {
-        const doc = await this.io.readDocument(path);
+        const doc = disk = await this.io.readDocument(path);
         this.pruneSelfWrites();
         const selfWrite = this.recentSelfWrites.get(path);
         const approval = this.overwriteApprovals.get(tab.id);
@@ -1861,6 +1875,9 @@ export class AppStore {
         return;
       }
       if (tab.dirty) {
+        // 저장 전 편집이 있어도, 밖에서 바뀐 곳과 겹치지 않으면 바로 합쳐 따라간다.
+        // 겹치면(같은 줄·맞닿은 줄) 사용자에게 묻는다.
+        if (disk && this.mergeExternalChange(tab, path, disk)) return;
         tab.conflict = "conflict";
         this.emit();
       } else {
@@ -1874,11 +1891,52 @@ export class AppStore {
     })();
   }
 
+  /** 미저장 편집이 있는 탭에 외부 변경을 3방향 병합으로 반영한다(원본 = 마지막
+   *  저장 내용). 합칠 수 있었으면 true — 버퍼는 합친 본문, 저장 기준은 디스크의
+   *  새 내용이 되고 남은 차이(내 편집)는 평소처럼 자동 저장된다. */
+  private mergeExternalChange(tab: Tab, path: string, disk: { text: string; meta: Tab["meta"]; mtime: number }): boolean {
+    // 진행 중인 저장·충돌·줄 끝 형식 변경은 기존 흐름(충돌 확인)에 맡긴다.
+    if (tab.conflict !== null || this.writingPaths.has(path) || this.overwriteApprovals.has(tab.id)
+      || disk.meta.hadBom !== tab.meta.hadBom || disk.meta.crlf !== tab.meta.crlf) return false;
+    this.syncActiveState();
+    this.syncSplitState(tab);
+    const liveView = tab.id === this.state.activeId ? this.view
+      : this.splitTabId === tab.id ? this.splitView : null;
+    if (liveView?.state.readOnly) return false;
+    const mine = (liveView?.state ?? tab.state).doc.toString();
+    const merged = merge3(tab.savedText, mine, disk.text);
+    if (merged === null) return false;
+    // 기준을 먼저 옮긴다 — 아래 디스패치가 부르는 변경 처리(dirty 계산)가 새 기준을 본다.
+    tab.savedText = disk.text;
+    tab.savedMtime = disk.mtime;
+    tab.savedAt = disk.mtime * 1000;
+    if (merged !== mine) {
+      const changes = minimalChange(mine, merged);
+      if (liveView) {
+        liveView.dispatch({ changes, userEvent: "input.externalMerge" });
+        tab.state = liveView.state;
+      } else {
+        this.navigationHistory.invalidate(tab.id, merged.length);
+        tab.state = tab.state.update({ changes }).state;
+      }
+    }
+    tab.dirty = merged !== disk.text;
+    const body = stripFrontMatter(merged);
+    tab.words = countWords(body);
+    tab.chars = body.length;
+    tab.checkbox = checkboxOf(merged);
+    if (tab.dirty) this.scheduleAutosave(tab);
+    else if (tab.draftKey) void this.clearDraft(tab.draftKey);
+    this.toast(t0("외부 변경을 편집 중인 내용과 합쳤습니다", "Merged external changes with your edits"));
+    this.emit();
+    return true;
+  }
+
   async reloadTab(id: string, keepPosition: boolean, isCurrent: () => boolean = () => true): Promise<ConflictResolution> {
     const tab = this.state.tabs.find((t) => t.id === id);
     if (!tab?.path || this.trashingPaths.has(tab.path) || !isCurrent()) return { status: "changed" };
     this.syncActiveState();
-    if (this.splitView && this.splitTabId === id) tab.state = this.splitView.state;
+    this.syncSplitState(tab);
     const path = tab.path;
     const originalDoc = tab.state.doc;
     const version = this.nextDiskRead(id);
@@ -1886,7 +1944,7 @@ export class AppStore {
       this.diskReadVersions.get(id) === version && !this.discardingTabIds.has(id) && !this.trashingPaths.has(path);
     const sync = () => {
       this.syncActiveState();
-      if (this.splitView && this.splitTabId === id) tab.state = this.splitView.state;
+      this.syncSplitState(tab);
     };
     try {
       const pending = this.documentOps.get(id);
@@ -1958,7 +2016,7 @@ export class AppStore {
     const tab = this.state.tabs.find((t) => t.id === id);
     if (!tab?.path || this.trashingPaths.has(tab.path) || tab.conflict === null || !isCurrent()) return { status: "changed" };
     this.syncActiveState();
-    if (this.splitView && this.splitTabId === id) tab.state = this.splitView.state;
+    this.syncSplitState(tab);
     const path = tab.path;
     const conflict = tab.conflict;
     const originalDoc = tab.state.doc;

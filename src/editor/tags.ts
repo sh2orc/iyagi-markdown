@@ -3,6 +3,7 @@
 // 를 태그 문자로 인정. 앞이 공백·줄 시작이어야 하고, # 뒤 첫 글자는 숫자만
 // 안 된다(#123 아님, #v2는 됨). 줄 첫 #은 ATX 제목이므로 제외.
 
+import { inRanges, literalRanges } from "./literalRanges";
 import type { TreeNode } from "../api";
 
 export interface TagInfo {
@@ -16,16 +17,13 @@ export function extractTags(text: string): TagInfo[] {
   const map = new Map<string, number[]>();
   const lines = text.split("\n");
   let pos = 0;
-  let inFence = false;
+  // 코드 펜스·인라인 코드 안의 #은 태그가 아니다. 펜스는 같은 문자·길이로만
+  // 닫힌다(~~~ 안의 ``` 한 줄에 안팎이 뒤집히면 뒤 문서의 태그를 전부 놓친다).
+  const literal = literalRanges(text);
   for (const line of lines) {
     const lineStart = pos;
     pos += line.length + 1;
-    const trimmed = line.trimStart();
-    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) continue;
+    if (inRanges(literal, lineStart)) continue;
     // 한 줄 안에서: 경계(공백/줄 시작) 뒤 # + 태그 문자들.
     const re = /(^|\s)#([\p{L}\p{N}_\-\/]+)/gu;
     let m: RegExpExecArray | null;
@@ -35,6 +33,7 @@ export function extractTags(text: string): TagInfo[] {
       if (/^\p{N}/u.test(name)) continue;
       // 제목 줄(# 제목)은 첫 #만 있고 태그 문자 뒤 공백 — 위 정규식이 이미 걸러냄.
       const at = lineStart + m.index + m[1].length;
+      if (inRanges(literal, at)) continue;
       const arr = map.get(name) ?? [];
       arr.push(at);
       map.set(name, arr);

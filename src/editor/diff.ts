@@ -89,3 +89,85 @@ export function diffSummary(ops: DiffOp[]): { added: number; removed: number } {
   }
   return { added, removed };
 }
+
+/** 두 문서의 공통 접두·접미를 뺀 최소 교체 구간. 포맷터처럼 결과 전체를 새로
+ *  만든 편집을 이 구간으로 디스패치하면 커서·스크롤이 제자리에 남는다
+ *  (전체 교체는 커서를 문서 맨 앞으로 보낸다). */
+export function minimalChange(oldText: string, newText: string): { from: number; to: number; insert: string } {
+  const max = Math.min(oldText.length, newText.length);
+  let from = 0;
+  while (from < max && oldText.charCodeAt(from) === newText.charCodeAt(from)) from++;
+  let tail = 0;
+  while (tail < max - from && oldText.charCodeAt(oldText.length - 1 - tail) === newText.charCodeAt(newText.length - 1 - tail)) tail++;
+  return { from, to: oldText.length - tail, insert: newText.slice(from, newText.length - tail) };
+}
+
+interface Hunk { from: number; to: number; lines: string[] }
+
+/** base → next 의 줄 단위 교체 구간들(base 줄 번호 기준, 오름차순). */
+function hunksBetween(base: string[], next: string[]): Hunk[] {
+  const out: Hunk[] = [];
+  let at = 0;
+  let open: Hunk | null = null;
+  for (const op of diffLcs(base, next)) {
+    // 같은 종류의 연속 줄은 한 항으로 합쳐져 온다(줄바꿈으로 이어 붙임).
+    const lines = op.text.split("\n");
+    if (op.kind === "same") {
+      open = null;
+      at += lines.length;
+      continue;
+    }
+    if (!open) {
+      open = { from: at, to: at, lines: [] };
+      out.push(open);
+    }
+    if (op.kind === "del") {
+      at += lines.length;
+      open.to = at;
+    } else {
+      open.lines.push(...lines);
+    }
+  }
+  return out;
+}
+
+/** 3방향 병합(줄 단위) — 공통 원본 base에서 갈라진 mine·theirs를 합친다.
+ *  두 쪽이 서로 다른 곳을 고쳤으면 합친 본문을, 같은 곳(맞닿은 줄 포함)을 다르게
+ *  고쳤으면 null(사용자 판단 필요)을 돌려준다. 같은 곳을 똑같이 고친 것은 한 번만
+ *  반영한다. 열려 있는 문서가 밖에서 바뀌었을 때 미저장 편집을 잃지 않고 바로
+ *  따라가기 위한 것 — 애매하면 합치지 않는다. */
+export function merge3(base: string, mine: string, theirs: string): string | null {
+  if (mine === theirs || base === theirs) return mine;
+  if (base === mine) return theirs;
+  const baseLines = base.split("\n");
+  const a = hunksBetween(baseLines, mine.split("\n"));
+  const b = hunksBetween(baseLines, theirs.split("\n"));
+  const out: string[] = [];
+  let at = 0;
+  let i = 0;
+  let j = 0;
+  const take = (hunk: Hunk): void => {
+    for (let n = at; n < hunk.from; n++) out.push(baseLines[n]!);
+    out.push(...hunk.lines);
+    at = hunk.to;
+  };
+  while (i < a.length || j < b.length) {
+    const x = a[i];
+    const y = b[j];
+    if (x && y && x.from <= y.to && y.from <= x.to) {
+      // 같은 자리 — 똑같은 수정이면 한 번만, 아니면 충돌.
+      if (x.from !== y.from || x.to !== y.to || x.lines.join("\n") !== y.lines.join("\n")) return null;
+      take(x);
+      i += 1;
+      j += 1;
+    } else if (x && (!y || x.from < y.from)) {
+      take(x);
+      i += 1;
+    } else {
+      take(y!);
+      j += 1;
+    }
+  }
+  for (let n = at; n < baseLines.length; n++) out.push(baseLines[n]!);
+  return out.join("\n");
+}

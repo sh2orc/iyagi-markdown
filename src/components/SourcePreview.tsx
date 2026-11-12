@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { api } from "../api";
 import { captureExportSnapshot, type ExportSnapshot } from "../export/snapshot";
 import { createPreviewRenderer, snapshotHtmlOptions } from "../export/preview";
+import { blockFrameNavigation } from "../export/printFrame";
 import type { Translate } from "../i18n";
 import type { AppStore, Tab } from "../app/store";
 
@@ -85,13 +86,14 @@ export function SourcePreview({
   }), [tab, tab.state.doc, tab.path, tab.title, tab.docStyle, state.workspace, state.theme,
     store.wikiIndex, state.linksRevision, t.lang]);
 
+  const blockRemote = !state.settings.remoteImages;
   useEffect(() => {
     let alive = true;
     setError(null);
     const id = setTimeout(() => {
-      const options = snapshotHtmlOptions(snapshot, async (path) => {
+      const options = { ...snapshotHtmlOptions(snapshot, async (path) => {
         try { return new Uint8Array(await api.readFileBytes(path)); } catch { return null; }
-      });
+      }), blockRemote };
       void renderer.current!(snapshot, options).then((built) => {
         if (alive) { setHtml(built); setRenderedSnapshot(snapshot); }
       }).catch((reason: unknown) => {
@@ -99,7 +101,7 @@ export function SourcePreview({
       });
     }, 300);
     return () => { alive = false; clearTimeout(id); };
-  }, [snapshot, retry]);
+  }, [snapshot, retry, blockRemote]);
 
   // 왼쪽(소스) 스크롤 → 오른쪽 비례 동기.
   useEffect(() => {
@@ -170,7 +172,7 @@ export function SourcePreview({
           title={t.previewPaneTitle}
           srcDoc={html}
           sandbox="allow-same-origin"
-          onLoad={onScroll0(store, frameRef)}
+          onLoad={() => { blockFrameNavigation(frameRef.current); onScroll0(store, frameRef)(); }}
         />
       ) : (
         <div className="src-preview-loading" role="status" aria-label={t.loading}>

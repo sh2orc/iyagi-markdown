@@ -17,13 +17,13 @@ export function dailyNoteContent(title: string, lang: "ko" | "en" = "ko"): strin
 
 /** 트리에서 데일리 노트 경로 찾기 — 루트 우선, 깊으면 첫 번째. */
 export function findDailyNote(tree: TreeNode[], title: string): string | null {
-  const target = `${title}.md`.toLowerCase();
+  const target = `${title}.md`.normalize("NFC").toLowerCase();
   let found: string | null = null;
   let atRoot: string | null = null;
   const walk = (nodes: TreeNode[], root: boolean) => {
     for (const n of nodes) {
       if (n.kind === "dir") walk(n.children ?? [], false);
-      else if (n.name.toLowerCase() === target) {
+      else if (n.name.normalize("NFC").toLowerCase() === target) {
         if (root) atRoot = n.path;
         else if (!found) found = n.path;
       }

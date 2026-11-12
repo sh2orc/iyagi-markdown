@@ -1,6 +1,7 @@
 // 앱 셸 — 창 안의 모든 것을 연결한다: 탭·사이드바·에디터·패널·내보내기·이벤트.
 // 에디터 DOM은 CodeMirror가 소유하고 React는 컨테이너만 렌더링한다.
 
+import { minimalChange } from "./editor/diff";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { EditorView } from "@codemirror/view";
 
@@ -42,7 +43,7 @@ import { RenameHeadingDialog } from "./components/RenameHeadingDialog";
 import type { TreeNode } from "./api";
 import { snapshotHtmlOptions, type PdfOptions } from "./export/preview";
 import type { ExportResult } from "./export/result";
-import { resolveLink } from "./links";
+import { resolveLink, collectHeadings } from "./links";
 import { makeT, type Lang } from "./i18n";
 import { TabBar, documentTabId } from "./components/TabBar";
 import { Sidebar } from "./components/Sidebar";
@@ -236,9 +237,14 @@ export function App(): JSX.Element {
   /** 이미지 설명 편집(칩 클릭 위치 → 그 이미지). */
   const [imageEdit, setImageEdit] = useState<InlineLinkEdit | null>(null);
   const [headingRename, setHeadingRename] = useState<{
+    /** 대화상자를 연 탭·문서 — 확정 시점에 같아야만 저장된 위치를 쓴다. */
+    tabId: string;
+    doc: Tab["state"]["doc"];
     from: number;
     to: number;
     title: string;
+    /** 문서 안 실제 앵커(중복 제목이면 -N 포함). */
+    slug: string;
     stem: string;
     linkCount: number;
     /** 제목이 속한 문서 경로(같은 문서 링크 판별·디스크 갱신 제외용). */
@@ -302,6 +308,7 @@ export function App(): JSX.Element {
     viewer !== null ||
     commentAddTarget !== null ||
     imageEdit !== null ||
+    headingRename !== null ||
     state.exportKind !== null
   );
   const overlayOpen = interactiveOverlayOpen || state.tabs.some((x) => x.conflict !== null);
@@ -599,8 +606,9 @@ export function App(): JSX.Element {
       return;
     }
     const stem = (tab.path ? tab.title : "untitled").replace(/\.md$/i, "");
-    const text = view.state.doc.toString();
-    let count = countHeadingLinks(text, stem, heading.title);
+    const startDoc = view.state.doc;
+    const text = startDoc.toString();
+    let count = countHeadingLinks(text, stem, heading.title, heading.slug);
     // 다른 파일의 링크 수 — 디스크 읽기 상한 300(대화상자 안내값).
     const walkFiles = async (nodes: TreeNode[]): Promise<string[]> => {
       const out: string[] = [];
@@ -617,9 +625,14 @@ export function App(): JSX.Element {
       scanned++;
       let doc;
       try { doc = await api.readDocument(p); } catch { continue; }
-      count += countHeadingLinks(doc.text, stem, heading.title);
+      count += countHeadingLinks(doc.text, stem, heading.title, heading.slug);
     }
-    setHeadingRename({ ...heading, stem, linkCount: count, path: tab.path });
+    // 링크를 세는 동안 편집했거나 탭을 옮겼으면 잡아 둔 제목 위치는 더 이상 맞지 않는다.
+    if (store.active?.id !== tab.id || store.view?.state.doc !== startDoc) {
+      store.toast(t.renameHeadingChanged, "error");
+      return;
+    }
+    setHeadingRename({ ...heading, tabId: tab.id, doc: startDoc, stem, linkCount: count, path: tab.path });
   };
 
   const runExport = useCallback(
@@ -1729,16 +1742,28 @@ export function App(): JSX.Element {
             const session = headingRename;
             setHeadingRename(null);
             const view = store.view;
-            if (!view || !session || session.to > view.state.doc.length) return;
+            if (!view || !session) return;
+            // 대화상자를 연 문서 그대로일 때만 적용한다 — 다른 탭·바뀐 본문에 옛
+            // 위치를 쓰면 엉뚱한 줄이 제목으로 덮어써진다.
+            if (store.active?.id !== session.tabId || view.state.doc !== session.doc || view.state.readOnly) {
+              store.toast(t.renameHeadingChanged, "error");
+              return;
+            }
             // ① 현재 문서 — 제목 줄 교체 뒤 링크 재조준(한 트랜잭션).
             const oldText = view.state.doc.toString();
             const newLine = rewrittenHeadingLine(oldText.slice(session.from, session.to), title);
             const step1 = oldText.slice(0, session.from) + newLine + oldText.slice(session.to);
+            // 바꾼 뒤 문서에서의 실제 앵커(같은 제목이 있으면 -N이 붙는다).
+            const slugs = {
+              old: session.slug,
+              next: collectHeadings(step1).find((h) => h.pos >= session.from && h.pos <= session.from + newLine.length)?.slug,
+            };
             const insert = updateLinks
-              ? retargetHeadingLinks(step1, session.stem, session.title, title) ?? step1
+              ? retargetHeadingLinks(step1, session.stem, session.title, title, slugs) ?? step1
               : step1;
+            // 바뀐 구간만 교체 — 전체 교체는 커서를 문서 맨 앞으로 보낸다.
             view.dispatch({
-              changes: { from: 0, to: view.state.doc.length, insert },
+              changes: minimalChange(oldText, insert),
               userEvent: "input.renameHeading",
             });
             // ② 다른 파일의 링크 — 디스크에서 읽어 기대값 맞춰 갱신(상한 200).
@@ -1756,7 +1781,7 @@ export function App(): JSX.Element {
               if (p === session.path || updated >= 200) continue;
               let doc;
               try { doc = await api.readDocument(p); } catch { continue; }
-              const next = retargetHeadingLinks(doc.text, session.stem, session.title, title);
+              const next = retargetHeadingLinks(doc.text, session.stem, session.title, title, slugs);
               if (next === null) continue;
               try {
                 await api.writeDocument(p, next, doc.meta,

@@ -18,6 +18,7 @@ import { ensureHighlight, escapeHtml, highlightHtml } from "../plugins/highlight
 import { ensureKatex, renderMathMl } from "../plugins/katex";
 import { renderMermaidForExport } from "../plugins/mermaid";
 import { frontMatterMeta, stripFrontMatter } from "../editor/frontmatter";
+import { normalizeMathDelimiters } from "../editor/mathDelims";
 import { isPageBreakLine } from "../editor/pagebreak";
 import { citeDisplay, citeNumbering } from "../editor/citations";
 import { CALLOUT_ICONS, calloutKeyOf } from "../editor/widgets";
@@ -71,6 +72,9 @@ export interface ExportHtmlOptions {
   readBytes?: (path: string) => Promise<Uint8Array | null>;
   /** 위키링크 이름 → 절대 경로(워크스페이스 인덱스). 없으면 이름.md 참조. */
   wikiResolve?: (name: string) => string | null;
+  /** 원격 이미지·미디어 요청 차단(앱 안 미리보기가 "원격 이미지" 설정을 따르게).
+   *  문서 CSP로 막으므로 <img>뿐 아니라 CSS url()·<video>도 함께 막힌다. */
+  blockRemote?: boolean;
 }
 
 // — 마크다운 파서 구성 —
@@ -404,10 +408,9 @@ export async function renderMarkdownBody(
     }),
   );
   for (const { m, svg } of rendered) {
-    html = html.replace(
-      m[0],
-      svg ? `<div class="diagram">${cleanMermaidSvg(svg)}</div>` : `<pre class="code-block"><code>${escapeHtml(diagrams[Number(m[1])]?.code ?? "")}</code></pre>`,
-    );
+    // 함수 치환 — 문자열 치환은 SVG·코드 안의 `$'`·`$&` 등을 치환 패턴으로 해석한다.
+    const replacement = svg ? `<div class="diagram">${cleanMermaidSvg(svg)}</div>` : `<pre class="code-block"><code>${escapeHtml(diagrams[Number(m[1])]?.code ?? "")}</code></pre>`;
+    html = html.replace(m[0], () => replacement);
   }
 
   // 작업 목록 체크박스 — 최종 HTML에서 [ ] / [x]를 input으로 바꾼다.
@@ -630,16 +633,29 @@ async function inlineImages(html: string, baseDir: string, readBytes?: (p: strin
   if (!readBytes) return html;
   const seen = new Map<string, string>();
   const jobs: Promise<void>[] = [];
-  const re = /src="(https?:\/\/[^"]+|data:[^"]+)"/g;
-  // 원격·데이터 URI는 그대로.
-  html.match(re);
-  const localRe = /src="([^"]+)"/g;
-  const out = html.replace(localRe, (full, src: string) => {
-    if (/^(https?:|data:|#|mailto:)/i.test(src)) return full;
+  // <img>의 이미지 파일만 인라인한다 — 받은 문서의 `![x](../.ssh/id_ed25519)`나
+  // 임의 요소의 src가 로컬 파일을 내보낸 파일에 실어 보내지 못하게 한다.
+  const imgRe = /<img\b[^>]*>/gi;
+  const localRe = /\ssrc="([^"]+)"/;
+  const eachLocal = (source: string, visit: (src: string) => string | null): string =>
+    source.replace(imgRe, (tag) => {
+      const m = localRe.exec(tag);
+      if (!m || /^(https?:|data:|#|mailto:)/i.test(m[1])) return tag;
+      const next = visit(m[1]);
+      return next === null ? tag : tag.replace(m[0], () => ` src="${next}"`);
+    });
+  const out = eachLocal(html, (src) => {
+    let decodedPath: string;
+    try {
+      decodedPath = decodeURIComponent(src).replace(/\\/g, "/");
+    } catch {
+      return null;
+    }
+    if (guessMime(decodedPath.replace(/[?#].*$/, "")) === "application/octet-stream") return null;
     jobs.push(
       (async () => {
         try {
-          const decoded = decodeURIComponent(src).replace(/\\/g, "/");
+          const decoded = decodedPath;
           const path = decoded.startsWith("/") ? decoded : joinPath(baseDir, decoded);
           const key = src;
           if (!seen.has(key)) {
@@ -661,14 +677,11 @@ async function inlineImages(html: string, baseDir: string, readBytes?: (p: strin
         }
       })(),
     );
-    return full;
+    return null;
   });
   await Promise.all(jobs);
   // 치환(실패한 것은 원본 유지).
-  return out.replace(localRe, (full, src: string) => {
-    const data = seen.get(src);
-    return data ? `src="${data}"` : full;
-  });
+  return eachLocal(out, (src) => seen.get(src) || null);
 }
 
 function joinPath(base: string, rel: string): string {
@@ -693,6 +706,11 @@ function guessMime(path: string): string {
     case "bmp": return "image/bmp";
     case "ico": return "image/x-icon";
     case "svg": return "image/svg+xml";
+    case "avif": return "image/avif";
+    case "apng": return "image/apng";
+    case "tif":
+    case "tiff": return "image/tiff";
+    case "heic": return "image/heic";
     default: return "application/octet-stream";
   }
 }
@@ -738,8 +756,9 @@ async function inlineKatexCss(): Promise<string> {
 export async function renderExportBody(markdown: string, opts: ExportHtmlOptions): Promise<string> {
   // 프론트매터는 메타 — 인쇄·HTML 본문에서 제외한다(모든 호출 경로의 공통 끝점).
   // 위키링크는 표준 마크다운 링크로(resolve 미제공이면 이름.md 참조).
+  // MathJax식 수식 구분자(\[ … \], \( … \))는 $$·$ 표기로 맞춘다.
   const body0 = wikiLinksToMarkdown(
-    stripFrontMatter(markdown),
+    normalizeMathDelimiters(stripFrontMatter(markdown)),
     opts.wikiResolve ?? (() => null),
     opts.baseDir,
   );
@@ -812,7 +831,7 @@ export async function buildExportHtml(markdown: string, opts: ExportHtmlOptions)
   return `<!doctype html>
 <html lang="${opts.lang === "en" ? "en" : "ko"}">
 <head>
-<meta charset="utf-8">
+<meta charset="utf-8">${opts.blockRemote ? `\n<meta http-equiv="Content-Security-Policy" content="img-src data: blob:; media-src data: blob:">` : ""}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(opts.title)}</title>
 <style>
@@ -956,7 +975,9 @@ export async function buildDocxManifest(
   const stripped = markdown.replace(/\$\$[\s\S]+?\$\$/g, "").replace(/```[\s\S]*?```/g, "");
   for (const m of stripped.matchAll(/\$([^$\n]+?)\$/g)) {
     const latex = m[1].trim();
-    if (!latex || /^\d/.test(latex)) continue;
+    // 숫자로 시작하는 수식(`$2x+1$`)도 포함 — 수식 여부는 DOCX 쪽 파서가 정하고,
+    // 여기 항목이 없으면 그 수식은 LaTeX 원문으로 떨어진다.
+    if (!latex) continue;
     jobs.push(
       renderMathMl(latex).then((ml) => {
         if (ml) math[latex] = ml;
@@ -964,8 +985,9 @@ export async function buildDocxManifest(
     );
   }
   // mermaid 펜스
-  for (const m of markdown.matchAll(/```mermaid[^\n]*\n([\s\S]*?)```/g)) {
-    const code = m[1].trimEnd();
+  // (``` 와 ~~~, 3개 이상, 목록 안 들여쓴 펜스 포함)
+  for (const m of markdown.matchAll(/^[ \t>]*(`{3,}|~{3,})mermaid[^\n]*\n([\s\S]*?)\n?[ \t>]*\1[ \t]*$/gm)) {
+    const code = m[2].trimEnd();
     jobs.push(
       renderMermaidForExport(code).then((svg) => {
         if (svg) diagrams[code] = svg;

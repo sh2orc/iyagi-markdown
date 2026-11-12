@@ -55,6 +55,7 @@ import {
   SpacerWidget,
   TableWidget,
   TaskItemWidget, CommentCountWidget, ParaMarkWidget, CiteWidget,
+  parseTable,
 } from "./widgets";
 
 // — 설정 전달(문서 경로·이미지 정책·테마) —
@@ -891,6 +892,9 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
           ) {
             return;
           }
+          // 위젯이 읽지 못하는 표는 원문 그대로 둔다 — 빈 위젯으로 가리면 내용이
+          // 보이지도 편집되지도 않는다.
+          if (parseTable(slice(from, to)) === null) return;
           // 표 캡션(Pandoc 규약 ': 텍스트') — 표 다음 줄을 캡션 톤으로
           // 표시(내보내기의 '표 N — …'과 같은 어감). 커서가 닿으면 원문 노출.
           const afterTable = doc.lineAt(Math.min(to + 1, doc.length));
@@ -936,7 +940,8 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
         // — 수식(커스텀 문법) —
         if (name === "MathBlock") {
           if (isRevealed(from, to)) return;
-          const latex = slice(from, to).replace(/^\$\$/, "").replace(/\$\$$/, "");
+          // 구분자 벗기기 — $$ … $$ 또는 MathJax식 \[ … \].
+          const latex = slice(from, to).replace(/^(\$\$|\\\[)/, "").replace(/(\$\$|\\\])\s*$/, "");
           ranges.push(
             replace({ widget: new MathWidget(latex, true), block: true }).range(from, to),
           );
@@ -944,7 +949,9 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
         }
         if (name === "InlineMath") {
           if (coversMarks(from, to)) return;
-          const latex = slice(from + 1, to - 1);
+          // $…$ 는 한 글자, MathJax식 \( … \) 는 두 글자 구분자.
+          const mark = slice(from, from + 1) === "\\" ? 2 : 1;
+          const latex = slice(from + mark, to - mark).trim();
           ranges.push(replace({ widget: new MathWidget(latex, false) }).range(from, to));
           return;
         }

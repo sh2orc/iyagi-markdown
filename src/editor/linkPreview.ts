@@ -112,7 +112,8 @@ function ensureRenderer(): Promise<void> {
   mdItPromise ??= import("markdown-it").then((MarkdownIt) => {
     const md = new MarkdownIt.default({ html: false, linkify: true, breaks: false });
     // 이미지는 팝오버에서 무겁다 — 대체 텍스트로.
-    md.renderer.rules.image = (tokens, idx) => tokens[idx].children?.[0]?.content ?? "";
+    // 대체 텍스트는 원문 그대로다 — 이스케이프 없이 돌려주면 innerHTML로 마크업이 주입된다.
+    md.renderer.rules.image = (tokens, idx) => md.utils.escapeHtml(tokens[idx].content);
     mdIt = md;
   });
   return mdItPromise;

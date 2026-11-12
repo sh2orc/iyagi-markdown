@@ -460,6 +460,49 @@ describe("읽는 중 표시", () => {
 });
 
 describe("외부 변경(수동 QA 항목 자동화)", () => {
+  it("미저장 편집이 있어도 겹치지 않는 외부 변경은 바로 합친다", async () => {
+    const writes: string[] = [];
+    const base = "# 제목\n\n첫 문단\n\n둘째 문단\n\n셋째 문단\n";
+    let diskText = base;
+    const io = { ...fakeIo(),
+      readDocument: async () => ({ text: diskText, meta: { hadBom: false, crlf: false }, mtime: 1, size: diskText.length }),
+      writeDocument: async (_p: string, text: string) => { writes.push(text); diskText = text; return { mtime: 2, size: text.length }; } };
+    const store = new AppStore(io), view = mount(store);
+    store.setSettings({ ...store.state.settings, autosave: false });
+    try {
+      await openTab(store, "/tmp/merge.md");
+      const tab = store.active!;
+      // 내 편집(첫 문단) — 저장 전.
+      const at = view.state.doc.toString().indexOf("첫 문단");
+      view.dispatch({ changes: { from: at, to: at + 4, insert: "내가 고친 문단" }, selection: { anchor: at + 3 } });
+      await nextFrame();
+      expect(tab.dirty).toBe(true);
+      // 밖에서 셋째 문단을 고치고 끝에 줄을 더했다.
+      diskText = "# 제목\n\n첫 문단\n\n둘째 문단\n\n밖에서 고친 문단\n\n추가\n";
+      store.externalChange("/tmp/merge.md", "changed");
+      await new Promise((r) => setTimeout(r, 20));
+      expect(tab.conflict).toBeNull();
+      expect(view.state.doc.toString()).toBe("# 제목\n\n내가 고친 문단\n\n둘째 문단\n\n밖에서 고친 문단\n\n추가\n");
+      expect(view.state.selection.main.head).toBe(at + 3);
+      expect(tab.dirty).toBe(true);
+      // 합친 뒤 저장은 새 디스크 내용을 기준으로 통과한다.
+      expect(await store.saveActive()).toBe(true);
+      expect(writes.at(-1)).toBe(view.state.doc.toString());
+      expect(tab.dirty).toBe(false);
+
+      // 같은 줄을 서로 다르게 고치면 합치지 않고 충돌로 남긴다.
+      const p2 = view.state.doc.toString().indexOf("둘째 문단");
+      view.dispatch({ changes: { from: p2, to: p2 + 5, insert: "내 둘째" } });
+      await nextFrame();
+      const before = view.state.doc.toString();
+      diskText = diskText.replace("둘째 문단", "남의 둘째");
+      store.externalChange("/tmp/merge.md", "changed");
+      await new Promise((r) => setTimeout(r, 20));
+      expect(tab.conflict).toBe("conflict");
+      expect(view.state.doc.toString()).toBe(before);
+    } finally { view.destroy(); setViewListener(null); }
+  });
+
   it("깨끗한 탭은 자동 다시 읽기·더티 탭은 충돌 표시", async () => {
     const store = new AppStore(fakeIo());
     const view = mount(store);
@@ -3022,6 +3065,51 @@ describe("책갈피 저장·조회·위치 보존", () => {
       expect(tab.bookmarks).toEqual([5]);
       expect(tab.bookmarksText).toBe(tab.savedText);
       expect(tab.bookmarksError).toBeNull();
+    } finally { view.destroy(); setViewListener(null); }
+  });
+
+  it("분할 편집 중이던 문서를 주 편집기로 가져와 저장하면 주 편집기의 내용이 쓰인다", async () => {
+    const writes: string[] = [];
+    const io = { ...fakeIo(), writeDocument: async (_p: string, text: string) => { writes.push(text); return { mtime: 2, size: text.length }; } };
+    const store = new AppStore(io), view = mount(store);
+    store.setSettings({ ...store.state.settings, autosave: false });
+    let split: EditorView | null = null;
+    try {
+      await store.openPath("/ref.md");
+      const ref = store.active!;
+      await store.openPath("/main.md");
+      const host = document.createElement("div");
+      document.body.append(host);
+      split = new EditorView({ state: ref.state, parent: host });
+      store.splitView = split; store.splitTabId = ref.id;
+      split.dispatch({ changes: { from: split.state.doc.length, insert: "SPLIT EDIT\n" } });
+      store.activate(ref.id);
+      // 분할 쪽 편집은 주 편집기로 넘어오고, 그 뒤 입력은 주 편집기가 원본이다.
+      expect(view.state.doc.toString()).toContain("SPLIT EDIT");
+      view.dispatch({ changes: { from: view.state.doc.length, insert: "MAIN EDIT\n" } });
+      expect(await store.saveActive()).toBe(true);
+      expect(writes.at(-1)).toContain("SPLIT EDIT");
+      expect(writes.at(-1)).toContain("MAIN EDIT");
+      expect(ref.dirty).toBe(false);
+    } finally {
+      store.splitView = null; store.splitTabId = null;
+      split?.destroy(); view.destroy(); setViewListener(null);
+    }
+  });
+
+  it("저장 시 표 자동 정렬이 커서를 제자리에 둔다", async () => {
+    const store = new AppStore(fakeIo()), view = mount(store);
+    store.setSettings({ ...store.state.settings, autosave: false, autoFormatTables: true });
+    try {
+      await openTab(store, "/table.md");
+      const table = "\n| a | b |\n|---|---|\n| long cell | 2 |\n";
+      view.dispatch({ changes: { from: view.state.doc.length, insert: table } });
+      const caret = view.state.doc.toString().indexOf("long cell") + 4;
+      view.dispatch({ selection: { anchor: caret } });
+      expect(await store.saveActive()).toBe(true);
+      const text = view.state.doc.toString();
+      expect(text).toContain("| a         | b |");
+      expect(view.state.selection.main.head).toBe(text.indexOf("long cell") + 4);
     } finally { view.destroy(); setViewListener(null); }
   });
 });

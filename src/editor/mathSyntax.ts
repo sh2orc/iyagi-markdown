@@ -51,6 +51,23 @@ export const mathSyntax: MarkdownExtension = {
       },
     },
     {
+      // MathJax식 인라인 수식 \( … \) — 같은 줄에서 닫힐 때만(아니면 괄호 이스케이프).
+      name: "mathInlineParen",
+      before: "Escape",
+      parse(cx, next, pos) {
+        if (next !== BACKSLASH || cx.char(pos + 1) !== 0x28 /* ( */) return -1;
+        for (let i = pos + 2; i < cx.end - 1; i++) {
+          const c = cx.char(i);
+          if (c === 10) break;
+          if (c === BACKSLASH && cx.char(i + 1) === 0x29 /* ) */) {
+            if (i === pos + 2) return -1; // 빈 수식
+            return cx.addElement(cx.elt("InlineMath", pos, i + 2));
+          }
+        }
+        return -1;
+      },
+    },
+    {
       name: "mathInline",
       before: "Escape",
       parse(cx, next, pos) {
@@ -102,6 +119,35 @@ export const mathSyntax: MarkdownExtension = {
       },
     },
     {
+      // MathJax식 블록 수식 — `\[` 만 있는 줄에서 열어 `\]` 로 끝나는 줄에서 닫거나,
+      // 한 줄 `\[ … \]`. (문장 속 `\[글자\]` 대괄호 이스케이프와 겹치지 않는 형태만.)
+      name: "mathBlockBracket",
+      before: "HorizontalRule",
+      parse(cx, line) {
+        const text = line.text.slice(line.pos);
+        if (!text.startsWith("\\[")) return false;
+        const from = cx.lineStart + line.pos;
+        const trimmed = text.trimEnd();
+        if (trimmed.length > 4 && trimmed.endsWith("\\]")) {
+          cx.nextLine();
+          cx.addElement(cx.elt("MathBlock", from, from + trimmed.length));
+          return true;
+        }
+        if (trimmed !== "\\[") return false;
+        // 여러 줄 — $$ 블록과 같은 소비 규칙(닫는 줄을 지나서 멈춘다).
+        let end = cx.lineStart + line.text.length;
+        while (cx.nextLine()) {
+          end = cx.lineStart + line.text.trimEnd().length;
+          if (line.text.trimEnd().endsWith("\\]")) {
+            cx.nextLine();
+            break;
+          }
+        }
+        cx.addElement(cx.elt("MathBlock", from, end));
+        return true;
+      },
+    },
+    {
       name: "mathBlock",
       before: "HorizontalRule",
       parse(cx, line) {
@@ -124,7 +170,8 @@ export const mathSyntax: MarkdownExtension = {
         while (cx.nextLine()) {
           end = cx.lineStart + line.text.length;
           const t = line.text.slice(line.pos);
-          if (t.trim() === "$$" || t.trim().startsWith("$$")) {
+          // 닫는 $$가 내용 줄 끝에 붙는 형태(`\end{aligned}$$` — Pandoc·GitHub 관용)도 닫힘.
+          if (t.trim() === "$$" || t.trim().startsWith("$$") || t.trimEnd().endsWith("$$")) {
             closed = true;
             cx.nextLine();
             break;

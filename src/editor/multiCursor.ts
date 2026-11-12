@@ -3,6 +3,7 @@
 // @codemirror/search의 selectNextOccurrence(⌥⌘D)가 담당 — 배선은 cm.ts.
 // Esc는 기본 키맵의 simplifySelection이 단일 커서로 되돌린다.
 
+import { findClusterBreak } from "@codemirror/state";
 import { EditorSelection, type EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
@@ -19,7 +20,9 @@ export function extendedCursors(state: EditorState, up: boolean): EditorSelectio
     if (n < 1 || n > doc.lines) continue;
     const target = doc.line(n);
     // 열 유지(짧은 줄에서는 줄 끝으로 클램프 — VS Code 동작).
-    const pos = target.from + Math.min(r.head - line.from, target.length);
+    // 이모지·조합 문자 한가운데(서로게이트 쌍 사이)에 커서를 두지 않는다.
+    const col = Math.min(r.head - line.from, target.length);
+    const pos = target.from + (col === 0 || col === target.length ? col : findClusterBreak(target.text, col - 1, true));
     if (ranges.some((o) => o.from <= pos && pos <= o.to)) continue; // 이미 커서/선택 있음
     if (added.includes(pos)) continue;
     added.push(pos);

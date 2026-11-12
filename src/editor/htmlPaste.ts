@@ -15,13 +15,28 @@ export function htmlToMarkdown(html: string): string | null {
 
 function blocks(parent: Node, depth: number): string {
   const out: string[] = [];
+  // 이웃한 인라인 조각(텍스트·<b>·<a>·<span>…)은 한 문단으로 모은다 — 따로
+  // 블록으로 내보내면 "글 **굵게** 글"이 세 문단으로 쪼개지고 서식도 잃는다.
+  let run: Node[] = [];
+  const flush = () => {
+    if (!run.length) return;
+    const span = document.createElement("span");
+    for (const node of run) span.append(node.cloneNode(true));
+    run = [];
+    const text = inline(span).trim();
+    if (text) out.push(text);
+  };
   for (const child of Array.from(parent.childNodes)) {
     if (!(child instanceof HTMLElement)) {
-      const text = child.textContent ?? "";
-      if (text.trim()) out.push(escapeText(text.trim()));
+      if (child.nodeType === Node.TEXT_NODE) run.push(child);
       continue;
     }
     const tag = child.tagName.toLowerCase();
+    if (!BLOCK_ONLY.has(tag) && !hasBlockChild(child)) {
+      run.push(child);
+      continue;
+    }
+    flush();
     const cls = child.className || "";
     switch (tag) {
       case "h1":
@@ -34,6 +49,13 @@ function blocks(parent: Node, depth: number): string {
         break;
       case "p":
       case "div": {
+        // 블록을 감싼 래퍼(<div><h2>…</h2><p>…</p></div>)는 블록으로 재귀한다 —
+        // 인라인으로 펴면 제목·문단·목록이 한 줄로 뭉개진다.
+        if (hasBlockChild(child)) {
+          const inner = blocks(child, depth);
+          if (inner.trim()) out.push(inner);
+          break;
+        }
         // 워드의 빈 문단(&)은 무시, 나머지는 인라인 변환.
         const text = inline(child).trim();
         if (text) out.push(text);
@@ -43,24 +65,17 @@ function blocks(parent: Node, depth: number): string {
         break;
       case "ul":
       case "ol":
-        out.push(...listBlock(child, depth));
+        // 목록은 한 블록 — 줄마다 따로 내보내면 항목 사이에 빈 줄이 끼어 느슨한 목록이 된다.
+        out.push(listBlock(child, depth).join("\n"));
         break;
       case "blockquote": {
         const inner = blocks(child, 0).trim();
         out.push(inner.split("\n").map((l) => `> ${l}`.trimEnd()).join("\n"));
         break;
       }
-      case "pre": {
-        const codeEl = child.querySelector("code");
-        const lang =
-          (codeEl?.className || child.getAttribute("language") || "").match(
-            /(?:language|lang)-([\w+-]+)/,
-          )?.[1] ?? "";
-        const text = (codeEl ?? child).textContent ?? "";
-        const fence = "`".repeat(Math.max(3, longestBacktickRun(text) + 1));
-        out.push(`${fence}${lang}\n${text.replace(/\n$/, "")}\n${fence}`);
+      case "pre":
+        out.push(fencedCode(child));
         break;
-      }
       case "table": {
         out.push(table(child));
         break;
@@ -75,7 +90,13 @@ function blocks(parent: Node, depth: number): string {
         break;
       }
       default: {
-        // span/section/article 등 — 블록으로 재귀해 문맥 유지.
+        // span/section/article, 구글 문서의 <b id="docs-internal-guid-…"> 래퍼 등 —
+        // 블록을 품고 있으면 블록으로 재귀해 문맥 유지.
+        if (hasBlockChild(child)) {
+          const inner = blocks(child, depth);
+          if (inner.trim()) out.push(inner);
+          break;
+        }
         const text = inline(child).trim();
         if (text) out.push(text);
         break;
@@ -83,7 +104,37 @@ function blocks(parent: Node, depth: number): string {
     }
     void cls;
   }
+  flush();
   return out.join("\n\n");
+}
+
+/** blocks()가 직접 다루는 태그 — 나머지는 인라인 조각으로 모은다. */
+const BLOCK_ONLY = new Set(["h1", "h2", "h3", "h4", "h5", "h6", "p", "div", "br", "ul", "ol", "blockquote", "pre", "table", "hr", "img"]);
+const BLOCK_TAGS = "p,div,h1,h2,h3,h4,h5,h6,ul,ol,table,pre,blockquote,hr,section,article,header,footer,main,figure";
+
+function hasBlockChild(el: HTMLElement): boolean {
+  return el.querySelector(BLOCK_TAGS) !== null;
+}
+
+/** 인라인 코드 — 내용은 원문 그대로(이스케이프 없음), 울타리는 내용의 가장 긴
+ *  백틱 연속보다 하나 길게 양쪽 대칭으로. */
+function codeSpan(text: string): string {
+  const body = text.replace(/\n/g, " ");
+  if (!body) return "";
+  const fence = "`".repeat(longestBacktickRun(body) + 1);
+  const pad = body.startsWith("`") || body.endsWith("`") ? " " : "";
+  return `${fence}${pad}${body}${pad}${fence}`;
+}
+
+function fencedCode(pre: HTMLElement): string {
+  const codeEl = pre.querySelector("code");
+  const lang =
+    (codeEl?.className || pre.getAttribute("language") || "").match(
+      /(?:language|lang)-([\w+-]+)/,
+    )?.[1] ?? "";
+  const text = (codeEl ?? pre).textContent ?? "";
+  const fence = "`".repeat(Math.max(3, longestBacktickRun(text) + 1));
+  return `${fence}${lang}\n${text.replace(/\n$/, "")}\n${fence}`;
 }
 
 /** ul/ol → 마크다운 목록 줄들(하위 목록 재귀, 들여쓰기 2칸). */
@@ -95,9 +146,12 @@ function listBlock(el: HTMLElement, depth: number): string[] {
     if (li.tagName.toLowerCase() !== "li") continue;
     const sublist: HTMLElement[] = [];
     const inlines: string[] = [];
+    const code: string[] = [];
     for (const c of Array.from(li.childNodes)) {
       if (c instanceof HTMLElement && (c.tagName.toLowerCase() === "ul" || c.tagName.toLowerCase() === "ol")) {
         sublist.push(c);
+      } else if (c instanceof HTMLElement && c.tagName.toLowerCase() === "pre") {
+        code.push(fencedCode(c));
       } else if (c instanceof HTMLElement && c.tagName.toLowerCase() === "p") {
         inlines.push(inline(c).trim());
       } else {
@@ -109,6 +163,9 @@ function listBlock(el: HTMLElement, depth: number): string[] {
     }
     const head = inlines.join(" ");
     out.push(`${"  ".repeat(depth)}${ordered ? `${n}.` : "-"} ${head}`);
+    // 항목 안 코드 블록 — 항목 내용 열에 맞춰 들여쓴 펜스로(여러 줄 보존).
+    const pad = "  ".repeat(depth) + " ".repeat(ordered ? `${n}.`.length + 1 : 2);
+    for (const block of code) out.push("", ...block.split("\n").map((l) => (l ? pad + l : l)), "");
     for (const sub of sublist) out.push(...listBlock(sub, depth + 1));
     if (ordered) n += 1;
   }
@@ -141,7 +198,7 @@ function inline(node: Node): string {
         out += inner.trim() ? `~~${inner}~~` : "";
         break;
       case "code":
-        out += inner.includes("`") ? `\`\`${inner}\`` : `\`${inner}\``;
+        out += codeSpan(child.textContent ?? "");
         break;
       case "a": {
         const href = child.getAttribute("href") ?? "";

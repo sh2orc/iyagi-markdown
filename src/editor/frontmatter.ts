@@ -5,7 +5,9 @@
 import type { MarkdownExtension } from "@lezer/markdown";
 
 /** 문서 시작 프론트매터 — 본문 제거와 내보내기 메타가 같은 범위를 따른다. */
-const FM_SCAN = /^(---\r?\n)((?:[^\n]*\n)*?)(---(?:\r?\n|$))/;
+// 닫는 줄 뒤 공백 허용 — 편집기 문법(/^---\s*$/)과 같은 범위여야 통계·내보내기가
+// YAML을 본문으로 세지 않는다.
+const FM_SCAN = /^(---[ \t]*\r?\n)((?:[^\n]*\n)*?)(---[ \t]*(?:\r?\n|$))/;
 
 /** 프론트매터를 떼어낸 본문(없으면 원문 그대로). */
 export function stripFrontMatter(text: string): string {
