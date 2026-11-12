@@ -2,6 +2,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
+// 호출 가능한 일반 목 — vitest 5의 기본 Mock 타입은 생성자 형태도 포함해 콜백 prop에 안 맞는다.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyMock = Mock<(...args: any[]) => any>;
 import { api, type UserTemplate, type UserTemplateList } from "../api";
 import { makeT } from "../i18n";
 import { UserTemplateEditor, type TemplateDraft } from "./UserTemplateEditor";
@@ -14,7 +18,7 @@ vi.mock("../export/html", () => ({ renderExportBody: mocks.render }));
 const t = makeT("en");
 const original: UserTemplate = { id: "template-one", version: 1, name: "My meeting", description: "Personal agenda", content: "# Exact {{date}}\r\n![image](../assets/a.png)\r\n" };
 let host: HTMLDivElement, root: Root, event: (revision: number) => void;
-let close: ReturnType<typeof vi.fn>, saved: ReturnType<typeof vi.fn>, create: ReturnType<typeof vi.fn>;
+let close: AnyMock, saved: AnyMock, create: AnyMock;
 function button(text: string) { return [...host.querySelectorAll<HTMLButtonElement>("button")].find((item) => !item.disabled && item.textContent === text)!; }
 function radio(name: string) { return [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((item) => item.querySelector("strong")?.textContent === name)!; }
 async function change(element: HTMLInputElement | HTMLTextAreaElement, value: string) {

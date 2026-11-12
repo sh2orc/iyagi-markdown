@@ -2,6 +2,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
+// 호출 가능한 일반 목 — vitest 5의 기본 Mock 타입은 생성자 형태도 포함해 콜백 prop에 안 맞는다.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyMock = Mock<(...args: any[]) => any>;
 import { api, type TemplateArchive, type UserTemplateList } from "../api";
 import { makeT } from "../i18n";
 import { TemplateArchiveDialog } from "./TemplateArchiveDialog";
@@ -17,7 +21,7 @@ const archive: TemplateArchive = { format: "iyagi-markdown-templates", version: 
   { name: "First", description: "First description", content: "# One\r\n{{date}}\r\n" },
   { name: "Second", description: "Second description", content: "<script>raw text</script>" },
 ] };
-let host: HTMLDivElement, root: Root, close: ReturnType<typeof vi.fn>, imported: ReturnType<typeof vi.fn>;
+let host: HTMLDivElement, root: Root, close: AnyMock, imported: AnyMock;
 function button(text: string) { return [...host.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === text)!; }
 function apply() { return host.querySelector<HTMLButtonElement>(".btn-primary")!; }
 async function render(mode: "import" | "export") {

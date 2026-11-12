@@ -20,7 +20,6 @@ export default defineConfig({
   },
   build: {
     target: "es2022",
-    minify: "esbuild",
     sourcemap: false,
     // mermaid·KaTeX는 기본 청크에서 분리되어야 한다(§1-2 지연 로딩). rollupOptions는
     // 동적 import를 쓰는 한 자동으로 분리되므로 수동 chunks는 두지 않는다.
