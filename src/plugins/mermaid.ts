@@ -41,20 +41,29 @@ const cache = new Map<string, string>();
 // 렌더 큐 — mermaid.render는 CPU를 많이 쓰는 긴 작업이라 동시에 몰리면
 // 프레임이 통째로 걸린다. 한 번에 하나만 직렬 실행해 긴 작업이 겹치지 않게
 // 한다(스크롤로 다이어그램 여러 개가 동시에 보여도 순차 그려진다).
-const renderQueue: Array<() => void> = [];
-let renderActive = 0;
+// 작업은 반드시 큐에서 꺼낸(shift) 뒤 실행한다 — 예전엔 첫 작업을 renderQueue[0]()로
+// 꺼내지 않고 돌려, 끝난 뒤 finally의 shift가 같은 작업을 다시 실행했다. 두 번째
+// 실행은 같은 id로 mermaid.render를 불러, 이미 편집기에 붙은 같은 id의 SVG에
+// 두 번째 그림(편집기 CSS로 잘못 측정된 거대한 노드)을 덧그렸다(2026-11-12).
+const renderQueue: Array<() => Promise<void>> = [];
+let renderActive = false;
+
+function pumpRenderQueue(): void {
+  if (renderActive) return;
+  const job = renderQueue.shift();
+  if (!job) return;
+  renderActive = true;
+  void job().finally(() => {
+    renderActive = false;
+    pumpRenderQueue();
+  });
+}
 
 function enqueueRender<T>(job: () => Promise<T>): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    renderQueue.push(() => {
-      renderActive++;
-      job().then(resolve, reject).finally(() => {
-        renderActive--;
-        const next = renderQueue.shift();
-        if (next) next();
-      });
-    });
-    if (renderActive === 0 && renderQueue.length === 1) renderQueue[0]();
+    // Promise.resolve().then(job) — job이 동기 throw해도 큐가 멈추지 않게.
+    renderQueue.push(() => Promise.resolve().then(job).then(resolve, reject));
+    pumpRenderQueue();
   });
 }
 

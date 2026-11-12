@@ -158,6 +158,12 @@ comrak AST → OOXML 직접 작성. Word 기본 스타일(제목·번호·표·�
 ## 보안(§4-6)
 
 - CSP: `default-src 'self'`, 스크립트 포함 없음.
+- `style-src`는 `'unsafe-inline'` 필요(CodeMirror style-mod `<style>`, KaTeX·mermaid
+  `style=` 속성). Tauri는 번들 빌드에서 index.html 인라인 `<style>`에 nonce를 넣고
+  `style-src`에 덧붙이는데, nonce가 있으면 `'unsafe-inline'`이 무시되어 릴리스
+  빌드에서만 편집기·수식이 깨진다(0.1.1 회귀). 그래서
+  `dangerousDisableAssetCspModification: ["style-src"]`로 style-src 수정만 끈다
+  (script-src 보호는 유지). 가드: `src/cspGuard.test.ts`.
 - raw HTML: 원문 그대로 두고 회색으로만 표시. 내보내기 시에만 DOMPurify.
 - mermaid `securityLevel:'strict'`, KaTeX `trust:false`.
 - 링크는 항상 가로채 처리(내부 `.md` → 앱 내, 외부 → opener).
