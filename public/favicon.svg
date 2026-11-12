@@ -1,5 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- 앱 북마크 — 부트 스플래시의 M↓ 마크와 같은 모티프 -->
-  <rect width="64" height="64" rx="14" fill="#24292f"/>
-  <text x="32" y="42" font-family="-apple-system,Helvetica,Arial,sans-serif" font-size="26" font-weight="800" fill="#e6e6e6" text-anchor="middle">M↓</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x2="0" y2="1">
+      <stop stop-color="#645bef"/>
+      <stop offset="1" stop-color="#2f2a94"/>
+    </linearGradient>
+  </defs>
+  <rect x="88" y="72" width="848" height="848" rx="190" fill="url(#bg)"/>
+  <g fill="none" stroke="#fff" stroke-width="76" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M250 655V337l140 156 140-156v318"/>
+    <path d="M716 342v297m-70-69 70 75 70-75"/>
+  </g>
 </svg>
