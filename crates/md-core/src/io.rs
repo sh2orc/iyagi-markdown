@@ -248,6 +248,14 @@ fn write_file_atomic_inner(
     create_parents: bool,
     produce: impl FnOnce(&mut fs::File) -> std::io::Result<()>,
 ) -> Result<(), DocError> {
+    // 심볼릭 링크로 연 문서는 링크가 가리키는 실제 파일을 교체한다. 링크 자리에
+    // rename하면 링크가 일반 파일로 바뀌고 원본은 옛 내용으로 남아 둘이 조용히
+    // 갈라진다(dotfiles·동기화 폴더에서 흔한 배치). 끊어진 링크는 그대로 둔다.
+    let resolved = (replace
+        && fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()))
+    .then(|| fs::canonicalize(path).ok())
+    .flatten();
+    let path = resolved.as_deref().unwrap_or(path);
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     if create_parents {
         fs::create_dir_all(dir).map_err(|source| DocError::Write {
@@ -284,19 +292,50 @@ fn write_file_atomic_inner(
         drop(f);
         let _guard = lock_publication.then(document_write_guard);
         if replace {
+            // 교체되는 파일의 권한을 잇는다 — 임시 파일의 기본 권한으로 바꾸면
+            // 0600 문서가 저장 한 번에 0644로 열린다. 새 파일이면 기본값 유지.
+            if let Ok(existing) = fs::metadata(path) {
+                let _ = fs::set_permissions(&tmp, existing.permissions());
+                carry_extended_attributes(path, &tmp);
+            }
             fs::rename(&tmp, path).map_err(write_err)?;
         } else {
             // 완성한 파일을 빈 경로에만 설치. exists()+rename()의 경합을 피한다.
-            fs::hard_link(&tmp, path).map_err(|source| {
-                if source.kind() == std::io::ErrorKind::AlreadyExists {
-                    DocError::Conflict {
-                        path: path.into(),
-                        removed: false,
-                    }
-                } else {
-                    write_err(source)
+            let conflict = || DocError::Conflict {
+                path: path.into(),
+                removed: false,
+            };
+            match fs::hard_link(&tmp, path) {
+                Ok(()) => {}
+                Err(source) if source.kind() == std::io::ErrorKind::AlreadyExists => {
+                    return Err(conflict());
                 }
-            })?;
+                // 하드 링크가 없는 볼륨(exFAT·FAT USB, 일부 네트워크 공유) — 배타
+                // 생성(O_EXCL)으로 빈 경로만 차지한 뒤 완성본을 복사한다.
+                Err(source) if hard_links_unsupported(&source) => {
+                    let mut target = fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(path)
+                        .map_err(|source| {
+                            if source.kind() == std::io::ErrorKind::AlreadyExists {
+                                conflict()
+                            } else {
+                                write_err(source)
+                            }
+                        })?;
+                    let copied = fs::File::open(&tmp)
+                        .and_then(|mut from| std::io::copy(&mut from, &mut target))
+                        .and_then(|_| target.sync_all());
+                    if let Err(source) = copied {
+                        // 우리가 방금 만든 반쪽 파일만 치운다.
+                        drop(target);
+                        let _ = fs::remove_file(path);
+                        return Err(write_err(source));
+                    }
+                }
+                Err(source) => return Err(write_err(source)),
+            }
             let _ = fs::remove_file(&tmp);
         }
         Ok(())
@@ -310,6 +349,31 @@ fn write_file_atomic_inner(
         let _ = d.sync_all();
     }
     Ok(())
+}
+
+/// 교체되는 파일의 확장 속성(Finder 태그·코멘트, 격리 표시 등)을 새 파일로
+/// 옮긴다. 부가 정보이므로 실패해도 저장은 계속한다.
+#[cfg(unix)]
+fn carry_extended_attributes(from: &Path, to: &Path) {
+    let Ok(names) = xattr::list(from) else {
+        return;
+    };
+    for name in names {
+        if let Ok(Some(value)) = xattr::get(from, &name) {
+            let _ = xattr::set(to, &name, &value);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn carry_extended_attributes(_from: &Path, _to: &Path) {}
+
+/// 파일시스템이 하드 링크를 지원하지 않을 때의 오류인가(ENOTSUP·EPERM 등).
+fn hard_links_unsupported(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::Unsupported | std::io::ErrorKind::PermissionDenied
+    ) || matches!(error.raw_os_error(), Some(45 | 95 | 1))
 }
 
 /// 열기→(무수정)→저장 왕복이 바이트까지 동일한가 — §4-2 5항 (a) 검증.
@@ -333,6 +397,43 @@ mod tests {
     fn roundtrip(bytes: &[u8]) -> Vec<u8> {
         let doc = decode_doc(bytes.to_vec(), Path::new("t.md")).unwrap();
         encode_doc(&doc.text, doc.meta)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saving_keeps_symlinks_and_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("iyagi-io-meta-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("real")).unwrap();
+        let target = dir.join("real/note.md");
+        let link = dir.join("link.md");
+        fs::write(&target, "old\n").unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        const TAG: &str = "user.iyagi.test";
+        xattr::set(&target, TAG, b"tag").unwrap();
+
+        write_bytes_atomic(&link, "new\n".as_bytes()).unwrap();
+
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "new\n");
+        assert_eq!(
+            fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            xattr::get(&target, TAG).ok().flatten().as_deref(),
+            Some(b"tag".as_slice()),
+            "확장 속성 유지"
+        );
+        // 임시 파일이 남지 않는다.
+        let leftovers = fs::read_dir(dir.join("real")).unwrap().count();
+        assert_eq!(leftovers, 1);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

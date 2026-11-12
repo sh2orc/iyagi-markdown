@@ -259,7 +259,10 @@ impl Citations {
                 let Some(number) = result.nums.get(&reference.key) else {
                     continue;
                 };
-                let marker = emphasis_wrapper(line, reference.range.start, reference.range.end);
+                // 앞 인용이 닫는 표식으로 이미 소비한 글자를 여는 표식으로 다시 쓰지
+                // 않는다(`*[@a]*[@b]*` — 가운데 `*`는 한 번만 쓸 수 있다).
+                let marker = emphasis_wrapper(line, reference.range.start, reference.range.end)
+                    .filter(|marker| reference.range.start - marker.len() >= cursor);
                 let opener = marker.map_or(0, str::len);
                 result
                     .md
@@ -289,6 +292,19 @@ impl Citations {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adjacent_citations_sharing_an_emphasis_marker_do_not_panic() {
+        for source in [
+            "*[@a]*[@b]*\n\n[@a]: A.\n[@b]: B.\n",
+            "**[@a]**[@b]**\n\n[@a]: A.\n[@b]: B.\n",
+        ] {
+            let citations = Citations::extract(source);
+            assert_eq!(citations.nums.get("a"), Some(&1));
+            assert_eq!(citations.nums.get("b"), Some(&2));
+            assert!(citations.md.contains("#ref-a") && citations.md.contains("#ref-b"));
+        }
+    }
 
     #[test]
     fn numbering_links_and_last_definition_keep_line_positions() {

@@ -239,38 +239,44 @@ pub async fn list_voices() -> Result<Vec<VoiceInfo>, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// 낭독 시작 — 이전 프로세스 정리·문서 전체를 파이프에 쓰는 일은 스레드 풀에서
+/// (동기 커맨드는 메인 스레드라 긴 문서에서 UI가 멈춘다).
 #[tauri::command]
-pub fn speak_start(text: String, rate: u32, voice: String) -> bool {
-    {
-        let mut g = SPEAKER.lock().unwrap();
-        if let Some(mut child) = g.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-    let mut cmd = std::process::Command::new("say");
-    cmd.arg("-r").arg(rate.to_string());
-    if !voice.trim().is_empty() {
-        cmd.arg("-v").arg(voice.trim());
-    }
-    match cmd
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(mut child) => {
-            if let Some(stdin) = child.stdin.as_mut() {
-                use std::io::Write;
-                let _ = stdin.write_all(text.as_bytes());
+pub async fn speak_start(text: String, rate: u32, voice: String) -> bool {
+    tauri::async_runtime::spawn_blocking(move || {
+        {
+            let mut g = SPEAKER.lock().unwrap();
+            if let Some(mut child) = g.take() {
+                let _ = child.kill();
+                let _ = child.wait();
             }
-            // stdin을 닫아야 say가 끝을 안다.
-            drop(child.stdin.take());
-            *SPEAKER.lock().unwrap() = Some(child);
-            true
         }
-        Err(_) => false,
-    }
+        let mut cmd = std::process::Command::new("say");
+        cmd.arg("-r").arg(rate.to_string());
+        if !voice.trim().is_empty() {
+            cmd.arg("-v").arg(voice.trim());
+        }
+        match cmd
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(mut child) => {
+                if let Some(stdin) = child.stdin.as_mut() {
+                    use std::io::Write;
+                    let _ = stdin.write_all(text.as_bytes());
+                }
+                // stdin을 닫아야 say가 끝을 안다.
+                drop(child.stdin.take());
+                *SPEAKER.lock().unwrap() = Some(child);
+                true
+            }
+            Err(_) => false,
+        }
+    })
+    .await
+    .unwrap_or(false)
 }
 
 /// 읽는 중인가(완료된 자식은 정리하고 false).
@@ -656,53 +662,64 @@ fn default_size_pt() -> f64 {
 
 /// 마크다운 → DOCX(comrak AST → 직접 OOXML 생성, §4-3/§4-4).
 #[tauri::command]
-pub fn export_docx(
+pub async fn export_docx(
     markdown: String,
     manifest: DocxManifest,
     out_path: String,
     base_dir: String,
 ) -> Result<(), String> {
-    let mut images = md_export::ImageSource::new(base_dir);
-    images.set_widths(manifest.image_widths);
-    md_export::docx::export_docx(
-        &markdown,
-        &md_export::docx::DocxExportOptions {
-            math: &manifest.math,
-            diagrams: &manifest.diagrams,
-            images: &images,
-            style: manifest.style.as_ref().map(|s| {
-                (
-                    s.font.as_str(),
-                    s.size_pt,
-                    s.line_height,
-                    s.first_line_indent,
-                    s.accent.clone().unwrap_or_default(),
-                    s.text_align.clone().unwrap_or_default(),
-                )
-            }),
-            page_numbers: manifest.style.as_ref().is_some_and(|s| s.page_numbers),
-            table_widths: &manifest.table_widths,
-            title: manifest.title.as_deref(),
-            author: manifest.author.as_deref(),
-            toc: manifest.toc,
-            lof: manifest.lof,
-            lot: manifest.lot,
-            header_title: manifest.header_title.as_deref(),
-            highlight: manifest.style.as_ref().and_then(|s| s.highlight.as_deref()),
-            comments: &manifest.comments,
-            front_lang: manifest.front_lang.as_str(),
-            columns: manifest.columns,
-            footer_text: manifest.footer_text.as_deref(),
-        },
-        Path::new(&out_path),
-    )
-    .map_err(err)
+    // 파싱·이미지 읽기·zip·fsync는 스레드 풀에서 — 메인 스레드를 막지 않고,
+    // 변환 중 패닉도 앱 종료가 아니라 오류로 돌아온다.
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut images = md_export::ImageSource::new(base_dir);
+        images.set_widths(manifest.image_widths);
+        md_export::docx::export_docx(
+            &markdown,
+            &md_export::docx::DocxExportOptions {
+                math: &manifest.math,
+                diagrams: &manifest.diagrams,
+                images: &images,
+                style: manifest.style.as_ref().map(|s| {
+                    (
+                        s.font.as_str(),
+                        s.size_pt,
+                        s.line_height,
+                        s.first_line_indent,
+                        s.accent.clone().unwrap_or_default(),
+                        s.text_align.clone().unwrap_or_default(),
+                    )
+                }),
+                page_numbers: manifest.style.as_ref().is_some_and(|s| s.page_numbers),
+                table_widths: &manifest.table_widths,
+                title: manifest.title.as_deref(),
+                author: manifest.author.as_deref(),
+                toc: manifest.toc,
+                lof: manifest.lof,
+                lot: manifest.lot,
+                header_title: manifest.header_title.as_deref(),
+                highlight: manifest.style.as_ref().and_then(|s| s.highlight.as_deref()),
+                comments: &manifest.comments,
+                front_lang: manifest.front_lang.as_str(),
+                columns: manifest.columns,
+                footer_text: manifest.footer_text.as_deref(),
+            },
+            Path::new(&out_path),
+        )
+        .map_err(err)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 프런트가 조립한 자체 완결형 HTML을 파일로(HTML 내보내기).
 #[tauri::command]
-pub fn write_export_file(path: String, contents: String) -> Result<(), String> {
-    md_core::io::write_bytes_atomic(Path::new(&path), contents.as_bytes()).map_err(err)
+pub async fn write_export_file(path: String, contents: String) -> Result<(), String> {
+    // 이미지가 인라인된 HTML은 수십 MB — 원자적 쓰기+fsync는 스레드 풀에서.
+    tauri::async_runtime::spawn_blocking(move || {
+        md_core::io::write_bytes_atomic(Path::new(&path), contents.as_bytes()).map_err(err)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 활성 문서(또는 지정 경로)를 **새 창**에서 연다(Word "새 창으로 보기").

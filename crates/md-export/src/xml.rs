@@ -12,6 +12,8 @@ pub fn esc(s: &str) -> String {
             '\'' => out.push_str("&apos;"),
             // XML 1.0이 허용하지 않는 제어 문자는 U+FFFD로 대체(Word 호환).
             c if (c as u32) < 0x20 && c != '\t' && c != '\n' && c != '\r' => out.push('\u{FFFD}'),
+            // 비문자(U+FFFE/U+FFFF)도 XML 1.0 밖 — 붙여넣은 텍스트에 섞여 들어온다.
+            '\u{FFFE}' | '\u{FFFF}' => out.push('\u{FFFD}'),
             c => out.push(c),
         }
     }
@@ -34,5 +36,6 @@ mod tests {
     fn control_chars_replaced() {
         assert_eq!(esc("a\u{0}b"), "a\u{FFFD}b");
         assert_eq!(esc("a\tb\nc"), "a\tb\nc");
+        assert_eq!(esc("a\u{FFFE}b\u{FFFF}"), "a\u{FFFD}b\u{FFFD}");
     }
 }

@@ -48,7 +48,6 @@ fn svg_options() -> usvg::Options<'static> {
 /// `max_width_emu`에 맞춰 축소(확대는 하지 않는다).
 /// `doc_id`는 호출자가 문서의 다른 그림과 함께 할당한다.
 pub fn svg_to_drawingml(svg: &str, max_width_emu: i64, doc_id: u32) -> Result<String, SvgError> {
-    let uses_markers = svg.contains("marker-end=") || svg.contains("marker-start=");
     let tree =
         usvg::Tree::from_str(svg, &svg_options()).map_err(|e| SvgError::Parse(e.to_string()))?;
     let size = tree.size();
@@ -63,7 +62,7 @@ pub fn svg_to_drawingml(svg: &str, max_width_emu: i64, doc_id: u32) -> Result<St
     let total_h = (h * EMU_PER_PX * scale).round() as i64;
 
     let mut children = String::new();
-    walk_group(tree.root(), &mut children, uses_markers);
+    walk_group(tree.root(), &mut children);
 
     // chExt는 원본 SVG 좌표계(px)를 그대로 쓴다 — 자식 offset과 같은 공간.
     let ch_w = (w * EMU_PER_PX).round() as i64;
@@ -91,15 +90,15 @@ pub fn svg_to_drawingml(svg: &str, max_width_emu: i64, doc_id: u32) -> Result<St
     ))
 }
 
-fn walk_group(group: &usvg::Group, out: &mut String, uses_markers: bool) {
+fn walk_group(group: &usvg::Group, out: &mut String) {
     for node in group.children() {
         match node {
             usvg::Node::Group(g) => {
                 // 중첩 그룹 — 그대로 펼쳐 자식 좌표는 abs_transform이 이미 풀고 있다.
-                walk_group(g, out, uses_markers);
+                walk_group(g, out);
             }
             usvg::Node::Path(p) => {
-                out.push_str(&path_to_shape(p, &node.abs_transform(), uses_markers));
+                out.push_str(&path_to_shape(p, &node.abs_transform()));
             }
             usvg::Node::Text(t) => {
                 out.push_str(&text_to_shape(t, &node.abs_transform()));
@@ -298,7 +297,7 @@ fn paint_hex(paint: Option<&usvg::Paint>) -> Option<String> {
 }
 
 /// path 하나 → wps:wsp 도형.
-fn path_to_shape(p: &usvg::Path, t: &usvg::Transform, uses_markers: bool) -> String {
+fn path_to_shape(p: &usvg::Path, t: &usvg::Transform) -> String {
     let geom = convert_path(p.data(), t);
     if geom.xml.is_empty() {
         return String::new();
@@ -313,23 +312,40 @@ fn path_to_shape(p: &usvg::Path, t: &usvg::Transform, uses_markers: bool) -> Str
     let stroke_hex = stroke.and_then(|s| paint_hex(Some(s.paint())));
     let stroke_w: f64 = stroke.map(|s| s.width().get() as f64).unwrap_or(0.0);
 
+    // 불투명도 — 반투명 배경(mermaid 묶음 상자 등)이 불투명 색으로 내용을 덮지 않게.
+    let alpha = |opacity: f32| -> String {
+        if opacity < 0.999 {
+            format!(
+                "<a:alpha val=\"{}\"/>",
+                (f64::from(opacity.clamp(0.0, 1.0)) * 100_000.0).round() as i64
+            )
+        } else {
+            String::new()
+        }
+    };
     let fill_xml = match &fill {
-        Some(c) => format!("<a:solidFill><a:srgbClr val=\"{c}\"/></a:solidFill>"),
+        Some(c) => format!(
+            "<a:solidFill><a:srgbClr val=\"{c}\">{}</a:srgbClr></a:solidFill>",
+            alpha(p.fill().map_or(1.0, |f| f.opacity().get()))
+        ),
         None => "<a:noFill/>".to_string(),
     };
     let line_xml = match (&stroke_hex, stroke_w) {
         (Some(c), w) if w > 0.0 => {
             let wemu = (w * EMU_PER_PX).round().max(6350.0) as i64;
-            // 화살표: 마커를 쓰는 SVG의 열린 선은 끝에 삼각형(§4-3 3항).
-            let arrow = if uses_markers && !geom.closed {
-                "<a:tailEnd type=\"triangle\" w=\"med\" len=\"med\"/>"
+            // 화살촉은 usvg가 마커를 실제 도형으로 풀어 주므로 선 끝 장식을 따로
+            // 붙이지 않는다 — 붙이면 진짜 화살표는 촉이 둘이 되고, 생명선·격자선
+            // 같은 일반 선에도 촉이 생긴다.
+            let dash = if stroke.is_some_and(|s| s.dasharray().is_some()) {
+                "dash"
             } else {
-                ""
+                "solid"
             };
+            let stroke_alpha = alpha(stroke.map_or(1.0, |s| s.opacity().get()));
             format!(
                 "<a:ln w=\"{wemu}\" cap=\"flat\" cmpd=\"sng\">\
-<a:solidFill><a:srgbClr val=\"{c}\"/></a:solidFill>\
-<a:prstDash val=\"solid\"/>{arrow}</a:ln>"
+<a:solidFill><a:srgbClr val=\"{c}\">{stroke_alpha}</a:srgbClr></a:solidFill>\
+<a:prstDash val=\"{dash}\"/></a:ln>"
             )
         }
         _ => "<a:ln><a:noFill/></a:ln>".to_string(),
@@ -445,13 +461,19 @@ mod tests {
     }
 
     #[test]
-    fn path_with_marker_gets_arrow_decoration() {
+    fn markers_become_real_shapes_without_extra_line_ends() {
         let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50">
 <defs><marker id="a" markerWidth="10" markerHeight="10"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>
 <path d="M10,25 L80,25" stroke="#333" stroke-width="2" fill="none" marker-end="url(#a)"/>
+<path d="M10,40 L80,40" stroke="#333" stroke-width="2" stroke-dasharray="4 2" stroke-opacity="0.5" fill="none"/>
 </svg>"##;
         let xml = svg_to_drawingml(svg, 6_000_000, 1).unwrap();
-        assert!(xml.contains("a:tailEnd"), "화살표 끝 장식이 있어야 한다");
+        // 화살촉은 usvg가 풀어 준 도형 하나 — 선 2개 + 촉 1개.
+        assert_eq!(xml.matches("<wps:wsp>").count(), 3, "{xml}");
+        // 선 끝 장식을 덧붙이지 않는다(이중 화살촉·일반 선의 가짜 화살촉 방지).
+        assert!(!xml.contains("a:tailEnd"));
+        assert!(xml.contains("<a:prstDash val=\"dash\"/>"), "점선 유지");
+        assert!(xml.contains("<a:alpha val=\"50000\"/>"), "선 불투명도 유지");
     }
 
     #[test]

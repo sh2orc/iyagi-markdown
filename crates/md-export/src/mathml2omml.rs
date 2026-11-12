@@ -23,10 +23,12 @@ pub enum MathError {
 /// MathML 문자열 → m:oMath XML 조각.
 pub fn mathml_to_omml(mathml: &str) -> Result<String, MathError> {
     let doc = roxmltree::Document::parse(mathml)?;
-    let root = doc.root_element();
-    if root.tag_name().name() != "math" {
-        return Err(MathError::NoRoot);
-    }
+    // KaTeX는 `<span class="katex"><math>…</math></span>`으로 감싸 준다 — 루트가
+    // 아니라 첫 math 요소를 찾는다(루트만 보면 모든 수식이 LaTeX 원문으로 떨어진다).
+    let root = doc
+        .descendants()
+        .find(|node| node.is_element() && node.tag_name().name() == "math")
+        .ok_or(MathError::NoRoot)?;
     let inner = convert_children(root)?;
     Ok(format!("<m:oMath>{inner}</m:oMath>"))
 }
@@ -46,23 +48,114 @@ fn children_of<'a, 'input>(node: Node<'a, 'input>) -> Vec<Node<'a, 'input>> {
 }
 
 fn convert_children(node: Node<'_, '_>) -> Result<String, MathError> {
+    let kids = children_of(node);
     let mut out = String::new();
-    for c in children_of(node) {
-        out.push_str(&convert(c)?);
+    let mut i = 0;
+    while i < kids.len() {
+        // 극한 달린 큰 연산자(∑ ∏ ∫ …)는 바로 뒤 항을 피연산자로 품는다 — 비워 두면
+        // Word가 빈 자리 상자를 그리고 피연산자는 연산자 밖에 놓인다.
+        if let Some(head) = nary_head(kids[i])? {
+            let operand = match kids.get(i + 1) {
+                Some(next) => {
+                    i += 1;
+                    convert(*next)?
+                }
+                None => String::new(),
+            };
+            out.push_str(&format!("{head}<m:e>{operand}</m:e></m:nary>"));
+        } else {
+            out.push_str(&convert(kids[i])?);
+        }
+        i += 1;
     }
     Ok(out)
 }
 
-/// 텍스트 실행(m:r). KaTeX는 이미 유니코드 수식 문자로 스타일을 입혀 둔다.
+/// 큰 연산자에 극한이 붙은 요소면 `<m:nary>`의 여는 부분(피연산자 직전까지).
+fn nary_head(node: Node<'_, '_>) -> Result<Option<String>, MathError> {
+    let tag = node.tag_name().name();
+    let (stacked, has_sub, has_sup) = match tag {
+        "munderover" => (true, true, true),
+        "munder" => (true, true, false),
+        "mover" => (true, false, true),
+        "msubsup" => (false, true, true),
+        "msub" => (false, true, false),
+        "msup" => (false, false, true),
+        _ => return Ok(None),
+    };
+    let children = children_of(node);
+    let Some(base) = children.first() else {
+        return Ok(None);
+    };
+    let base_text = collapse_text(*base);
+    let mut chars = base_text.chars();
+    let (Some(chr), None) = (chars.next(), chars.next()) else {
+        return Ok(None);
+    };
+    if !is_big_operator(chr) {
+        return Ok(None);
+    }
+    let part = |present: bool, index: usize| -> Result<String, MathError> {
+        match children.get(index).filter(|_| present) {
+            Some(child) => convert(*child),
+            None => Ok(String::new()),
+        }
+    };
+    let sub = part(has_sub, 1)?;
+    let sup = part(has_sup, if has_sub { 2 } else { 1 })?;
+    Ok(Some(format!(
+        "<m:nary><m:naryPr><m:chr m:val=\"{}\"/><m:limLoc m:val=\"{}\"/>\
+<m:subHide m:val=\"{}\"/><m:supHide m:val=\"{}\"/></m:naryPr>\
+<m:sub>{sub}</m:sub><m:sup>{sup}</m:sup>",
+        esc(&chr.to_string()),
+        if stacked { "undOvr" } else { "subSup" },
+        u8::from(!has_sub),
+        u8::from(!has_sup),
+    )))
+}
+
+/// 텍스트 실행(m:r) — 수식 기본 서식(한 글자 변수는 기울임).
 fn run(text: &str) -> String {
+    styled_run(text, "")
+}
+
+/// 서식 속성(m:rPr 안쪽)을 붙인 텍스트 실행.
+fn styled_run(text: &str, math_props: &str) -> String {
     if text.is_empty() {
         return String::new();
     }
+    let props = if math_props.is_empty() {
+        String::new()
+    } else {
+        format!("<m:rPr>{math_props}</m:rPr>")
+    };
     format!(
-        "<m:r><w:rPr><w:rFonts w:ascii=\"Cambria Math\" w:hAnsi=\"Cambria Math\"/></w:rPr>\
+        "<m:r>{props}<w:rPr><w:rFonts w:ascii=\"Cambria Math\" w:hAnsi=\"Cambria Math\"/></w:rPr>\
 <m:t xml:space=\"preserve\">{}</m:t></m:r>",
         esc(text)
     )
+}
+
+/// MathML mathvariant → OMML 글꼴 속성(m:scr 글꼴 계열 + m:sty 굵기·기울임).
+/// KaTeX는 `\mathbb{R}`·`\mathbf{v}`를 유니코드로 바꾸지 않고 속성으로만 남긴다.
+fn variant_props(variant: &str) -> &'static str {
+    match variant {
+        "normal" => "<m:sty m:val=\"p\"/>",
+        "bold" => "<m:sty m:val=\"b\"/>",
+        "italic" => "<m:sty m:val=\"i\"/>",
+        "bold-italic" => "<m:sty m:val=\"bi\"/>",
+        "double-struck" => "<m:scr m:val=\"double-struck\"/><m:sty m:val=\"p\"/>",
+        "script" => "<m:scr m:val=\"script\"/><m:sty m:val=\"p\"/>",
+        "bold-script" => "<m:scr m:val=\"script\"/><m:sty m:val=\"b\"/>",
+        "fraktur" => "<m:scr m:val=\"fraktur\"/><m:sty m:val=\"p\"/>",
+        "bold-fraktur" => "<m:scr m:val=\"fraktur\"/><m:sty m:val=\"b\"/>",
+        "sans-serif" => "<m:scr m:val=\"sans-serif\"/><m:sty m:val=\"p\"/>",
+        "bold-sans-serif" => "<m:scr m:val=\"sans-serif\"/><m:sty m:val=\"b\"/>",
+        "sans-serif-italic" => "<m:scr m:val=\"sans-serif\"/><m:sty m:val=\"i\"/>",
+        "sans-serif-bold-italic" => "<m:scr m:val=\"sans-serif\"/><m:sty m:val=\"bi\"/>",
+        "monospace" => "<m:scr m:val=\"monospace\"/><m:sty m:val=\"p\"/>",
+        _ => "",
+    }
 }
 
 fn convert(node: Node<'_, '_>) -> Result<String, MathError> {
@@ -73,7 +166,27 @@ fn convert(node: Node<'_, '_>) -> Result<String, MathError> {
     match tag {
         "math" | "mrow" | "semantics" | "annotation-xml" => convert_children(node),
 
-        "mi" | "mn" | "mo" | "mtext" | "ms" => Ok(run(&collapse_text(node))),
+        "mi" | "mn" | "mo" | "ms" => {
+            let content = collapse_text(node);
+            let props = match node.attribute("mathvariant") {
+                Some(variant) => variant_props(variant),
+                // MathML 기본값: 여러 글자 식별자(sin, log …)는 곧은 글꼴.
+                None if tag == "mi" && content.chars().count() > 1 => "<m:sty m:val=\"p\"/>",
+                None => "",
+            };
+            Ok(styled_run(&content, props))
+        }
+        // 글(\text{…})은 곧은 글꼴로, 앞뒤 공백(KaTeX는 NBSP로 준다)을 살려서 —
+        // 공백을 접으면 "x if y"가 "xify"로 붙는다.
+        "mtext" => {
+            let mut content = String::new();
+            collect_text(node, &mut content);
+            let props = match node.attribute("mathvariant") {
+                Some(variant) if !variant_props(variant).is_empty() => variant_props(variant),
+                _ => "<m:sty m:val=\"p\"/>",
+            };
+            Ok(styled_run(&content.replace('\u{a0}', " "), props))
+        }
 
         "mspace" => {
             // 폭 정보는 버리고 얇은 공백 하나(편집 가능 텍스트로 유지).
@@ -305,10 +418,23 @@ fn convert(node: Node<'_, '_>) -> Result<String, MathError> {
             convert_children(node)
         }
 
-        // 지원 밖: 원문을 그대로 텍스트 실행으로(이미지 폴백 없음, §4-3).
+        // \boxed → 테두리 상자. 그 밖의 표기(취소선 등)는 내용만 남긴다.
+        "menclose" => {
+            let inner = convert_children(node)?;
+            if node
+                .attribute("notation")
+                .is_some_and(|notation| notation.split_whitespace().any(|n| n == "box"))
+            {
+                Ok(format!("<m:borderBox><m:e>{inner}</m:e></m:borderBox>"))
+            } else {
+                Ok(inner)
+            }
+        }
+
+        // 지원 밖: 내용만 편집 가능한 수식으로 남긴다(태그 이름을 글자로 찍지 않는다).
         _ => {
             let _ = text;
-            Ok(run(&format!("<{tag}>")) + &convert_children(node)? + &run(&format!("</{tag}>")))
+            convert_children(node)
         }
     }
 }
@@ -453,6 +579,66 @@ mod tests {
         .unwrap();
         // 수식 객체 안의 텍스트로 떨어진다 — 래스터 아님.
         assert!(out.contains("<m:r>"));
+    }
+
+    /// 실제 KaTeX 0.19 `renderToString(…, {output: "mathml"})` 출력 모양.
+    fn katex(inner: &str) -> String {
+        format!(
+            "<span class=\"katex\"><math xmlns=\"{MATH_NS}\" display=\"block\"><semantics><mrow>{inner}</mrow>\
+<annotation encoding=\"application/x-tex\">src</annotation></semantics></math></span>"
+        )
+    }
+
+    #[test]
+    fn real_katex_wrapper_is_converted() {
+        let out = mathml_to_omml(&katex(
+            "<mi>E</mi><mo>=</mo><mi>m</mi><msup><mi>c</mi><mn>2</mn></msup>",
+        ))
+        .unwrap();
+        assert!(out.starts_with("<m:oMath>"));
+        assert!(out.contains("<m:sSup>"));
+        assert!(!out.contains("src"));
+    }
+
+    #[test]
+    fn variants_text_boxes_and_operands_survive() {
+        let out = mathml_to_omml(&katex("<mi mathvariant=\"double-struck\">R</mi>")).unwrap();
+        assert!(out.contains("<m:scr m:val=\"double-struck\"/>"), "{out}");
+        let out = mathml_to_omml(&katex("<mi mathvariant=\"bold\">v</mi>")).unwrap();
+        assert!(out.contains("<m:sty m:val=\"b\"/>"), "{out}");
+
+        let out =
+            mathml_to_omml(&katex("<mi>x</mi><mtext>\u{a0}if\u{a0}</mtext><mi>y</mi>")).unwrap();
+        assert!(out.contains(">\u{20}if\u{20}<"), "글 앞뒤 공백 유지: {out}");
+        let out = mathml_to_omml(&katex("<mi>a</mi><mtext>\u{a0}</mtext><mi>b</mi>")).unwrap();
+        assert_eq!(
+            out.matches("<m:r>").count(),
+            3,
+            "공백만 있는 글도 남는다: {out}"
+        );
+
+        let out = mathml_to_omml(&katex(
+            "<menclose notation=\"box\"><mstyle><mi>a</mi></mstyle></menclose>",
+        ))
+        .unwrap();
+        assert!(
+            out.contains("<m:borderBox><m:e>") && !out.contains("menclose"),
+            "{out}"
+        );
+
+        let out = mathml_to_omml(&katex(
+            "<munderover><mo>∑</mo><mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mi>n</mi></munderover>\
+<msub><mi>a</mi><mi>i</mi></msub>",
+        ))
+        .unwrap();
+        let operand = &out[out.find("</m:sup><m:e>").expect("피연산자 자리")..];
+        assert!(operand.contains("<m:sSub>"), "합의 항이 nary 안에: {out}");
+
+        let out = mathml_to_omml(&katex(
+            "<msubsup><mo>∫</mo><mn>0</mn><mn>1</mn></msubsup><mi>f</mi>",
+        ))
+        .unwrap();
+        assert!(out.contains("<m:limLoc m:val=\"subSup\"/>"), "{out}");
     }
 
     #[test]

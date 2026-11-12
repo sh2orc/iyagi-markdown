@@ -813,6 +813,15 @@ fn list_paragraph(
     let _ = writeln!(out, "{runs}</w:p>{captions}");
 }
 
+/// 다이어그램 조회 키 — 줄마다 앞뒤 공백을 떼고 빈 줄을 뺀 형태.
+fn diagram_key(code: &str) -> String {
+    code.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn code_block(
     cb: &NodeCodeBlock,
     source_line: usize,
@@ -824,7 +833,16 @@ fn code_block(
     // mermaid → 편집 가능 도형 그룹(§4-3).
     if info == "mermaid" {
         let id = ctx.next_id();
-        if let Some(svg) = ctx.diagrams.get(code) {
+        // 프런트의 키(정규식 캡처)와 comrak의 literal은 들여쓰기·줄 끝 공백이
+        // 다를 수 있다(목록 안 펜스 등) — 줄 단위로 다듬은 형태로 맞춰 찾는다.
+        let wanted = diagram_key(code);
+        let found = ctx.diagrams.get(code).or_else(|| {
+            ctx.diagrams
+                .iter()
+                .find(|(key, _)| diagram_key(key) == wanted)
+                .map(|(_, svg)| svg)
+        });
+        if let Some(svg) = found {
             match svg_to_drawingml(svg, PAGE_TEXT_WIDTH_EMU, id) {
                 Ok(drawing) => {
                     let _ = writeln!(out, "<w:p><w:r>{drawing}</w:r></w:p>");
@@ -1128,41 +1146,30 @@ fn callout_block<'a>(
     for c in node.children() {
         if first {
             first = false;
-            // 첫 softbreak 이후(지연 연속 줄)의 텍스트만 본문 문단으로.
-            let mut rest = String::new();
+            // 첫 줄바꿈 이후(지연 연속 줄)의 인라인 전부를 서식 그대로 본문 문단으로.
+            let mut runs = String::new();
+            let mut captions = String::new();
             let mut after_break = false;
-            let mut stop = false;
-            for d in c.descendants() {
-                if stop {
-                    break;
+            for d in c.children() {
+                if !after_break {
+                    after_break = matches!(
+                        d.data.borrow().value,
+                        NodeValue::SoftBreak | NodeValue::LineBreak
+                    );
+                    continue;
                 }
-                match &d.data.borrow().value {
-                    NodeValue::SoftBreak | NodeValue::LineBreak => {
-                        if after_break {
-                            stop = true;
-                        } else {
-                            after_break = true;
-                        }
-                    }
-                    NodeValue::Text(t) if after_break => rest.push_str(t),
-                    _ => {}
-                }
+                inline(d, ctx, &mut runs, &mut captions, &RunStyle::default(), 0)?;
             }
-            let trimmed = rest.trim();
-            if !trimmed.is_empty() {
+            if !runs.is_empty() {
                 let _ = write!(
                     body,
-                    "<w:p><w:pPr><w:spacing w:after=\"40\"/></w:pPr>{}</w:p>",
-                    plain_run(trimmed, &RunStyle::default())
+                    "<w:p><w:pPr><w:spacing w:after=\"40\"/></w:pPr>{runs}</w:p>{captions}"
                 );
             }
             continue;
         }
-        let mut inner = String::new();
-        for child in c.children() {
-            block(child, ctx, &mut inner, 0, false)?;
-        }
-        body.push_str(&inner);
+        // 뒤따르는 블록(문단·목록·코드 등)은 블록 자체를 렌더한다.
+        block(c, ctx, &mut body, 0, false)?;
     }
     let _ = write!(out,
         "<w:tbl><w:tblPr><w:tblW w:w=\"0\" w:type=\"auto\"/>\
@@ -1536,7 +1543,7 @@ fn inline<'a>(
             let mut runs = String::new();
             let citation = link.title == crate::citations::CITATION_TITLE;
             let s = RunStyle {
-                italic: citation && style.italic,
+                italic: style.italic,
                 sup: citation || style.sup,
                 sub: !citation && style.sub,
                 ..*style
@@ -1607,6 +1614,15 @@ fn inline<'a>(
                     )
                 });
             out.push_str(&omml);
+        }
+        // `<br>` — 파이프 표 셀 안에서 줄을 나누는 유일한 방법이다.
+        NodeValue::HtmlInline(html)
+            if matches!(
+                html.trim().to_ascii_lowercase().replace(' ', "").as_str(),
+                "<br>" | "<br/>"
+            ) =>
+        {
+            out.push_str("<w:r><w:br/></w:r>");
         }
         NodeValue::HtmlInline(_) | NodeValue::Escaped | NodeValue::Raw(_) => {}
         NodeValue::TaskItem(_) => {}
@@ -2274,7 +2290,7 @@ mod tests {
 
     #[test]
     fn callouts_export_as_filled_card_tables() {
-        let md = "> [!success] 완료\n> 다 되었습니다.\n\n> [!question] 질문\n\n일반 문단\n";
+        let md = "> [!success] 완료\n> 다 되었습니다.\n\n> [!question] 질문\n\n일반 문단\n\n> [!note] 본문\n> 첫 줄 **굵게** `코드`\n> 둘째 줄\n> 셋째 줄\n>\n> 두 번째 문단\n>\n> - 항목하나\n> - 항목둘\n\n*[기울임링크](https://example.com)*\n\n| 칸 |\n|---|\n| 첫줄<br>둘째줄 |\n";
         let out = tmp("callouts");
         export_docx(
             md,
@@ -2321,6 +2337,31 @@ mod tests {
         assert!(doc.contains("완료"));
         assert!(doc.contains("다 되었습니다"));
         assert!(doc.contains("일반 문단"));
+        // 본문 전체 — 셋째 줄 이후·뒤따르는 문단·목록·인라인 서식이 빠지지 않는다.
+        for text in [
+            "첫 줄",
+            "굵게",
+            "코드",
+            "둘째 줄",
+            "셋째 줄",
+            "두 번째 문단",
+            "항목하나",
+            "항목둘",
+        ] {
+            assert!(doc.contains(text), "콜아웃 본문 누락: {text}");
+        }
+        assert!(doc.contains("<w:numPr>"), "콜아웃 안 목록 번호 매기기");
+        // 일반 링크는 바깥 기울임을 물려받는다.
+        let link = doc.find("기울임링크").unwrap();
+        let run = &doc[doc[..link].rfind("<w:r>").unwrap()..link];
+        assert!(run.contains("<w:i/>"), "링크 기울임 유지: {run}");
+        // 표 셀의 <br>은 줄바꿈으로 남는다.
+        let cell = &doc[doc.find("첫줄").unwrap()..doc.find("둘째줄").unwrap()];
+        assert!(cell.contains("<w:br/>"), "셀 줄바꿈: {cell}");
+        assert_eq!(
+            diagram_key("  graph TD  \n\n    A-->B\n"),
+            "graph TD\nA-->B"
+        );
     }
 
     fn tmp(tag: &str) -> std::path::PathBuf {

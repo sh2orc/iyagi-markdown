@@ -137,10 +137,12 @@ fn pseudo_uuid(title: &str, seed: u128) -> String {
         h = h.wrapping_mul(0x100000001b3);
     }
     format!(
-        "{h:08x}-{:04x}-4{:03x}-a{:03x}-{h:012x}",
+        "{:08x}-{:04x}-4{:03x}-a{:03x}-{:012x}",
+        h as u32,
         (h >> 32) & 0xffff,
         h & 0xfff,
-        (h >> 16) & 0xfff
+        (h >> 16) & 0xfff,
+        h.rotate_left(24) & 0xffff_ffff_ffff
     )
 }
 
@@ -149,7 +151,6 @@ fn now_iso() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     let secs = d.as_secs();
-    let ms = d.subsec_millis();
     // 유닉스 초 → UTC 달력(단순 산술, 1970~9999 범위에서 정확).
     let days = secs / 86_400;
     let rem = secs % 86_400;
@@ -189,7 +190,7 @@ fn now_iso() -> String {
         month += 1;
     }
     format!(
-        "{year:04}-{month:02}-{:02}T{hh:02}:{mm:02}:{ss:02}.{ms:03}Z",
+        "{year:04}-{month:02}-{:02}T{hh:02}:{mm:02}:{ss:02}Z",
         day + 1
     )
 }
@@ -363,9 +364,15 @@ fn write_epub(opts: &EpubOptions, file: &mut std::fs::File) -> Result<(), String
     let mut spine = cover_spine;
     for (i, c) in opts.chapters.iter().enumerate() {
         manifest.push_str(&format!(
-            "\n<item id=\"ch{}\" href=\"{}\" media-type=\"application/xhtml+xml\"/>",
+            "\n<item id=\"ch{}\" href=\"{}\" media-type=\"application/xhtml+xml\"{}/>",
             i + 1,
-            c.file
+            c.file,
+            // 인라인 SVG(mermaid 등)를 담은 챕터는 EPUB 3 규격상 선언이 필요하다.
+            if c.body.contains("<svg") {
+                " properties=\"svg\""
+            } else {
+                ""
+            }
         ));
         spine.push_str(&format!("\n<itemref idref=\"ch{}\"/>", i + 1));
     }

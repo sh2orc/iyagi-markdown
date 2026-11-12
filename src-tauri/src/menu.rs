@@ -178,7 +178,7 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
                 app,
                 "command-palette",
                 t(Msg::CommandPalette),
-                Some("Shift-CmdOrCtrl-P"),
+                Some("Shift+CmdOrCtrl+P"),
             )?,
             &mi(app, "backlinks", t(Msg::Backlinks), None)?,
             &mi(app, "broken-links", t(Msg::BrokenLinks), None)?,

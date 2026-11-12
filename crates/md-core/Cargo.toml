@@ -13,3 +13,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 unicode-normalization = "0.1.25"
+
+# 저장 시 확장 속성(Finder 태그·코멘트 등)을 새 파일로 잇는다 — 안전한 래퍼.
+[target.'cfg(unix)'.dependencies]
+xattr = "1.7"
