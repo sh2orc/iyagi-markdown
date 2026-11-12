@@ -13,7 +13,8 @@ Tauri 2 + Rust + React/TS + CodeMirror 6.
   preserved, and an unmodified document is never written. There is no HTML-conversion
   editing path.
 - **Live preview (WYSIWYG).** Headings, emphasis, links, tables, checkboxes, images, math
-  (KaTeX) and diagrams (mermaid) render as CodeMirror 6 decorations and widgets. Inline
+  (KaTeX — `$…$`/`$$…$$` and MathJax-style `\(…\)`/`\[…\]`) and diagrams (mermaid) render
+  as CodeMirror 6 decorations and widgets. Inline
   markers (`**` and friends) reveal their source only while the caret or a selection endpoint
   touches them — ⌘A or a wide drag keeps the rendering intact with the highlight simply
   layered on top (Typora-style). Widgets (table cells, math, diagrams, front matter) open
@@ -32,19 +33,20 @@ Tauri 2 + Rust + React/TS + CodeMirror 6.
 
 Installers are published as **[GitHub Releases](https://github.com/sh2orc/iyagi-markdown/releases)**.
 
-**Latest: [0.1.0](https://github.com/sh2orc/iyagi-markdown/releases/tag/v0.1.0)** (2026-10-27)
-— the first public release. See [what's new](#whats-new-in-010).
+**Latest: [0.1.1](https://github.com/sh2orc/iyagi-markdown/releases/tag/v0.1.1)** (2026-11-12)
+— fixes and hardening: MathJax math, native DOCX equations, merging outside edits. See
+[what's new](#whats-new-in-011).
 
 [![Download for macOS](https://img.shields.io/badge/Download-macOS%20%C2%B7%20Apple%20Silicon-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/sh2orc/iyagi-markdown/releases/latest)
 
 | Platform | File | Size | SHA-256 |
 |---|---|---|---|
-| macOS · Apple Silicon | [`IYAGI.Markdown_0.1.0_aarch64.dmg`](https://github.com/sh2orc/iyagi-markdown/releases/download/v0.1.0/IYAGI.Markdown_0.1.0_aarch64.dmg) | 7.9 MB | `8330ed4d0e27fe656fc82605bb33d2d44e80c0cda1305cf894ea9c89d633f83c` |
+| macOS · Apple Silicon | [`IYAGI.Markdown_0.1.1_aarch64.dmg`](https://github.com/sh2orc/iyagi-markdown/releases/download/v0.1.1/IYAGI.Markdown_0.1.1_aarch64.dmg) | 8.3 MB | `54f80ce365d41f504894bae5cf4cb2c327e355f7157074660e6614e688b6647e` |
 
 Check the download before opening it:
 
 ```sh
-shasum -a 256 ~/Downloads/IYAGI.Markdown_0.1.0_aarch64.dmg
+shasum -a 256 ~/Downloads/IYAGI.Markdown_0.1.1_aarch64.dmg
 ```
 
 The result must match the hash above, the hash in [RELEASE.md](RELEASE.md) and the digest
@@ -70,6 +72,30 @@ core (md-core, md-export) on Linux.
 
 From source: `npm ci && npm run tauri build` (see [Development](#development)).
 </details>
+
+## What's new in 0.1.1
+
+A fixes-and-hardening release:
+
+- **Math** — MathJax/LaTeX delimiters `\[ … \]` and `\( … \)` render in the editor and in
+  every export. DOCX now writes math as native Word equations (it fell back to LaTeX source
+  before), including `\mathbb`/`\mathbf`, `\text`, `\boxed` and sums/integrals with operands
+- **External changes** — when an open document changes on disk while you have unsaved
+  edits, changes that don't overlap yours merge in place instead of raising a conflict
+- **Data safety** — saving keeps symlinks, permissions and Finder tags; new files and pasted
+  images work on exFAT/FAT volumes; fixed a split-view save that could write stale text,
+  heading rename applying to a changed document, and the caret jumping to the top after
+  table auto-format
+- **Security** — HTML/PDF export inlines only image files referenced by `<img>`; the
+  "remote images" setting also covers the source preview and reference pane; link-hover
+  previews escape image alt text; dompurify, markdown-it and mermaid patch updates
+- **Exports** — DOCX callout bodies, `<br>` in table cells, list-nested mermaid, diagram
+  arrows/opacity/dashes; valid EPUB identifier and metadata; wikilinks and embeds inside
+  code stay literal
+- **Editing** — tables inside lists and quotes, table delimiter rows with smart punctuation,
+  HTML/Google Docs paste structure, tab-indented code paste, heading-rename link updates
+  (duplicate headings, TOC anchors, decomposed Korean file names)
+- New app icon
 
 ## What's new in 0.1.0
 
@@ -391,7 +417,9 @@ and the output. IYAGI Markdown keeps both honest:
   Finder Trash
 - Light/dark auto (follows the system) · font size and reading column-width settings
 - Orphan-image cleanup (find and delete unreferenced files in assets/)
-- External change detection — conflict notice while editing, auto-reload otherwise
+- External change detection — auto-reload when there are no unsaved edits; with unsaved
+  edits, outside changes that don't overlap them merge in place (three-way, line-based) and
+  only overlapping edits raise a conflict notice
 - Conflict resolution — keeps unsaved text in version history before reloading, saves as a
   different file, keeps recovery drafts of open text for deleted files, progress/failure/
   target-change notices
@@ -468,7 +496,7 @@ Targets (spec §1-2) and measured values (2026-10-12, Apple Silicon, release bui
 
 ## Status & roadmap
 
-**0.1.0** is the current and first public release — macOS (Apple Silicon). CI checks the
+**0.1.1** is the current release (first public release: 0.1.0) — macOS (Apple Silicon). CI checks the
 Rust core on Linux, the workspace on GitHub-hosted macOS, and builds the DMG on a
 self-hosted macOS runner for protected refs.
 

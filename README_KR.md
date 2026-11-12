@@ -10,8 +10,8 @@ IYAGI Markdown은 `.md` 파일을 더블클릭하면 즉시 깔끔하게 렌더�
 - **원문 무손실**: 문서는 언제나 마크다운 텍스트 그대로다. 저장은 버퍼를 원자적으로 쓴다
   (임시 파일 → rename). BOM·CRLF/LF·마지막 개행이 보존되고, 수정하지 않은 문서는
   저장이 일어나지 않는다. HTML 변환을 거치는 편집 경로는 존재하지 않는다.
-- **라이브 프리뷰(WYSIWYG)**: 제목·강조·링크·표·체크박스·이미지·수식(KaTeX)·다이어그램
-  (mermaid)을 CodeMirror 6 장식·위젯으로 렌더한다. 인라인 마커(`**` 등)는 커서·선택
+- **라이브 프리뷰(WYSIWYG)**: 제목·강조·링크·표·체크박스·이미지·수식(KaTeX — `$…$`/`$$…$$`와
+  MathJax식 `\(…\)`/`\[…\]`)·다이어그램(mermaid)을 CodeMirror 6 장식·위젯으로 렌더한다. 인라인 마커(`**` 등)는 커서·선택
   끝점이 마크에 닿을 때만 원문이 드러난다 — ⌘A나 넓은 드래그로 선택해도 렌더링은
   그대로이고 선택 하이라이트만 얹힌다(Typora 방식), 위젯(표 셀·수식·다이어그램·
   프런트매터)은 클릭 한 번으로 해당 원문 위치를 편집한다. 제목은 `#`/`##`(ATX)로만
@@ -27,19 +27,19 @@ IYAGI Markdown은 `.md` 파일을 더블클릭하면 즉시 깔끔하게 렌더�
 
 설치 파일은 **[GitHub Releases](https://github.com/sh2orc/iyagi-markdown/releases)**에 게시된다.
 
-**최신: [0.1.0](https://github.com/sh2orc/iyagi-markdown/releases/tag/v0.1.0)** (2026-10-27) —
-첫 공개 릴리스. [새로운 점](#010의-새로운-점)을 본다.
+**최신: [0.1.1](https://github.com/sh2orc/iyagi-markdown/releases/tag/v0.1.1)** (2026-11-12) —
+수정·안정화: MathJax 수식, DOCX 원생 수식, 외부 변경 자동 병합. [새로운 점](#011의-새로운-점)을 본다.
 
 [![다운로드](https://img.shields.io/badge/Download-macOS%20%C2%B7%20Apple%20Silicon-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/sh2orc/iyagi-markdown/releases/latest)
 
 | 플랫폼 | 파일 | 크기 | SHA-256 |
 |---|---|---|---|
-| macOS · Apple Silicon | [`IYAGI.Markdown_0.1.0_aarch64.dmg`](https://github.com/sh2orc/iyagi-markdown/releases/download/v0.1.0/IYAGI.Markdown_0.1.0_aarch64.dmg) | 7.9 MB | `8330ed4d0e27fe656fc82605bb33d2d44e80c0cda1305cf894ea9c89d633f83c` |
+| macOS · Apple Silicon | [`IYAGI.Markdown_0.1.1_aarch64.dmg`](https://github.com/sh2orc/iyagi-markdown/releases/download/v0.1.1/IYAGI.Markdown_0.1.1_aarch64.dmg) | 8.3 MB | `54f80ce365d41f504894bae5cf4cb2c327e355f7157074660e6614e688b6647e` |
 
 열기 전에 내려받은 파일을 확인한다:
 
 ```sh
-shasum -a 256 ~/Downloads/IYAGI.Markdown_0.1.0_aarch64.dmg
+shasum -a 256 ~/Downloads/IYAGI.Markdown_0.1.1_aarch64.dmg
 ```
 
 결과가 위 해시, [RELEASE.md](RELEASE.md)의 해시, 릴리스 페이지에서 GitHub이 자산 옆에
@@ -64,6 +64,28 @@ macOS 13.0 이상, Apple Silicon. IYAGI Markdown은 macOS 전용 앱이며, CI
 
 소스 빌드: `npm ci && npm run tauri build`([개발](#개발) 참고).
 </details>
+
+## 0.1.1의 새로운 점
+
+수정·안정화 릴리스:
+
+- **수식** — MathJax/LaTeX 구분자 `\[ … \]`·`\( … \)`를 편집기와 모든 내보내기에서 렌더.
+  DOCX는 수식을 Word 원생 수식으로 내보낸다(전에는 LaTeX 원문으로 떨어졌다) —
+  `\mathbb`/`\mathbf`, `\text`, `\boxed`, 피연산자를 품은 합·적분 포함
+- **외부 변경** — 미저장 편집이 있는 열린 문서가 밖에서 바뀌면, 내 편집과 겹치지 않는
+  변경은 충돌 안내 없이 그 자리에서 합친다
+- **데이터 안전** — 저장 시 심볼릭 링크·권한·Finder 태그 유지, exFAT/FAT 볼륨에서 새 파일·
+  이미지 붙여넣기 동작, 분할 편집 저장이 옛 내용을 쓰던 문제·바뀐 문서에 적용되던 제목
+  이름 바꾸기·표 자동 정렬 후 커서가 맨 위로 튀던 문제 수정
+- **보안** — HTML/PDF 내보내기는 `<img>`가 가리키는 이미지 파일만 인라인, "원격 이미지"
+  설정을 소스 미리보기·참조 창에도 적용, 링크 호버 미리보기의 이미지 대체 텍스트 이스케이프,
+  dompurify·markdown-it·mermaid 패치 업데이트
+- **내보내기** — DOCX 콜아웃 본문·표 셀 `<br>`·목록 안 mermaid·다이어그램 화살표/불투명도/
+  점선, EPUB 식별자·메타데이터 규격, 코드 안 위키링크·임베드는 글자 그대로
+- **편집** — 목록·인용구 안 표, 스마트 구두점과 표 구분 줄, HTML·구글 문서 붙여넣기 구조,
+  탭 들여쓴 코드 붙여넣기, 제목 이름 바꾸기의 링크 갱신(중복 제목·목차 앵커·자모 분해형
+  한글 파일명)
+- 새 앱 아이콘
 
 ## 0.1.0의 새로운 점
 
@@ -243,7 +265,8 @@ macOS 13.0 이상, Apple Silicon. IYAGI Markdown은 macOS 전용 앱이며, CI
 - 문서 휴지통 이동 — 파일 메뉴에서 경로·복구 방법 확인, 열린 본문을 복구 초안에 먼저 보관, 파일 변경 시 재확인, Finder 휴지통에서 복원
 - 라이트/다크 자동(시스템 추종) · 글꼴 크기·읽기 단 폭 설정
 - 고아 이미지 정리(assets/에서 참조 없는 파일 검색·삭제)
-- 외부 변경 감지 — 수정 중이면 충돌 안내, 아니면 자동 다시 읽기
+- 외부 변경 감지 — 미저장 편집이 없으면 자동 다시 읽기, 있으면 겹치지 않는 외부 변경은
+  그 자리에서 합치고(줄 단위 3방향 병합) 같은 곳을 다르게 고친 경우만 충돌 안내
 - 충돌 해결 — 미저장 본문을 버전 기록에 보관한 뒤 다시 읽기, 다른 파일로 저장, 삭제된 파일의 열린 본문 복구 초안 보존, 진행·실패·대상 변경 안내
 - 최근 문서, 미저장 확인, 창 상태 복원(위치·크기 포함)
 - 닫기 확인 — 대상 파일 목록·저장 진행·실패 재시도, 중복 닫기 방지, 버리기 중 변경 감지와 부분 삭제된 복구 초안 복원, 창 닫기 직전 문서 재확인
@@ -314,7 +337,7 @@ npm run tauri build    # .app + DMG
 
 ## 상태 및 로드맵
 
-**0.1.0**이 현재의 첫 공개 릴리스다 — macOS(Apple Silicon). CI는 Rust 코어를 리눅스에서,
+**0.1.1**이 현재 릴리스다(첫 공개 릴리스: 0.1.0) — macOS(Apple Silicon). CI는 Rust 코어를 리눅스에서,
 워크스페이스를 GitHub 호스팅 macOS에서 검증하고, 보호 ref에서는 셀프호스팅 macOS 러너가 DMG를
 빌드한다.
 

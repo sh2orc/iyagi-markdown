@@ -40,7 +40,7 @@ direct file links in the tables point to the exact tag. Tag pushes also trigger 
 protected-ref CI jobs ([.github/workflows/ci.yml](.github/workflows/ci.yml)), including the
 macOS DMG bundle build.
 
-## Trust posture (as of 0.1.0)
+## Trust posture (as of 0.1.1)
 
 macOS installers are signed with a Developer ID, built with hardened runtime and notarized,
 with the notarization ticket stapled to the DMG, so they open without Gatekeeper warnings.
@@ -58,6 +58,33 @@ transport corruption, not a compromise of that account.
       with the signing identity.
 - [ ] **Independent hash/signature channel** — publish build provenance or signatures that
       do not depend on the same account.
+
+## 0.1.1 — 2026-11-12
+
+Fixes and hardening.
+
+- Math — MathJax/LaTeX delimiters `\[ … \]` and `\( … \)` in the editor and every export;
+  DOCX writes native Word equations (KaTeX MathML was not converted before), with math
+  alphabets, `\text`, `\boxed` and n-ary operators holding their operands
+- External changes — non-overlapping outside edits merge into unsaved work (three-way,
+  line-based); only overlapping edits raise a conflict
+- Data safety — saves keep symlinks, permissions and extended attributes; new files on
+  volumes without hard links; split-view save, heading rename and table auto-format fixes
+- Security — export inlines only `<img>` image files; previews honour the remote-images
+  setting; link-preview alt-text escaping; dompurify 3.4.17, markdown-it 15.0.3, mermaid
+  12.3.0
+- Exports — DOCX callouts, table-cell `<br>`, list-nested mermaid, diagram arrows/opacity/
+  dashes, a citation-marker panic; EPUB identifier, `dcterms:modified` and SVG properties;
+  code stays literal in wikilink/embed conversion
+- Editing — tables in lists and quotes, smart punctuation in delimiter rows, HTML and Google
+  Docs paste, tab-indented code paste, heading-rename link updates, NFD file names
+- Tooling — Vite 8, Vitest 5; new app icon
+
+| Platform | File | SHA-256 |
+|---|---|---|
+| macOS · Apple Silicon | [`IYAGI.Markdown_0.1.1_aarch64.dmg`](https://github.com/sh2orc/iyagi-markdown/releases/download/v0.1.1/IYAGI.Markdown_0.1.1_aarch64.dmg) | `54f80ce365d41f504894bae5cf4cb2c327e355f7157074660e6614e688b6647e` |
+
+Signed with Developer ID and notarized; the ticket is stapled to the DMG.
 
 ## 0.1.0 — 2026-10-27
 
