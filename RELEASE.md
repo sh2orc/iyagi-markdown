@@ -40,7 +40,7 @@ direct file links in the tables point to the exact tag. Tag pushes also trigger 
 protected-ref CI jobs ([.github/workflows/ci.yml](.github/workflows/ci.yml)), including the
 macOS DMG bundle build.
 
-## Trust posture (as of 0.1.1)
+## Trust posture (as of 0.1.2)
 
 macOS installers are signed with a Developer ID, built with hardened runtime and notarized,
 with the notarization ticket stapled to the DMG, so they open without Gatekeeper warnings.
@@ -59,9 +59,33 @@ transport corruption, not a compromise of that account.
 - [ ] **Independent hash/signature channel** — publish build provenance or signatures that
       do not depend on the same account.
 
+## 0.1.2 — 2026-11-12
+
+Fixes the 0.1.1 installer, which did not render documents.
+
+- Rendering — packaged builds had Tauri add a nonce to `style-src`, which disables
+  `'unsafe-inline'`, so CodeMirror, KaTeX and mermaid inline styles were blocked and only the
+  first heading showed. Tauri's `style-src` modification is now off (`script-src` protection
+  stays); a unit test guards the policy
+- Mermaid — click selects a diagram in edit mode (no source reveal); a corner handle sets
+  its width 10–100% (double-click = full width), stored in the per-document style sidecar
+  and applied to reading view, HTML, PDF and EPUB. Double-click or **Edit code** opens the
+  source
+- Mermaid — the render queue ran its first job twice, drawing a second, mis-measured copy
+  into the same SVG (huge nodes)
+
+| Platform | File | SHA-256 |
+|---|---|---|
+| macOS · Apple Silicon | [`IYAGI.Markdown_0.1.2_aarch64.dmg`](https://github.com/sh2orc/iyagi-markdown/releases/download/v0.1.2/IYAGI.Markdown_0.1.2_aarch64.dmg) | `f992481abf27047d43817ac1d139abccd0a696d07d34166291a8776a40adfae8` |
+
+Signed with Developer ID and notarized; the ticket is stapled to the DMG.
+
 ## 0.1.1 — 2026-11-12
 
 Fixes and hardening.
+
+> **Known issue:** the packaged app does not render documents (only the first heading
+> shows) — fixed in 0.1.2.
 
 - Math — MathJax/LaTeX delimiters `\[ … \]` and `\( … \)` in the editor and every export;
   DOCX writes native Word equations (KaTeX MathML was not converted before), with math

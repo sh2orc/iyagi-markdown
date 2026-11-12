@@ -13,8 +13,9 @@ IYAGI Markdown은 `.md` 파일을 더블클릭하면 즉시 깔끔하게 렌더�
 - **라이브 프리뷰(WYSIWYG)**: 제목·강조·링크·표·체크박스·이미지·수식(KaTeX — `$…$`/`$$…$$`와
   MathJax식 `\(…\)`/`\[…\]`)·다이어그램(mermaid)을 CodeMirror 6 장식·위젯으로 렌더한다. 인라인 마커(`**` 등)는 커서·선택
   끝점이 마크에 닿을 때만 원문이 드러난다 — ⌘A나 넓은 드래그로 선택해도 렌더링은
-  그대로이고 선택 하이라이트만 얹힌다(Typora 방식), 위젯(표 셀·수식·다이어그램·
-  프런트매터)은 클릭 한 번으로 해당 원문 위치를 편집한다. 제목은 `#`/`##`(ATX)로만
+  그대로이고 선택 하이라이트만 얹힌다(Typora 방식), 위젯(표 셀·수식·프런트매터)은 클릭
+  한 번으로 해당 원문 위치를 편집한다. mermaid 다이어그램은 클릭하면 선택되어 모서리
+  핸들로 크기를 조절하고, 더블클릭(또는 **코드 편집**)으로 원문을 편집한다. 제목은 `#`/`##`(ATX)로만
   만든다 — 밑줄형(Setext, `---`/`===`)은 제목이 아니게 타이핑 시점에 빈 줄로 분리되고
   (Word식), `---`은 수평선(구분선)이 된다. 분리를 못 한 외부 문서도 렌더는 문단+
   구분선으로 보이고, 내보내기에서도 같은 해석이 되도록 짝에 빈 줄을 넣어 정규화한다.
@@ -27,19 +28,19 @@ IYAGI Markdown은 `.md` 파일을 더블클릭하면 즉시 깔끔하게 렌더�
 
 설치 파일은 **[GitHub Releases](https://github.com/sh2orc/iyagi-markdown/releases)**에 게시된다.
 
-**최신: [0.1.1](https://github.com/sh2orc/iyagi-markdown/releases/tag/v0.1.1)** (2026-11-12) —
-수정·안정화: MathJax 수식, DOCX 원생 수식, 외부 변경 자동 병합. [새로운 점](#011의-새로운-점)을 본다.
+**최신: [0.1.2](https://github.com/sh2orc/iyagi-markdown/releases/tag/v0.1.2)** (2026-11-12) —
+0.1.1 설치본에서 문서가 렌더링되지 않던 문제 수정, mermaid 다이어그램 크기 조절. [새로운 점](#012의-새로운-점)을 본다.
 
 [![다운로드](https://img.shields.io/badge/Download-macOS%20%C2%B7%20Apple%20Silicon-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/sh2orc/iyagi-markdown/releases/latest)
 
 | 플랫폼 | 파일 | 크기 | SHA-256 |
 |---|---|---|---|
-| macOS · Apple Silicon | [`IYAGI.Markdown_0.1.1_aarch64.dmg`](https://github.com/sh2orc/iyagi-markdown/releases/download/v0.1.1/IYAGI.Markdown_0.1.1_aarch64.dmg) | 8.3 MB | `54f80ce365d41f504894bae5cf4cb2c327e355f7157074660e6614e688b6647e` |
+| macOS · Apple Silicon | [`IYAGI.Markdown_0.1.2_aarch64.dmg`](https://github.com/sh2orc/iyagi-markdown/releases/download/v0.1.2/IYAGI.Markdown_0.1.2_aarch64.dmg) | 8.3 MB | `f992481abf27047d43817ac1d139abccd0a696d07d34166291a8776a40adfae8` |
 
 열기 전에 내려받은 파일을 확인한다:
 
 ```sh
-shasum -a 256 ~/Downloads/IYAGI.Markdown_0.1.1_aarch64.dmg
+shasum -a 256 ~/Downloads/IYAGI.Markdown_0.1.2_aarch64.dmg
 ```
 
 결과가 위 해시, [RELEASE.md](RELEASE.md)의 해시, 릴리스 페이지에서 GitHub이 자산 옆에
@@ -64,6 +65,18 @@ macOS 13.0 이상, Apple Silicon. IYAGI Markdown은 macOS 전용 앱이며, CI
 
 소스 빌드: `npm ci && npm run tauri build`([개발](#개발) 참고).
 </details>
+
+## 0.1.2의 새로운 점
+
+- **수정: 0.1.1 설치본에서 문서가 렌더링되지 않던 문제.** 배포용 앱의 콘텐츠 보안 정책이
+  편집기의 인라인 스타일을 막아, 문서가 첫 제목 한 줄만 보이고 수식·페이지가 사라졌다
+  (개발 빌드에서는 재현되지 않았다). 0.1.1 사용자는 업데이트를 권한다
+- **mermaid 다이어그램 크기 조절.** 편집 모드에서 클릭하면 원문 대신 다이어그램이
+  선택되고, 모서리 핸들을 끌어 폭(10~100%)을 정한다(핸들 더블클릭 = 전체 폭). 원문은
+  다이어그램 더블클릭이나 **코드 편집** 버튼으로 편집한다. 폭은 문서별 스타일
+  사이드카에 저장되고(`.md` 원문은 그대로) 읽기 보기와 HTML·PDF·EPUB 내보내기에 반영된다
+- **수정: mermaid 노드가 비정상적으로 크게 그려지던 문제.** 다이어그램이 같은 SVG에 두 번
+  렌더되어 크기가 잘못 잡힌 두 번째 그림이 겹쳐 그려졌다
 
 ## 0.1.1의 새로운 점
 
@@ -337,7 +350,7 @@ npm run tauri build    # .app + DMG
 
 ## 상태 및 로드맵
 
-**0.1.1**이 현재 릴리스다(첫 공개 릴리스: 0.1.0) — macOS(Apple Silicon). CI는 Rust 코어를 리눅스에서,
+**0.1.2**가 현재 릴리스다(첫 공개 릴리스: 0.1.0) — macOS(Apple Silicon). CI는 Rust 코어를 리눅스에서,
 워크스페이스를 GitHub 호스팅 macOS에서 검증하고, 보호 ref에서는 셀프호스팅 macOS 러너가 DMG를
 빌드한다.
 

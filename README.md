@@ -17,8 +17,9 @@ Tauri 2 + Rust + React/TS + CodeMirror 6.
   as CodeMirror 6 decorations and widgets. Inline
   markers (`**` and friends) reveal their source only while the caret or a selection endpoint
   touches them — ⌘A or a wide drag keeps the rendering intact with the highlight simply
-  layered on top (Typora-style). Widgets (table cells, math, diagrams, front matter) open
-  their source position on click. Headings are created with `#`/`##` (ATX) only — underlined
+  layered on top (Typora-style). Widgets (table cells, math, front matter) open their source
+  position on click; a mermaid diagram is selected on click and resized by dragging its
+  corner handle, and double-click (or **Edit code**) opens its source. Headings are created with `#`/`##` (ATX) only — underlined
   (Setext, `---`/`===`) lines are not headings: at typing time they are separated by a blank
   line (Word-style) and `---` becomes a horizontal rule. External documents that were never
   separated still render as paragraph + rule, and exports apply the same interpretation by
@@ -33,20 +34,20 @@ Tauri 2 + Rust + React/TS + CodeMirror 6.
 
 Installers are published as **[GitHub Releases](https://github.com/sh2orc/iyagi-markdown/releases)**.
 
-**Latest: [0.1.1](https://github.com/sh2orc/iyagi-markdown/releases/tag/v0.1.1)** (2026-11-12)
-— fixes and hardening: MathJax math, native DOCX equations, merging outside edits. See
-[what's new](#whats-new-in-011).
+**Latest: [0.1.2](https://github.com/sh2orc/iyagi-markdown/releases/tag/v0.1.2)** (2026-11-12)
+— fixes the 0.1.1 installer not rendering documents; resizable mermaid diagrams. See
+[what's new](#whats-new-in-012).
 
 [![Download for macOS](https://img.shields.io/badge/Download-macOS%20%C2%B7%20Apple%20Silicon-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/sh2orc/iyagi-markdown/releases/latest)
 
 | Platform | File | Size | SHA-256 |
 |---|---|---|---|
-| macOS · Apple Silicon | [`IYAGI.Markdown_0.1.1_aarch64.dmg`](https://github.com/sh2orc/iyagi-markdown/releases/download/v0.1.1/IYAGI.Markdown_0.1.1_aarch64.dmg) | 8.3 MB | `54f80ce365d41f504894bae5cf4cb2c327e355f7157074660e6614e688b6647e` |
+| macOS · Apple Silicon | [`IYAGI.Markdown_0.1.2_aarch64.dmg`](https://github.com/sh2orc/iyagi-markdown/releases/download/v0.1.2/IYAGI.Markdown_0.1.2_aarch64.dmg) | 8.3 MB | `f992481abf27047d43817ac1d139abccd0a696d07d34166291a8776a40adfae8` |
 
 Check the download before opening it:
 
 ```sh
-shasum -a 256 ~/Downloads/IYAGI.Markdown_0.1.1_aarch64.dmg
+shasum -a 256 ~/Downloads/IYAGI.Markdown_0.1.2_aarch64.dmg
 ```
 
 The result must match the hash above, the hash in [RELEASE.md](RELEASE.md) and the digest
@@ -72,6 +73,20 @@ core (md-core, md-export) on Linux.
 
 From source: `npm ci && npm run tauri build` (see [Development](#development)).
 </details>
+
+## What's new in 0.1.2
+
+- **Fix: documents did not render in the 0.1.1 installer.** The packaged app's content
+  security policy blocked the editor's inline styles, so a document showed only its first
+  heading and math/pages disappeared (development builds were unaffected). Everyone on 0.1.1
+  should update
+- **Mermaid diagrams are resizable.** In edit mode a click selects the diagram instead of
+  revealing its code; drag the corner handle to set its width (10–100%, double-click the
+  handle for full width). Double-click the diagram or use **Edit code** to edit the source.
+  The width is kept in the per-document style sidecar (the `.md` file is untouched) and
+  applies to the reading view, HTML, PDF and EPUB exports
+- **Fix: oversized mermaid nodes.** Each diagram was rendered twice into the same SVG, which
+  drew a second copy with huge, mis-measured boxes
 
 ## What's new in 0.1.1
 
@@ -496,7 +511,7 @@ Targets (spec §1-2) and measured values (2026-10-12, Apple Silicon, release bui
 
 ## Status & roadmap
 
-**0.1.1** is the current release (first public release: 0.1.0) — macOS (Apple Silicon). CI checks the
+**0.1.2** is the current release (first public release: 0.1.0) — macOS (Apple Silicon). CI checks the
 Rust core on Linux, the workspace on GitHub-hosted macOS, and builds the DMG on a
 self-hosted macOS runner for protected refs.
 
