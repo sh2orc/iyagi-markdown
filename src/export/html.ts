@@ -9,6 +9,7 @@
 import MarkdownIt, { type MarkdownIt as MarkdownItType, type StateInline, type Token } from "markdown-it";
 import type { DocxManifest } from "../api";
 import { htmlTableKey } from "../editor/tableKey";
+import { clampDiagramPct, diagramKey } from "../editor/diagramKey";
 import { createHeadingSlugger } from "../links";
 import { captionWorthy } from "../editor/caption";
 import { applyTableCaptions } from "../editor/tableCaption";
@@ -57,6 +58,8 @@ export interface ExportHtmlOptions {
   imageWidths?: Record<string, number>;
   /** 사이드카 표 열 폭(px) — 헤더 내용 키. <colgroup> 비율로. */
   tableWidths?: Record<string, number[]>;
+  /** 사이드카 mermaid 다이어그램 폭(%) — diagramKey(코드) 키. */
+  diagramWidths?: Record<string, number>;
   /** 문서 앞 목차·그림 목차·표 목차(DOCX lof/lot과 대칭 — 정적 링크 목록). */
   frontLists?: { toc: boolean; lof: boolean; lot: boolean };
   /** UI 언어 — 목차 라벨 현지화(기본 ko). */
@@ -409,7 +412,10 @@ export async function renderMarkdownBody(
   );
   for (const { m, svg } of rendered) {
     // 함수 치환 — 문자열 치환은 SVG·코드 안의 `$'`·`$&` 등을 치환 패턴으로 해석한다.
-    const replacement = svg ? `<div class="diagram">${cleanMermaidSvg(svg)}</div>` : `<pre class="code-block"><code>${escapeHtml(diagrams[Number(m[1])]?.code ?? "")}</code></pre>`;
+    const code = diagrams[Number(m[1])]?.code ?? "";
+    const replacement = svg
+      ? `<div class="diagram">${sizedDiagram(cleanMermaidSvg(svg), opts.diagramWidths?.[diagramKey(code)])}</div>`
+      : `<pre class="code-block"><code>${escapeHtml(code)}</code></pre>`;
     html = html.replace(m[0], () => replacement);
   }
 
@@ -424,6 +430,16 @@ export async function renderMarkdownBody(
   void mathMap;
   void opts;
   return { body: html, mathMap };
+}
+
+/** 사이드카 다이어그램 폭(%) — 편집기와 같은 규칙(가운데 정렬 상자가 폭을 갖고
+ *  SVG는 상자를 채움). 100%·미지정이면 그대로. 인라인 스타일이라 별도 CSS가
+ *  없는 EPUB에서도 같은 폭이 된다. */
+export function sizedDiagram(svg: string, pct: number | undefined): string {
+  if (!pct) return svg;
+  const p = clampDiagramPct(pct);
+  if (p >= 100) return svg;
+  return `<div class="diagram-box" style="display:inline-block;width:${p}%;max-width:100%">${svg}</div>`;
 }
 
 function cleanMermaidSvg(svg: string): string {
@@ -931,6 +947,7 @@ body{margin:0 auto;padding:24px 16px;max-width:820px;font-family:-apple-system,B
 .markdown-body li.task-item-done{text-decoration:line-through;opacity:.6;}
 .markdown-body .diagram{text-align:center;margin:1em 0;overflow-x:auto;}
 .markdown-body .diagram svg{max-width:100%;height:auto;}
+.markdown-body .diagram-box svg{width:100%;}
 .markdown-body .math-fallback{color:#d33;}
 .markdown-body .footnotes{margin-top:2.5em;border-top:1px solid ${c.border};font-size:.92em;color:${c.quote};}
 .markdown-body .footnote-backref{text-decoration:none;}

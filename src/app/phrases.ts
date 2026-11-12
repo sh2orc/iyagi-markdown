@@ -7,6 +7,11 @@ export interface WidgetPhrases {
   editorLabel: string;
   mathError: string;
   diagramError: string;
+  /** 다이어그램 크기 조절 핸들 툴팁. */
+  diagramResize: string;
+  /** 다이어그램 '코드 편집' 버튼 라벨·툴팁. */
+  diagramEditCode: string;
+  diagramEditCodeHint: string;
   imgMissing: string;
   imgLoadBlocked: string;
   linkOpen: string;
@@ -28,6 +33,9 @@ const DEFAULTS: WidgetPhrases = {
   editorLabel: "Document editor",
   mathError: "Math error",
   diagramError: "render failed",
+  diagramResize: "Drag to resize · double-click for full width",
+  diagramEditCode: "Edit code",
+  diagramEditCodeHint: "Edit the Mermaid code (or double-click the diagram)",
   imgMissing: "Image not found",
   imgLoadBlocked: "Remote image blocked — click to load",
   linkOpen: "Open link",

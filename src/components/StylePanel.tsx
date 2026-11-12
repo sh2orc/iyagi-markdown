@@ -50,11 +50,12 @@ export function StylePanel({ store, onClose, t }: Props): JSX.Element | null {
                 key={p.id}
                 className="style-preset-card"
                 onClick={() => {
-                  // 프리셋 적용 — 이미지·표 폭은 그 문서의 기존 배치를 유지.
+                  // 프리셋 적용 — 이미지·표·다이어그램 폭은 그 문서의 기존 배치를 유지.
                   update({
                     ...p.style,
                     imageWidths: style.imageWidths,
                     tableWidths: style.tableWidths,
+                    diagramWidths: style.diagramWidths,
                   });
                 }}
               >

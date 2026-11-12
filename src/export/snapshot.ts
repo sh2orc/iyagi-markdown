@@ -52,6 +52,7 @@ export function captureExportSnapshot(
     highlightColor: ds?.highlightColor ?? null,
   };
   const imageWidths = { ...ds?.imageWidths };
+  const diagramWidths = { ...ds?.diagramWidths };
   const { highlightColor, ...commonStyle } = style;
   const docxStyle: NonNullable<DocxManifest["style"]> = {
     ...commonStyle, highlight: highlightColor, pageNumbers: context.pageNumbers,
@@ -73,7 +74,7 @@ export function captureExportSnapshot(
   }
   return {
     text, markdown, baseDir, wikiResolve, fm, metaTitle, metaAuthor, name, docTitle,
-    style, docxStyle, imageWidths, tableWidths, comments,
+    style, docxStyle, imageWidths, tableWidths, diagramWidths, comments,
     theme: context.theme, pageNumbers: context.pageNumbers, header: context.header, lang: context.lang ?? "ko",
   };
 }

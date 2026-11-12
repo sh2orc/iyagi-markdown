@@ -336,6 +336,9 @@ export interface DocStyle {
   imageWidths: Record<string, number>;
   /** 표 표시 폭(표 시작 줄 번호 → 열 px 배열) — 원문 불변 사이드카. */
   tableWidths: Record<string, number[]>;
+  /** mermaid 다이어그램 표시 폭(diagramKey(코드) → %) — 원문 불변 사이드카.
+   *  선택 필드: 이 필드가 생기기 전에 저장된 스타일 JSON에는 없다. */
+  diagramWidths?: Record<string, number>;
   /** 형광펜(==..==) 색(RRGGBB, null = 기본 노랑). */
   highlightColor: string | null;
 }

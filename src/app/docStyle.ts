@@ -28,6 +28,7 @@ export const DEFAULT_DOC_STYLE: DocStyle = {
   textAlign: "left",
   imageWidths: {},
   tableWidths: {},
+  diagramWidths: {},
 };
 
 /** 스타일 프리셋(Word 스타일 갤러리에 대응) — 원문 불변, 사이드카에 기록. */

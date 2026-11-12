@@ -10,6 +10,7 @@ import { EditorView, WidgetType } from "@codemirror/view";
 import { api, convertFileSrc, isInApp } from "../api";
 import { renderMathInto } from "../plugins/katex";
 import { renderMermaid } from "../plugins/mermaid";
+import { clampDiagramPct } from "./diagramKey";
 import { parseFrontMatter } from "./frontmatter";
 import { phrases } from "../app/phrases";
 import * as tableOps from "./tableOps";
@@ -73,30 +74,62 @@ export class DiagramWidget extends WidgetType {
   constructor(
     readonly code: string,
     theme: "light" | "dark",
+    /** 사이드카 폭 키(diagramKey(code)). 비면 크기 조절 핸들을 달지 않는다. */
+    readonly key: string = "",
+    /** 표시 폭(%) — 없으면 100%. */
+    readonly widthPct?: number,
   ) {
     super();
     this.#theme = theme;
   }
 
   eq(other: DiagramWidget) {
-    return other.code === this.code && other.#theme === this.#theme;
+    return (
+      other.code === this.code &&
+      other.#theme === this.#theme &&
+      other.widthPct === this.widthPct
+    );
+  }
+
+  /** 폭만 바뀐 경우(크기 조절 저장) DOM을 그대로 두고 폭만 고친다 — 새로
+   *  그리면 렌더 대기 펄스가 한 번 깜박이고 핸들 호버도 끊긴다. */
+  updateDOM(dom: HTMLElement): boolean {
+    if (diagramDomIdentity.get(dom) !== `${this.#theme}\n${this.code}`) return false;
+    const box = dom.querySelector<HTMLElement>(":scope > .md-diagram-box");
+    if (!box) return false;
+    setDiagramBoxWidth(box, this.widthPct);
+    return true;
   }
 
   toDOM(view: EditorView) {
     const wrap = document.createElement("div");
     wrap.className = "md-diagram";
     wrap.dataset.pending = "1";
+    diagramDomIdentity.set(wrap, `${this.#theme}\n${this.code}`);
+    // 상자(.md-diagram-box)가 표시 폭(%)을 갖고 SVG는 상자를 채운다 — 가운데
+    // 정렬된 상자의 오른쪽 위 모서리에 크기 조절 핸들을 단다.
+    const box = document.createElement("div");
+    box.className = "md-diagram-box";
+    setDiagramBoxWidth(box, this.widthPct);
+    wrap.append(box);
+    const editable = view.state.facet(EditorState.readOnly).valueOf() !== true;
     void renderMermaid(this.code, this.#theme).then(({ svg, error }) => {
       if (!wrap.isConnected) return; // 뷰포트를 벗어나 이미 치워진 위젯
       delete wrap.dataset.pending;
       if (svg) {
-        wrap.innerHTML = svg;
-        const svgEl = wrap.firstElementChild;
+        box.innerHTML = svg;
+        const svgEl = box.firstElementChild;
         if (svgEl instanceof SVGSVGElement) {
+          // 크기는 상자가 정한다 — mermaid의 고정 폭·높이·max-width를 풀고
+          // viewBox 비율로 높이가 따라오게.
           svgEl.removeAttribute("height");
+          svgEl.removeAttribute("width");
+          svgEl.style.width = "100%";
           svgEl.style.maxWidth = "100%";
         }
+        if (editable && this.key) box.append(diagramResizeHandle(wrap, box, this.key));
       } else {
+        box.remove();
         wrap.classList.add("md-diagram-error");
         const code = document.createElement("pre");
         code.textContent = this.code;
@@ -108,30 +141,220 @@ export class DiagramWidget extends WidgetType {
       // 높이가 확정되는 비동기 채움 뒤 재측정(뷰포트 계산이 갱신되게).
       if (view.dom.isConnected) view.requestMeasure();
     });
-    // 클릭 → 커서를 펜스 코드로 — 원문 노출로 즉석 편집(클릭=편집, 104-105차 규칙).
-    wrap.addEventListener("mousedown", (e: Event) => {
-      if ((e as MouseEvent).button !== 0) return;
-      // 수식 블록과 같은 이유 — CM mousedown의 덮어쓰기 차단.
-      e.stopPropagation();
-      e.preventDefault();
-      // 같은 이유 — widgetClickCollapse가 먼저 처리해 detach됐으면 스킵.
+    // 원문 편집 — 커서를 펜스 코드 첫 줄로(커서가 닿으면 위젯이 원문으로 물러난다).
+    const revealCode = () => {
       if (!wrap.isConnected) return;
       const pos = view.posAtDOM(wrap);
       const doc = view.state.doc;
       const line = doc.lineAt(pos);
-      // 펜스 시작 줄 다음(코드 첫 줄)으로.
       view.dispatch({
         selection: { anchor: Math.min(line.to + 1, doc.length) },
         scrollIntoView: true,
       });
       view.focus();
+    };
+    if (!editable) {
+      // 읽기 전용 — 예전처럼 클릭 = 코드 위치로(원문 노출은 보기 모드가 막는다).
+      wrap.addEventListener("mousedown", (e: Event) => {
+        if ((e as MouseEvent).button !== 0) return;
+        e.stopPropagation();
+        e.preventDefault();
+        revealCode();
+      });
+      return wrap;
+    }
+    // 편집 모드: 클릭 = 다이어그램 선택(테두리 + 크기 조절 핸들), 원문은 그대로
+    // 렌더 상태. 원문 편집은 더블클릭·'코드 편집' 버튼·키보드(↑↓로 들어가기).
+    wrap.addEventListener("mousedown", (e: Event) => {
+      if ((e as MouseEvent).button !== 0) return;
+      // CM mousedown이 커서를 위젯 위치(= 펜스 줄)로 옮겨 원문을 노출하지 않게.
+      e.stopPropagation();
+      e.preventDefault();
+      if (!wrap.isConnected) return;
+      collapseSelectionOutside(view, wrap);
+      selectDiagram(wrap);
     });
+    wrap.addEventListener("dblclick", (e: Event) => {
+      e.stopPropagation();
+      e.preventDefault();
+      revealCode();
+    });
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "md-diagram-edit";
+    edit.textContent = `</> ${phrases.diagramEditCode}`;
+    edit.title = phrases.diagramEditCodeHint;
+    edit.addEventListener("mousedown", (e: Event) => {
+      e.stopPropagation();
+      e.preventDefault();
+    });
+    edit.addEventListener("click", (e: Event) => {
+      e.stopPropagation();
+      e.preventDefault();
+      revealCode();
+    });
+    wrap.append(edit);
     return wrap;
+  }
+
+  destroy(dom: HTMLElement) {
+    // 드래그 도중 위젯이 사라지면 window 청취기만 뗀다(저장은 하지 않는다).
+    diagramDragAbort.get(dom)?.();
+    if (selectedDiagram === dom) selectDiagram(null);
   }
 
   ignoreEvent() {
     return true;
   }
+}
+
+/** 지금 선택된(클릭한) 다이어그램 — 한 번에 하나. */
+let selectedDiagram: HTMLElement | null = null;
+let deselectInstalled = false;
+
+/** 다이어그램 선택 표시 — 바깥 mousedown·Esc로 풀린다. */
+function selectDiagram(wrap: HTMLElement | null): void {
+  if (selectedDiagram && selectedDiagram !== wrap) {
+    selectedDiagram.classList.remove("md-diagram-selected");
+  }
+  selectedDiagram = wrap;
+  if (!wrap) return;
+  wrap.classList.add("md-diagram-selected");
+  if (deselectInstalled) return;
+  deselectInstalled = true;
+  // 캡처 단계 — 다른 위젯·패널이 전파를 막아도 선택은 풀려야 한다.
+  document.addEventListener(
+    "mousedown",
+    (e) => {
+      if (!selectedDiagram) return;
+      if (e.target instanceof Node && selectedDiagram.contains(e.target)) return;
+      selectDiagram(null);
+    },
+    true,
+  );
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (selectedDiagram && e.key === "Escape") selectDiagram(null);
+    },
+    true,
+  );
+}
+
+/** 범위 선택이 남아 있으면 다이어그램 **바깥**으로 접는다 — ⌘A 뒤 위젯 클릭이
+ *  선택을 남겨 원문 마커가 굳는 문제(widgetClickCollapse와 같은 이유)를 막되,
+ *  펜스 줄에 커서를 두면 원문이 노출되므로 앞 줄 끝(없으면 펜스 다음 줄)으로. */
+function collapseSelectionOutside(view: EditorView, wrap: HTMLElement): void {
+  const sel = view.state.selection;
+  if (sel.ranges.length === 1 && sel.main.empty) return;
+  const doc = view.state.doc;
+  const startLine = doc.lineAt(view.posAtDOM(wrap));
+  let anchor: number | null = null;
+  if (startLine.number > 1) {
+    anchor = doc.line(startLine.number - 1).to;
+  } else {
+    // 문서 첫 줄이 펜스 — 닫는 펜스 다음 줄로.
+    const fence = /^\s*(`{3,}|~{3,})/.exec(startLine.text)?.[1];
+    for (let n = startLine.number + 1; fence && n <= doc.lines; n++) {
+      if (doc.line(n).text.trim().startsWith(fence)) {
+        if (n < doc.lines) anchor = doc.line(n + 1).from;
+        break;
+      }
+    }
+  }
+  if (anchor !== null) view.dispatch({ selection: { anchor }, userEvent: "select.pointer" });
+}
+
+/** 위젯 DOM → "테마\n코드" — updateDOM이 같은 다이어그램인지 판정. */
+const diagramDomIdentity = new WeakMap<HTMLElement, string>();
+/** 위젯 DOM → 진행 중인 크기 조절 드래그 해제. */
+const diagramDragAbort = new WeakMap<HTMLElement, () => void>();
+
+function setDiagramBoxWidth(box: HTMLElement, pct: number | undefined): void {
+  const p = pct ? clampDiagramPct(pct) : 100;
+  box.style.width = `${p}%`;
+  box.dataset.pct = String(p);
+}
+
+/** 다이어그램 크기 조절 핸들 — 드래그로 폭(%)을 정하고 놓으면 문서 스타일
+ *  사이드카에 저장한다(이미지 핸들과 같은 규칙, **원문은 수정하지 않는다**).
+ *  더블클릭은 원래 폭(100%)으로. */
+function diagramResizeHandle(wrap: HTMLElement, box: HTMLElement, key: string): HTMLElement {
+  const handle = document.createElement("span");
+  handle.className = "md-diagram-handle";
+  handle.title = phrases.diagramResize;
+  let base = 0;
+  let basePct = 100;
+  let containerW = 0;
+  let pendingPct = 0;
+  let raf = 0;
+  // 폭 쓰기는 rAF로 모은다(이미지 핸들과 같은 이유 — 레이아웃 스래시 방지).
+  const applyPct = () => {
+    raf = 0;
+    if (pendingPct > 0) box.style.width = `${pendingPct}%`;
+  };
+  const onMove = (ev: PointerEvent) => {
+    if (containerW <= 0) return;
+    // 상자는 가운데 정렬 — 오른쪽 모서리를 dx 끌면 폭은 2·dx 변해야 핸들이
+    // 포인터를 따라온다.
+    const pct = clampDiagramPct(basePct + (((ev.clientX - base) * 2) / containerW) * 100);
+    pendingPct = pct;
+    handle.dataset.pct = String(pct);
+    if (!raf) raf = requestAnimationFrame(applyPct);
+  };
+  const abortDrag = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    if (raf) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    }
+    diagramDragAbort.delete(wrap);
+  };
+  const save = (pct: number) => {
+    box.style.width = `${pct}%`;
+    box.dataset.pct = String(pct);
+    diagramResizeHandler?.(key, pct);
+  };
+  function onUp() {
+    abortDrag();
+    applyPct(); // 마지막 값 즉시 반영 — 놓은 시점과 저장값이 일치하게
+    const pct = Number(handle.dataset.pct ?? 0);
+    if (pct > 0) save(pct);
+  }
+  handle.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    base = ev.clientX;
+    basePct = Number(box.dataset.pct ?? 100) || 100;
+    const cs = getComputedStyle(wrap);
+    // 드래그 중엔 다시 안 읽는다(상자의 % 기준 = wrap의 내용 폭).
+    containerW =
+      wrap.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    pendingPct = 0;
+    delete handle.dataset.pct;
+    diagramDragAbort.set(wrap, abortDrag);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  });
+  // 핸들 클릭이 wrap의 '클릭=편집'(커서를 코드로)으로 새지 않게.
+  handle.addEventListener("mousedown", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+  });
+  handle.addEventListener("dblclick", (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    save(100);
+  });
+  return handle;
+}
+
+/** 다이어그램 폭 저장 콜백 — App이 스토어와 연결한다(원문 불변 사이드카). */
+export let diagramResizeHandler: ((key: string, pct: number) => void) | null = null;
+export function setDiagramResizeHandler(fn: ((key: string, pct: number) => void) | null): void {
+  diagramResizeHandler = fn;
 }
 
 // — 이미지 —

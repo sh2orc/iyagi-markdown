@@ -19,6 +19,7 @@ export function snapshotHtmlOptions(snapshot: ExportSnapshot, readBytes: ExportH
   return {
     title: snapshot.docTitle, baseDir: snapshot.baseDir, theme: pdf ? "light" : snapshot.theme,
     style: snapshot.style, imageWidths: snapshot.imageWidths, tableWidths: snapshot.tableWidths,
+    diagramWidths: snapshot.diagramWidths,
     frontLists: { toc: !!snapshot.fm?.toc, lof: !!snapshot.fm?.lof, lot: !!snapshot.fm?.lot },
     lang: snapshot.lang, readBytes, wikiResolve: snapshot.wikiResolve,
     ...(pdf ? { forPdf: true, paper: pdf.paper, orientation: pdf.orientation,

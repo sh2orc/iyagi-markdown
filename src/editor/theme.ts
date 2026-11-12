@@ -530,7 +530,59 @@ export const editorTheme = EditorView.theme({
     borderRadius: "10px",
     padding: "12px",
     contain: "layout style",
+    position: "relative",
   },
+  // 표시 폭(%)을 가진 상자 — SVG는 상자를 채우고 높이는 viewBox 비율로.
+  ".md-diagram-box": {
+    display: "inline-block",
+    position: "relative",
+    maxWidth: "100%",
+    verticalAlign: "top",
+  },
+  ".md-diagram-box > svg": { display: "block", height: "auto" },
+  // 크기 조절 핸들 — 이미지 핸들(.md-img-handle)과 같은 모양, 호버 때만.
+  // 오른쪽 **위** 모서리: 다이어그램은 화면보다 길기 쉬워 아래 모서리는 화면
+  // 밖이기 일쑤고, 줄여도 위 모서리는 제자리라 핸들이 포인터 곁에 남는다.
+  ".md-diagram-handle": {
+    position: "absolute",
+    right: "-6px",
+    top: "-6px",
+    width: "12px",
+    height: "12px",
+    borderRadius: "3px",
+    background: "var(--md-accent)",
+    border: "2px solid #fff",
+    boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+    cursor: "ew-resize",
+    display: "none",
+  },
+  ".md-diagram-box:hover .md-diagram-handle": { display: "block" },
+  // 클릭 = 선택(편집 모드) — 테두리와 핸들을 계속 보여 크기 조절 상태임을 알린다.
+  ".md-diagram-selected .md-diagram-box": {
+    outline: "2px solid var(--md-accent)",
+    outlineOffset: "3px",
+    borderRadius: "2px",
+  },
+  ".md-diagram-selected .md-diagram-handle": { display: "block" },
+  // '코드 편집' — 호버·선택 때만 왼쪽 위에(더블클릭과 같은 동작).
+  ".md-diagram-edit": {
+    position: "absolute",
+    top: "6px",
+    left: "6px",
+    display: "none",
+    font: "inherit",
+    fontSize: "0.75em",
+    lineHeight: 1.4,
+    padding: "2px 8px",
+    borderRadius: "6px",
+    border: "1px solid var(--md-code-border)",
+    background: "var(--md-bg, #fff)",
+    color: "inherit",
+    opacity: 0.85,
+    cursor: "pointer",
+  },
+  ".md-diagram:hover .md-diagram-edit, .md-diagram-selected .md-diagram-edit": { display: "block" },
+  ".md-diagram-edit:hover": { opacity: 1 },
   ".md-diagram[data-pending]": {
     opacity: 0.4,
     minHeight: "2em",

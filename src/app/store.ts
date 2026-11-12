@@ -2385,6 +2385,7 @@ export class AppStore {
       longSentenceMin: this.state.settings.longSentenceMin,
       formattingMarks: this.state.settings.formattingMarks,
       tableWidths: tab?.docStyle?.tableWidths ?? {},
+      diagramWidths: tab?.docStyle?.diagramWidths ?? {},
       wikiIndex: this.wikiIndex,
     });
     applySmartPunct(this.view, this.state.settings.smartPunctuation);
@@ -2783,6 +2784,17 @@ export class AppStore {
     const style: DocStyle = {
       ...(tab.docStyle ?? DEFAULT_DOC_STYLE_T),
       imageWidths: { ...(tab.docStyle?.imageWidths ?? {}), [src]: pct },
+    };
+    this.setDocStyle(style);
+  }
+
+  /** mermaid 다이어그램 표시 폭 변경(diagramKey 키, % — 원문 불변 사이드카). */
+  setDiagramWidth(key: string, pct: number): void {
+    const tab = this.active;
+    if (!tab) return;
+    const style: DocStyle = {
+      ...(tab.docStyle ?? DEFAULT_DOC_STYLE_T),
+      diagramWidths: { ...(tab.docStyle?.diagramWidths ?? {}), [key]: pct },
     };
     this.setDocStyle(style);
   }

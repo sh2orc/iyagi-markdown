@@ -55,7 +55,7 @@ import { ExportSheet } from "./components/ExportSheet";
 import { Toolbar } from "./components/Toolbar";
 import { MiniToolbar } from "./components/MiniToolbar";
 import { ContextMenu } from "./components/ContextMenu";
-import { setImageResizeHandler, setImageViewerHandler, setTableHeaderClickHandler, setFrontMatterEditHandler, setImageCaptionHandler, setEmbedContentHandler, setEmbedOpenHandler } from "./editor/widgets";
+import { setDiagramResizeHandler, setImageResizeHandler, setImageViewerHandler, setTableHeaderClickHandler, setFrontMatterEditHandler, setImageCaptionHandler, setEmbedContentHandler, setEmbedOpenHandler } from "./editor/widgets";
 import { setTableWidthsSaveHandler } from "./editor/livePreview";
 import { setTagClickHandler } from "./editor/cm";
 import { setWikiDocsProvider, setTagListProvider } from "./editor/wikiComplete";
@@ -334,6 +334,9 @@ export function App(): JSX.Element {
       editorLabel: t.editorLabel,
       mathError: t.mathError,
       diagramError: t.diagramError,
+      diagramResize: t.diagramResize,
+      diagramEditCode: t.diagramEditCode,
+      diagramEditCodeHint: t.diagramEditCodeHint,
       imgMissing: t.imgMissing,
       imgLoadBlocked: t.imgLoadBlocked,
       linkOpen: t.linkOpen,
@@ -459,6 +462,7 @@ export function App(): JSX.Element {
     });
     setEmbedOpenHandler((path) => { void store.openPath(path); });
     setImageResizeHandler((src, pct) => store.setImageWidth(src, pct));
+    setDiagramResizeHandler((key, pct) => store.setDiagramWidth(key, pct));
     setImageViewerHandler((view, pos) => {
       const tab = store.active;
       if (view !== store.view || !tab) return;
@@ -525,6 +529,7 @@ export function App(): JSX.Element {
     });
     return () => {
       setImageResizeHandler(null);
+      setDiagramResizeHandler(null);
       setImageViewerHandler(null);
       setFrontMatterEditHandler(null);
       setImageCaptionHandler(null);
@@ -657,7 +662,7 @@ export function App(): JSX.Element {
           api.readDocument(path).then((doc) => doc.text).catch(() => null));
         const {
           text, baseDir, wikiResolve, fm, metaTitle, metaAuthor, name, docTitle,
-          style, docxStyle, imageWidths, tableWidths, comments, theme, pageNumbers, header,
+          style, docxStyle, imageWidths, tableWidths, diagramWidths, comments, theme, pageNumbers, header,
         } = snapshot;
         const pdfOptions = { ...opts };
         const ext = kind;
@@ -675,6 +680,7 @@ export function App(): JSX.Element {
             style,
             imageWidths,
             tableWidths,
+            diagramWidths,
             frontLists: { toc: !!fm?.toc, lof: !!fm?.lof, lot: !!fm?.lot },
             lang: snapshot.lang,
             externalLinksNewTab: true,
@@ -694,6 +700,7 @@ export function App(): JSX.Element {
             theme: "light",
             imageWidths,
             tableWidths,
+            diagramWidths,
             lang: snapshot.lang,
             inlineImages: false,
             wikiResolve,

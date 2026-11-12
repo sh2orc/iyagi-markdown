@@ -42,6 +42,7 @@ import { formattingMarkRanges } from "./fmMarks";
 import { citeDisplay, citationNumberingForDocument, citationsInRange, isCiteDefLine } from "./citations";
 import { parseWikiLink, resolveWikiLink } from "./wiki";
 import { mdTableKey } from "./tableKey";
+import { diagramKey } from "./diagramKey";
 import { sentenceSpans } from "./writing";
 import { phrases } from "../app/phrases";
 import {
@@ -79,6 +80,8 @@ export interface PreviewConfig {
   formattingMarks?: boolean;
   /** 표 표시 폭(시작 줄 번호 문자열 → 열 px) — 문서 스타일 사이드카. */
   tableWidths: Record<string, number[]>;
+  /** mermaid 다이어그램 표시 폭(diagramKey → %) — 문서 스타일 사이드카. */
+  diagramWidths?: Record<string, number>;
   /** 위키링크 인덱스(소문자 이름 → 경로들) — 워크스페이스 트리에서(store). */
   wikiIndex: Map<string, string[]>;
 }
@@ -181,6 +184,14 @@ function previewConfigEquals(a: PreviewConfig | undefined, b: PreviewConfig): bo
     const av = a.tableWidths[k] ?? [];
     const bv = b.tableWidths[k] ?? [];
     if (av.length !== bv.length || av.some((w, i) => w !== bv[i])) return false;
+  }
+  // 다이어그램 폭 — 키별 %가 같아야 같은 설정.
+  const da = a.diagramWidths ?? {};
+  const db = b.diagramWidths ?? {};
+  const kda = Object.keys(da);
+  if (kda.length !== Object.keys(db).length) return false;
+  for (const k of kda) {
+    if (da[k] !== db[k]) return false;
   }
   // 위키링크 인덱스 — 참조 비교(트리가 바뀔 때만 store가 새 인스턴스를 만든다).
   if (a.wikiIndex !== b.wikiIndex) return false;
@@ -308,7 +319,7 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
   const citations = () => citationNumberingForDocument(doc);
   const behavior = view.state.facet(previewBehavior);
   const config = view.state.field(previewConfigField);
-  const { baseDir, remoteImages, showImages, theme, imageWidths, bookmarks, tableWidths, commentLines = [], longSentenceMarks = false, longSentenceMin = 60, formattingMarks = false } = config;
+  const { baseDir, remoteImages, showImages, theme, imageWidths, bookmarks, tableWidths, diagramWidths = {}, commentLines = [], longSentenceMarks = false, longSentenceMin = 60, formattingMarks = false } = config;
 
   // 노출할 줄 = 편집 모드에서 커서·선택(·조합)이 걸친 줄.
   const revealed = new Set<number>();
@@ -785,8 +796,12 @@ function buildChunk(view: EditorView, chunkFrom: number, chunkTo: number): Range
             second && second.name === "CodeInfo" ? slice(second.from, second.to).trim() : "";
           if (info === "mermaid") {
             const code = extractFenceBody(slice(from, to));
+            const dKey = diagramKey(code);
             ranges.push(
-              replace({ widget: new DiagramWidget(code, theme), block: true }).range(from, to),
+              replace({
+                widget: new DiagramWidget(code, theme, dKey, diagramWidths[dKey]),
+                block: true,
+              }).range(from, to),
             );
             return;
           }

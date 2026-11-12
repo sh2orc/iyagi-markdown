@@ -75,6 +75,12 @@ iyagi-markdown/
 - 빈 줄은 0.42배 높이로 축소.
 - 위젯: Math(KaTeX)·Diagram(mermaid)·Table·Task·Image(폭 드래그)·HRule·
   Bullet(깊이별 글리프)·Highlight.
+- Diagram(편집 모드): 클릭 = 선택(테두리 + 오른쪽 위 폭 핸들), 원문은 노출하지
+  않는다. 원문 편집은 더블클릭·`</> 코드 편집` 버튼·키보드 진입. 폭(10~100%)은
+  문서 스타일 사이드카 `diagramWidths`(키 = `diagramKey(코드)`, 표 헤더 키처럼
+  줄 이동에 강함)에 저장되고 읽기·참조 페인·HTML/PDF/EPUB에 같은 폭으로 반영.
+  DOCX는 아직 자연 크기(페이지 폭 상한). 범위 선택 중 클릭은
+  `widgetClickCollapse`가 아니라 위젯이 펜스 **바깥**으로 접는다.
 
 ## 집필 모드(src/editor/writing.ts)
 

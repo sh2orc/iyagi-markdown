@@ -159,6 +159,7 @@ export function RefPane({ store, t, tabId, onClose }: Props): JSX.Element | null
           // 페인에서만 폭 조절 결과가 안 보임).
           imageWidths: tab.docStyle?.imageWidths ?? {},
           tableWidths: tab.docStyle?.tableWidths ?? {},
+          diagramWidths: tab.docStyle?.diagramWidths ?? {},
           style: {
             font: tab.docStyle?.font ?? "system",
             sizePt: tab.docStyle && tab.docStyle.fontSize > 0 ? tab.docStyle.fontSize : 11,

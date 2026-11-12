@@ -337,6 +337,7 @@ export interface PreviewConfigParam {
   /** 서식 기호 보기(Word ¶). */
   formattingMarks?: boolean;
   tableWidths: Record<string, number[]>;
+  diagramWidths?: Record<string, number>;
   wikiIndex: Map<string, string[]>;
 }
 
@@ -1033,6 +1034,9 @@ const widgetClickCollapse = ViewPlugin.fromClass(
       while (block && block.parentElement !== view.contentDOM) block = block.parentElement;
       if (!(block instanceof HTMLElement) || block.contentEditable !== "false") return;
       if (block.classList.contains("cm-line") || block.classList.contains("cm-gap")) return;
+      // 다이어그램은 클릭 = 선택(크기 조절)이다 — 위젯 위치(펜스 줄)로 접으면
+      // 원문이 노출되므로 위젯 자신이 바깥으로 접는다(collapseSelectionOutside).
+      if (block.classList.contains("md-diagram")) return;
       view.dispatch({ selection: { anchor: view.posAtDOM(block) }, userEvent: "select.pointer" });
     };
     destroy() {
