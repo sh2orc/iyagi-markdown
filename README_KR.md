@@ -24,6 +24,14 @@ IYAGI Markdown은 `.md` 파일을 더블클릭하면 즉시 깔끔하게 렌더�
 - **가볍게**: 14MB(.app) · KaTeX·mermaid·highlight는 지연 로딩 청크 · 커서 이동당
   재계산 = 청크 1~2개(문서 크기와 무관).
 
+<p align="center">
+  <a href="docs/media/iyagi-markdown-intro.mp4">
+    <img src="docs/media/iyagi-markdown-intro.webp" alt="30초로 보는 IYAGI Markdown: .md 파일을 더블클릭하면 렌더링된 채 열리고, 마커는 캐럿이 닿을 때만 드러나며, 표·수식·mermaid 다이어그램을 제자리에서 편집하고 다이어그램은 드래그로 크기를 바꾸며, PDF·Word·HTML·EPUB 내보내기에서도 수식과 다이어그램은 벡터로 남는다" width="800">
+  </a>
+  <br>
+  <sub>30초 소개 영상(영어) · <a href="docs/media/iyagi-markdown-intro.mp4">MP4, 1080p</a></sub>
+</p>
+
 ## 다운로드
 
 설치 파일은 **[GitHub Releases](https://github.com/sh2orc/iyagi-markdown/releases)**에 게시된다.
@@ -345,6 +353,7 @@ npm run tauri build    # .app + DMG
 |---|---|
 | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | 구조와 설계 원칙 |
 | [docs/architecture.md](docs/architecture.md) | 구현 상세 |
+| [docs/media/intro/](docs/media/intro/) | 30초 소개 영상 소스(`intro.html` + `render.mjs`, 다시 만들기: `node docs/media/intro/render.mjs`) |
 | [RELEASE.md](RELEASE.md) | 모든 버전의 릴리스 노트와 빌드·게시 방법 |
 | [README.md](README.md) | 영문 README |
 

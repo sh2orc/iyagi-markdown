@@ -30,6 +30,14 @@ Tauri 2 + Rust + React/TS + CodeMirror 6.
 - **Lightweight.** 14 MB (.app) · KaTeX, mermaid and highlight.js are lazy-loaded
   chunks · every caret move recomputes only 1–2 chunks, regardless of document size.
 
+<p align="center">
+  <a href="docs/media/iyagi-markdown-intro.mp4">
+    <img src="docs/media/iyagi-markdown-intro.webp" alt="IYAGI Markdown in 30 seconds: double-click a .md file and it opens rendered, markers appear only under the caret, tables, math and mermaid diagrams edit in place, diagrams resize by dragging, and exports to PDF, Word, HTML and EPUB keep math and diagrams as vectors" width="800">
+  </a>
+  <br>
+  <sub>30-second intro (English) · <a href="docs/media/iyagi-markdown-intro.mp4">MP4, 1080p</a></sub>
+</p>
+
 ## Download
 
 Installers are published as **[GitHub Releases](https://github.com/sh2orc/iyagi-markdown/releases)**.
@@ -506,6 +514,7 @@ Targets (spec §1-2) and measured values (2026-10-12, Apple Silicon, release bui
 |---|---|
 | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Structure and design principles |
 | [docs/architecture.md](docs/architecture.md) | Implementation detail |
+| [docs/media/intro/](docs/media/intro/) | Source of the 30-second intro video (`intro.html` + `render.mjs`; rebuild with `node docs/media/intro/render.mjs`) |
 | [RELEASE.md](RELEASE.md) | Release notes for every version, and how releases are built and published |
 | [README_KR.md](README_KR.md) | This README in Korean |
 

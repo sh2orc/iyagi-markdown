@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>IYAGI Markdown — 30-second intro</title>
+<!--
+  30초 소개 모션 그래픽. 모든 장면은 시간 t(초)의 순수 함수다: window.__render(t)가 DOM을 그 시각의
+  모습으로 만든다. render.mjs가 저장소 루트를 로컬 HTTP로 띄우고 t를 1/30초씩 올리며 캡처해 ffmpeg로
+  인코딩한다(window.__ready — 수식·다이어그램 렌더 완료 — 를 기다린 뒤 시작).
+
+  화면은 실제 앱 동작과 같아야 한다:
+  - 편집 모드: 인라인 마커(**·[]())는 캐럿이 닿을 때만 회색으로 드러난다(livePreview.ts coversMarks).
+  - 소스 모드: 같은 글꼴의 원문 — 제목은 1.5em/1.3em, 마커는 회색(theme.ts .cm-source-mode).
+  - 수식은 앱과 같은 KaTeX, 다이어그램은 앱과 같은 mermaid 설정(plugins/mermaid.ts defaultsFor)으로 그린다.
+  - mermaid: 클릭 = 선택(테두리·오른쪽 위 핸들·"</> Edit code"), 핸들 드래그 = 폭(%) 조절, 가운데 정렬이라
+    상자는 양쪽에서 줄어든다(widgets.ts DiagramWidget).
+  - 내보내기: PDF는 벡터 경로, DOCX는 OMML 수식·DrawingML 도형, HTML은 자체 포함, EPUB 3(README).
+-->
+<link rel="stylesheet" href="../../../node_modules/katex/dist/katex.min.css">
+<script src="../../../node_modules/katex/dist/katex.min.js"></script>
+<script src="../../../node_modules/mermaid/dist/mermaid.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1920px;height:1080px;overflow:hidden;background:#0c0a2e;
+    font-family:-apple-system,"SF Pro Display","Helvetica Neue","Apple SD Gothic Neo",sans-serif;color:#fff}
+  #stage{position:absolute;left:0;top:0;width:1920px;height:1080px;overflow:hidden;
+    background:radial-gradient(1400px 900px at 70% 8%,#5a51ee 0%,#2c2596 46%,#0c0a2e 100%)}
+  .abs{position:absolute;left:0;top:0}
+  .blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5}
+  .center{text-align:center;transform-origin:50% 50%}
+  .glass{background:rgba(255,255,255,.08);border:1.5px solid rgba(255,255,255,.18);backdrop-filter:blur(20px)}
+
+  /* brand badge + captions */
+  #brand{left:64px;top:34px;display:flex;align-items:center;gap:14px;font-weight:700;font-size:30px;letter-spacing:.2px}
+  #brand svg{width:52px;height:52px}
+  .cap{left:0;width:1920px;top:52px;text-align:center;font-size:56px;font-weight:750;letter-spacing:-.5px;
+    text-shadow:0 4px 30px rgba(10,5,80,.7)}
+  .cap b{color:#67e8f9;font-weight:800}
+
+  /* scene 1: file icon on the desktop */
+  #file{left:810px;top:330px;width:300px;text-align:center}
+  #file .ico{position:relative;width:200px;height:230px;margin:0 auto;border-radius:18px;padding:10px 18px}
+  #file .lbl{display:inline-block;margin-top:10px;padding:4px 14px;border-radius:8px;font-size:26px;font-weight:600;white-space:nowrap}
+
+  /* app window (light theme — styles.css 토큰) */
+  #win{left:250px;top:150px;width:1420px;height:860px;border-radius:16px;overflow:hidden;background:#fff;color:#24292f;
+    transform-origin:50% 50%;box-shadow:0 50px 140px rgba(5,0,60,.75),0 0 0 1px rgba(255,255,255,.25);
+    font-family:-apple-system,"SF Pro Text","Helvetica Neue","Apple SD Gothic Neo",sans-serif}
+  #titlebar{position:absolute;left:0;top:0;right:0;height:44px;display:flex;align-items:center;padding-left:18px;gap:9px;
+    background:#fff;border-bottom:1px solid #e3e4e8;font-size:18px;font-weight:700}
+  .tl{width:14px;height:14px;border-radius:50%;flex:none}
+  #side{position:absolute;left:0;top:44px;bottom:0;width:236px;background:#f5f5f7;border-right:1px solid #e3e4e8;padding:16px;font-size:15px;color:#3b4148}
+  #side h6,#toc h6{font-size:13px;font-weight:600;color:#656d76;margin:0 0 14px}
+  #side .sec{font-size:13px;font-weight:700;color:#3b4148;margin:22px 0 10px}
+  #side .doc{margin-bottom:12px;line-height:1.3}
+  #side .doc small{display:block;font-size:12px;color:#8c959f}
+  #side .doc.on{color:#4f46e5}
+  #toc{position:absolute;right:0;top:44px;bottom:0;width:236px;background:#f5f5f7;border-left:1px solid #e3e4e8;padding:16px;font-size:15px;color:#3b4148}
+  #toc .filter{height:30px;border:1px solid #d8dade;border-radius:6px;background:#fff;color:#9aa0a6;font-size:13px;padding:6px 10px;margin-bottom:16px}
+  #toc .it{padding:5px 10px;border-left:3px solid transparent;margin-bottom:4px}
+  #toc .it.on{background:rgba(79,70,229,.12);border-left-color:#4f46e5;color:#4f46e5;font-weight:600}
+  #toc .it.sub{padding-left:28px}
+  #main{position:absolute;left:236px;right:236px;top:44px;bottom:0;background:#f2f2f4}
+  #tabs{position:absolute;left:0;right:0;top:0;height:38px;background:#ececee;display:flex;align-items:flex-end;padding-left:12px;gap:4px;border-bottom:1px solid #dcdde1}
+  .tab{height:32px;padding:0 16px;border-radius:8px 8px 0 0;display:flex;align-items:center;gap:12px;font-size:15px;color:#656d76}
+  .tab.on{background:#fff;color:#24292f}
+  .tab .x{font-size:13px;color:#8c959f}
+  #tools{position:absolute;left:0;right:0;top:38px;height:42px;background:#fff;border-bottom:1px solid #e3e4e8;display:flex;align-items:center;gap:22px;padding-left:22px;font-size:16px;color:#3a3f45;font-weight:600}
+  #tools .sep{width:1px;height:20px;background:#dcdde1}
+  #view{position:absolute;left:0;right:0;top:80px;bottom:34px;overflow:hidden}
+  #scroll{position:absolute;left:0;right:0;top:0}
+  #modebar{position:absolute;left:0;right:0;bottom:0;height:34px;background:#f5f5f7;border-top:1px solid #e3e4e8;display:flex;align-items:center;gap:4px;padding:0 12px;font-size:15px;color:#656d76}
+  #modehl{position:absolute;top:4px;height:26px;border-radius:6px;background:rgba(79,70,229,.14)}
+  .mode{position:relative;padding:0 10px;line-height:26px;border-radius:6px}
+  #status{margin-left:auto;font-size:13px;color:#656d76;display:flex;gap:18px}
+
+  /* document page — theme.ts 타이포그래피를 1.6배로 */
+  .page{position:relative;width:760px;background:#fff;border:1px solid #e1e2e6;box-shadow:0 2px 10px rgba(0,0,0,.06);
+    padding:46px 40px 90px;font-size:24px;line-height:1.55;color:#24292f;letter-spacing:-.005em;text-align:left}
+  #view .page{margin:24px auto 0;min-height:1500px}
+  .ln{position:relative;padding:.1em 16px;white-space:pre-wrap}
+  .blank{height:.55em}
+  .h1{font-size:1.45em;font-weight:750;line-height:1.3;letter-spacing:-.015em;color:#1f2328;padding-top:.3em;padding-bottom:.12em}
+  .h2{font-size:1.24em;font-weight:700;line-height:1.32;letter-spacing:-.012em;color:#1f2328;padding-top:.3em;padding-bottom:.1em}
+  .mk{display:inline-block;overflow:hidden;white-space:pre;vertical-align:top;color:#8c959f;font-weight:400}
+  .rd{display:inline-block;overflow:hidden;white-space:pre;vertical-align:top}
+  .st{font-weight:700}
+  .lk{color:#0969da;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px}
+  .url{color:#0969da;text-decoration:underline}
+  .li{padding-left:16px}
+  .bul{color:#4f46e5;font-weight:700;text-align:center}
+  .bul i{display:inline-block;width:1.2em;font-style:normal;font-size:.9em}
+  .cb{display:inline-block;position:relative;width:.95em;height:.95em;border:1.5px solid #b8bcc4;border-radius:5px;
+    vertical-align:-.12em;margin-right:.5em}
+  .cb.on{background:#4f46e5;border-color:#4f46e5}
+  .cb.on:after{content:"✓";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:.75em;font-weight:800}
+  .cp{display:inline-block;width:0;height:1.2em;vertical-align:-.25em;margin-right:-2px;border-left:2px solid transparent}
+  .blk{position:relative}
+  .blk>.rend,.blk>.raw{position:absolute;left:0;right:0;top:0}
+  .pp{color:#8c959f}
+  .code{font-family:"SF Mono",Menlo,monospace;font-size:.86em}
+  .tw{padding:.25em 16px .5em}
+  .tbl{border-collapse:collapse;font-size:.95em;line-height:1.45}
+  .tbl th,.tbl td{border:1px solid #d0d7de;padding:6px 18px;text-align:left;position:relative}
+  .tbl th{background:#f6f8fa;font-weight:650;border-bottom:2px solid #b8bcc4}
+  .tbl td.edit{outline:2.5px solid #4f46e5;outline-offset:-2px;background:rgba(79,70,229,.05)}
+  .math{padding:.35em 16px .45em;text-align:center;font-size:1.05em}
+  .math .katex-display{margin:0}
+  .dwrap{position:relative;margin:.15em 16px .3em;text-align:center;background:rgba(0,0,0,.025);border:1px solid #e3e4e8;border-radius:12px;padding:16px}
+  .dbox{position:relative;display:inline-block;max-width:100%;vertical-align:top}
+  .dbox>svg{display:block;width:100%;max-width:100%;height:auto}
+  .dh{position:absolute;right:-8px;top:-8px;width:16px;height:16px;border-radius:4px;background:#4f46e5;border:2.5px solid #fff;
+    box-shadow:0 1px 5px rgba(0,0,0,.35);display:none}
+  .dedit{position:absolute;left:8px;top:8px;font-size:.62em;line-height:1.4;padding:3px 10px;border-radius:7px;border:1px solid #d8dade;
+    background:#fff;color:#24292f;opacity:0}
+
+  /* pointer */
+  #ptr{left:0;top:0;width:0;height:0;pointer-events:none}
+  #ptr svg{position:absolute;filter:drop-shadow(0 3px 5px rgba(0,0,0,.35))}
+  #ripple{position:absolute;border-radius:50%;border:3px solid #67e8f9}
+
+  /* scene 4: export cards */
+  .xcard{width:350px}
+  .xhead{display:flex;align-items:center;gap:14px;margin-bottom:14px;font-size:28px;font-weight:750}
+  .badge{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 12px;border-radius:9px;font-size:19px;font-weight:800;letter-spacing:.5px;color:#fff}
+  .paper{position:relative;width:350px;height:440px;border-radius:10px;overflow:hidden;background:#fff;box-shadow:0 30px 80px rgba(5,0,60,.6)}
+  .paper .bar{position:absolute;left:0;right:0;top:0;height:30px;background:#f1f2f4;border-bottom:1px solid #e1e2e6;font-size:14px;color:#656d76;
+    display:flex;align-items:center;padding-left:12px;gap:8px}
+  .paper .bar i{width:9px;height:9px;border-radius:50%;background:#d0d3d9}
+  .paper .mini{position:absolute;left:0;top:30px;transform-origin:0 0}
+  .paper .mini .page{border:none;box-shadow:none}
+  .xsub{margin-top:18px;font-size:24px;line-height:1.35;color:#c7d2fe;text-align:center}
+  #loupe{width:400px;height:400px;border-radius:50%;overflow:hidden;background:#fff;border:6px solid #67e8f9;
+    box-shadow:0 0 0 2px rgba(255,255,255,.5),0 30px 90px rgba(5,0,60,.8),0 0 70px rgba(103,232,249,.45)}
+  #loupe .big{position:absolute;left:0;top:0;transform-origin:0 0}
+  #loupe .big .page{border:none;box-shadow:none}
+
+  /* principles */
+  .card{width:640px;height:200px;border-radius:26px;padding:34px 40px}
+  .card h5{font-size:40px;font-weight:780;margin-bottom:10px;letter-spacing:-.3px}
+  .card p{font-size:26px;color:rgba(255,255,255,.75);line-height:1.35}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const lerp = (a, b, x) => a + (b - a) * x;
+const eo = (x) => 1 - Math.pow(1 - x, 3);
+const eio = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const eb = (x) => { const c1 = 1.25, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+/** 사다리꼴 가시성: a→b 나타남, c→d 사라짐. */
+const vis = (t, a, b, c, d) => Math.min(prog(t, a, b), 1 - prog(t, c, d));
+/** 켜짐(on)·꺼짐(off) 시각 사이의 짧은 전환량(0..1). */
+const sw = (t, on, off = 1e9, dur = 0.14) => Math.min(prog(t, on, on + dur), 1 - prog(t, off, off + dur));
+
+function h(tag, cls, parent, html, style) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html != null) e.innerHTML = html;
+  if (style) Object.assign(e.style, style);
+  (parent || stage).appendChild(e);
+  return e;
+}
+const stage = $("stage");
+const put = (el, o, x = 0, y = 0, s = 1, rot = 0) => {
+  el.style.opacity = o;
+  el.style.transform = `translate(${x}px,${y}px) rotate(${rot}deg) scale(${s})`;
+};
+/** 앱 아이콘(public/favicon.svg와 같은 도형, 여백 없이). */
+const ICON = (id) => `<svg viewBox="88 72 848 848" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="${id}" x2="0" y2="1"><stop stop-color="#645bef"/><stop offset="1" stop-color="#2f2a94"/></linearGradient></defs><rect x="88" y="72" width="848" height="848" rx="190" fill="url(#${id})"/><g fill="none" stroke="#fff" stroke-width="76" stroke-linecap="round" stroke-linejoin="round"><path d="M250 655V337l140 156 140-156v318"/><path d="M716 342v297m-70-69 70 75 70-75"/></g></svg>`;
+
+// ---------------------------------------------------------------- background
+const blobs = [
+  h("div", "blob", null, null, { left: "-200px", top: "520px", width: "800px", height: "800px", background: "#6d5cff" }),
+  h("div", "blob", null, null, { left: "1320px", top: "-220px", width: "700px", height: "700px", background: "#22d3ee", opacity: ".28" }),
+  h("div", "blob", null, null, { left: "720px", top: "720px", width: "700px", height: "500px", background: "#8b5cf6", opacity: ".38" }),
+];
+
+// ---------------------------------------------------------------- brand + captions
+const brand = h("div", "abs", null, ICON("gb") + "<span>IYAGI Markdown</span>");
+brand.id = "brand";
+const CAPTIONS = [
+  [3.9, 5.5, "Double-click a <b>.md</b> file."],
+  [5.6, 7.35, "It opens <b>rendered</b>. Same window edits."],
+  [7.5, 9.95, "Underneath, it's still <b>plain Markdown</b>."],
+  [10.05, 12.6, "Markers appear only <b>under the caret</b>."],
+  [12.75, 14.95, "Tables, math, diagrams — edit <b>in place</b>."],
+  [15.05, 18.15, "Click a diagram. <b>Drag</b> to resize."],
+  [18.4, 20.35, "Export to <b>PDF · Word · HTML · EPUB</b>."],
+  [20.45, 22.35, "Math and diagrams stay <b>vector</b>."],
+].map(([a, b, html]) => ({ a, b, el: h("div", "abs cap", null, html) }));
+
+// ---------------------------------------------------------------- scene 0 / 6 (logo)
+const logoWrap = h("div", "abs", null, null, { width: "1920px", height: "1080px" });
+const icon = h("div", "abs", logoWrap, ICON("g0"), { left: "780px", top: "170px", width: "360px", height: "360px", borderRadius: "22.4%",
+  boxShadow: "0 0 120px rgba(120,110,255,.55), 0 40px 100px rgba(5,0,60,.7)" });
+const TITLE = "IYAGI Markdown";
+const titleBox = h("div", "abs center", logoWrap, null, { left: "0", top: "570px", width: "1920px", fontSize: "128px", fontWeight: "820", letterSpacing: "-2px" });
+const letters = [...TITLE].map((c) => h("span", null, titleBox, c === " " ? "&nbsp;" : c, { display: "inline-block" }));
+const sub0 = h("div", "abs center", logoWrap, "Read, write, and keep your Markdown intact.", { left: "0", top: "745px", width: "1920px", fontSize: "50px", fontWeight: "560", color: "#c7d2fe" });
+const tag0 = h("div", "abs center", logoWrap, "YOUR INTERFACE TO AGI", { left: "0", top: "850px", width: "1920px", fontSize: "26px", fontWeight: "650", letterSpacing: "9px", color: "rgba(255,255,255,.55)" });
+
+// ---------------------------------------------------------------- scene 1 (file icon)
+const file = h("div", "abs", null,
+  '<div class="ico"><svg width="164" height="210" viewBox="0 0 164 210"><path d="M8 4h106l46 46v152a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8a4 4 0 0 1 4-4z" fill="#fff" stroke="#c9ccd6" stroke-width="2"/><path d="M114 4v42a4 4 0 0 0 4 4h42" fill="#eceef3" stroke="#c9ccd6" stroke-width="2"/>' +
+  '<g transform="translate(40 52) scale(.1)">' + '<rect x="0" y="0" width="848" height="848" rx="190" fill="#4f46e5"/><g fill="none" stroke="#fff" stroke-width="76" stroke-linecap="round" stroke-linejoin="round"><path d="M162 583V265l140 156 140-156v318"/><path d="M628 270v297m-70-69 70 75 70-75"/></g></g>' +
+  '<text x="82" y="184" text-anchor="middle" font-size="22" font-weight="700" fill="#656d76" font-family="-apple-system,sans-serif">MD</text></svg></div>' +
+  '<div class="lbl">launch-plan.md</div>');
+file.id = "file";
+const fileIco = file.querySelector(".ico"), fileLbl = file.querySelector(".lbl");
+
+// ---------------------------------------------------------------- the document
+const MERMAID_SRC = "flowchart LR\n  A[notes.md] --> B{Live preview}\n  B --> C[PDF]\n  B --> D[DOCX]";
+const TEX = "\\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx = \\sqrt{\\pi}";
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const PAGE_HTML =
+  '<div class="ln h1"><span class="mk" data-g="src">#&#32;</span>Launch plan</div>' +
+  '<div class="blank"></div>' +
+  '<div class="ln">Ship the <span class="st"><span class="mk" data-g="b">**</span>be<span class="cp" data-c="beta"></span>ta<span class="mk" data-g="b">**</span></span> on Friday — see ' +
+    '<span class="mk" data-g="l">[</span><span class="lk">the <span class="cp" data-c="spec"></span>spec</span><span class="mk" data-g="l">](<span class="url">spec.md</span>)</span>.</div>' +
+  '<div class="blank"></div>' +
+  '<div class="ln li"><span class="rd bul"><i>•</i></span><span class="mk" data-g="src">- [x] </span><span class="rd"><i class="cb on"></i></span>Write the spec</div>' +
+  '<div class="ln li"><span class="rd bul"><i>•</i></span><span class="mk" data-g="src">- [<span data-x> </span>] </span><span class="rd"><i class="cb" data-cb></i></span>Review with the team</div>' +
+  '<div class="blank"></div>' +
+  '<div class="ln h2"><span class="mk" data-g="src">##&#32;</span>Timeline</div>' +
+  '<div class="blank"></div>' +
+  '<div class="blk" data-blk><div class="rend"><div class="tw"><table class="tbl"><tr><th>Task</th><th>Owner</th><th>Status</th></tr>' +
+    '<tr><td>Design</td><td>Mina</td><td>Done</td></tr><tr><td>Build</td><td>Joon</td><td data-cell><span data-ct>Draft</span><span class="cp" data-c="cell"></span></td></tr></table></div></div>' +
+    '<div class="raw">' + [["Task", "Owner", "Status"], ["------", "-------", "--------"], ["Design", "Mina", "Done"], ["Build", "Joon", "<span data-cr>Draft</span>"]]
+      .map((r) => '<div class="ln"><span class="pp">|</span> ' + r.join(' <span class="pp">|</span> ') + ' <span class="pp">|</span></div>').join("") + '</div></div>' +
+  '<div class="blank"></div>' +
+  '<div class="blk" data-blk><div class="rend"><div class="math" data-math></div></div>' +
+    '<div class="raw"><div class="ln pp">$$</div><div class="ln">' + esc(TEX) + '</div><div class="ln pp">$$</div></div></div>' +
+  '<div class="blank"></div>' +
+  '<div class="blk" data-blk><div class="rend"><div class="dwrap"><div class="dbox" data-dbox><i class="dh"></i></div><span class="dedit">&lt;/&gt; Edit code</span></div></div>' +
+    '<div class="raw"><div class="ln code pp">```mermaid</div>' + MERMAID_SRC.split("\n").map((l) => '<div class="ln code">' + esc(l) + "</div>").join("") + '<div class="ln code pp">```</div></div></div>';
+
+/** 문서 한 벌을 만든다 — 앱 창 본문, 내보내기 카드 미니어처, 돋보기가 같은 레이아웃을 공유한다. */
+function makePage(parent) {
+  const root = h("div", "page", parent, PAGE_HTML);
+  const q = (s) => root.querySelector(s);
+  const qa = (s) => [...root.querySelectorAll(s)];
+  return {
+    root,
+    mk: { src: qa('.mk[data-g="src"]'), b: qa('.mk[data-g="b"]'), l: qa('.mk[data-g="l"]') },
+    rd: qa(".rd"), li: qa(".li"), blks: qa("[data-blk]"),
+    lk: q(".lk"), cb: q("[data-cb]"), x: q("[data-x]"),
+    cell: q("[data-cell]"), ct: q("[data-ct]"), cr: q("[data-cr]"),
+    cp: Object.fromEntries(qa(".cp").map((c) => [c.dataset.c, c])),
+    math: q("[data-math]"), dbox: q("[data-dbox]"), dwrap: q(".dwrap"), dh: q(".dh"), dedit: q(".dedit"),
+  };
+}
+const setMk = (el, k) => { el.style.maxWidth = k >= 1 ? "none" : k * el.scrollWidth + "px"; el.style.opacity = k; };
+function setBlk(blk, k) {
+  const [rend, raw] = blk.children;
+  blk.style.height = lerp(rend.offsetHeight, raw.offsetHeight, k) + "px";
+  // 겹쳐 비치지 않게 앞쪽이 다 사라진 뒤 뒤쪽이 나타난다.
+  rend.style.opacity = clamp(1 - 2 * k);
+  raw.style.opacity = clamp(2 * k - 1);
+  raw.style.visibility = k > 0 ? "visible" : "hidden";
+}
+/** 문서 상태 적용. s: { src, b, l, checked, cellText, cellEdit, caret, caretOn, diagPct, diagSel, diagHover } */
+function applyPage(P, s) {
+  P.mk.src.forEach((e) => setMk(e, s.src));
+  P.mk.b.forEach((e) => setMk(e, Math.max(s.src, s.b)));
+  P.mk.l.forEach((e) => setMk(e, Math.max(s.src, s.l)));
+  P.rd.forEach((e) => setMk(e, 1 - s.src));
+  P.rd.forEach((e) => (e.style.color = ""));
+  P.lk.style.textDecorationColor = `rgba(9,105,218,${0.35 * (1 - Math.max(s.src, s.l))})`;
+  P.cb.className = "cb" + (s.checked ? " on" : "");
+  P.cb.style.transform = `scale(${s.cbPop ?? 1})`;
+  P.x.textContent = s.checked ? "x" : " ";
+  P.ct.textContent = s.cellText;
+  P.cr.textContent = s.cellText;
+  P.cell.className = s.cellEdit ? "edit" : "";
+  for (const [k, el] of Object.entries(P.cp)) el.style.borderLeftColor = s.caret === k && s.caretOn ? "#4f46e5" : "transparent";
+  P.dbox.style.width = s.diagPct + "%";
+  P.dbox.style.outline = s.diagSel ? "2.5px solid #4f46e5" : "none";
+  P.dbox.style.outlineOffset = "4px";
+  P.dh.style.display = s.diagSel || s.diagHover ? "block" : "none";
+  P.dedit.style.opacity = s.diagSel || s.diagHover ? 0.9 : 0;
+  P.blks.forEach((b) => setBlk(b, s.src));
+}
+const FINAL = { src: 0, b: 0, l: 0, checked: true, cellText: "Done", cellEdit: false, caret: null, caretOn: false, diagPct: 62, diagSel: false, diagHover: false };
+
+// ---------------------------------------------------------------- app window
+const win = h("div", "abs", null,
+  '<div id="titlebar"><i class="tl" style="background:#ff5f57"></i><i class="tl" style="background:#febc2e"></i><i class="tl" style="background:#28c840"></i><span style="margin-left:12px">launch-plan.md</span></div>' +
+  '<div id="side"><h6>Documents</h6><div class="sec">★ Favorites</div><div class="sec">Recent</div>' +
+    '<div class="doc on">launch-plan.md<small>~/Documents/work</small></div><div class="doc">weekly-notes.md<small>~/Documents/work</small></div>' +
+    '<div class="doc">reading-list.md<small>~/Notes</small></div><div class="doc">README.md<small>~/Projects/site</small></div></div>' +
+  '<div id="main"><div id="tabs"><div class="tab on">launch-plan.md<span class="x">✕</span></div><div class="tab">weekly-notes.md<span class="x">✕</span></div></div>' +
+    '<div id="tools"><span>↶</span><span>↷</span><i class="sep"></i><b>B</b><i style="font-family:Georgia,serif">I</i><s>S</s><span>&lt;/&gt;</span><span>⛓</span><span>Σ</span><i class="sep"></i><span>H1</span><span>H2</span><span>H3</span><i class="sep"></i><span>•—</span><span>1.</span><span>❝</span><i class="sep"></i><span>▦</span><span>—</span></div>' +
+    '<div id="view"><div id="scroll"></div></div>' +
+    '<div id="modebar"><i id="modehl"></i><span class="mode" id="mEdit">Editing</span><span class="mode">Reading</span><span class="mode" id="mSrc">Source</span><span id="status"><span>Ln 1, Col 1</span><span>63 words</span></span></div></div>' +
+  '<div id="toc"><h6>Table of contents</h6><div class="filter">Filter headings</div><div class="it on">Launch plan</div><div class="it sub">Timeline</div></div>');
+win.id = "win";
+const scroller = $("scroll");
+const MAIN = makePage(scroller);
+
+// ---------------------------------------------------------------- scene 4 (export)
+const s4 = h("div", "abs", null, null, { width: "1920px", height: "1080px" });
+const XS = [
+  ["PDF", "#e5484d", "launch-plan.pdf", "Vector paths,<br>print-ready"],
+  ["DOCX", "#2b6cde", "launch-plan.docx", "Native Word equations<br>and shapes"],
+  ["HTML", "#f76b15", "launch-plan.html", "One self-contained<br>file"],
+  ["EPUB", "#30a46c", "launch-plan.epub", "EPUB 3<br>e-book"],
+];
+const MINI_S = 350 / 760;
+const xcards = XS.map(([name, color, fname, sub], i) => {
+  const el = h("div", "abs xcard", s4,
+    `<div class="xhead"><span class="badge" style="background:${color}">${name}</span><span>${["PDF", "Word", "Web page", "E-book"][i]}</span></div>` +
+    `<div class="paper"><div class="bar"><i></i><i></i><i></i><span>${fname}</span></div><div class="mini"></div></div><div class="xsub">${sub}</div>`);
+  const mini = el.querySelector(".mini");
+  mini.style.transform = `scale(${MINI_S})`;
+  return { el, x: 155 + i * 410, P: makePage(mini), paper: el.querySelector(".paper") };
+});
+const loupe = h("div", "abs", s4, '<div class="big"></div>');
+loupe.id = "loupe";
+const LOUPE_S = 2.6;
+const bigWrap = loupe.querySelector(".big");
+bigWrap.style.transform = `scale(${LOUPE_S})`;
+const BIG = makePage(bigWrap);
+
+// ---------------------------------------------------------------- scene 5 (principles)
+const s5 = h("div", "abs", null, null, { width: "1920px", height: "1080px" });
+const head5 = h("div", "abs center", s5, "Your file <span style='color:#67e8f9'>is</span> the document.", { left: "0", top: "130px", width: "1920px", fontSize: "92px", fontWeight: "820", letterSpacing: "-1.5px" });
+const CARDS = [
+  [290, 330, "Lossless saves", "Atomic writes. BOM, line endings and the final newline are kept.", 22.9],
+  [990, 330, "No lock-in", "Plain .md on disk. Styles live in a sidecar, not in your file.", 23.2],
+  [290, 570, "Small and quick", "A 14 MB app. Heavy renderers load only when needed.", 23.5],
+  [990, 570, "Speaks your language", "English · 한국어", 23.8],
+].map(([x, y, t1, t2, at]) => ({ x, y, at, el: h("div", "abs card glass", s5, `<h5>${t1}</h5><p>${t2}</p>`) }));
+
+// ---------------------------------------------------------------- scene 6 (outro)
+const s6 = h("div", "abs", null, null, { width: "1920px", height: "1080px" });
+const icon6 = h("div", "abs", s6, ICON("g6"), { left: "850px", top: "150px", width: "220px", height: "220px", borderRadius: "22.4%",
+  boxShadow: "0 0 100px rgba(120,110,255,.5), 0 30px 80px rgba(5,0,60,.7)" });
+const t6 = h("div", "abs center", s6, "IYAGI Markdown", { left: "0", top: "420px", width: "1920px", fontSize: "120px", fontWeight: "830", letterSpacing: "-2px" });
+const l6 = h("div", "abs center", s6, "Open source · Apache-2.0 · macOS 13+", { left: "0", top: "590px", width: "1920px", fontSize: "40px", fontWeight: "560", color: "#c7d2fe" });
+const u6 = h("div", "abs center", s6, "github.com/sh2orc/iyagi-markdown", { left: "0", top: "690px", width: "1920px", fontSize: "52px", fontWeight: "720", color: "#67e8f9" });
+const g6 = h("div", "abs center", s6, "YOUR INTERFACE TO AGI", { left: "0", top: "850px", width: "1920px", fontSize: "26px", fontWeight: "650", letterSpacing: "9px", color: "rgba(255,255,255,.55)" });
+
+// ---------------------------------------------------------------- pointer
+const ptr = h("div", "abs", null,
+  '<i id="ripple"></i>' +
+  '<svg id="pArrow" width="34" height="46" viewBox="0 0 30 40" style="left:-3px;top:-3px"><path d="M2 2v28l7-6.5 5 11.5 5-2-5-11.5h9z" fill="#111" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>' +
+  '<svg id="pEw" width="46" height="30" viewBox="0 0 46 30" style="left:-23px;top:-15px;display:none"><path d="M2 15l10-10v6h22V5l10 10-10 10v-6H12v6z" fill="#111" stroke="#fff" stroke-width="2" stroke-linejoin="round"/></svg>');
+ptr.id = "ptr";
+const ripple = $("ripple");
+const fade = h("div", "abs", null, null, { width: "1920px", height: "1080px", background: "#000", opacity: 0, pointerEvents: "none" });
+
+// ---------------------------------------------------------------- timeline
+const T = {
+  open: 5.0, toSrc: 7.95, toEdit: 9.05, beta: 10.35, spec: 11.45, check: 12.95, scroll: [13.15, 13.7], cell: 13.95,
+  select: 15.5, drag: [16.05, 17.05], out: [18.2, 18.7],
+};
+const CLICKS = [4.72, 4.9, T.toSrc, T.toEdit, T.beta, T.spec, T.check, T.cell, T.select, T.drag[0]];
+const TYPE_DEL = [14.05, 14.11, 14.17, 14.23, 14.29];   // Draft → (지움)
+const TYPE_ADD = [14.4, 14.48, 14.56, 14.64];            // → Done
+
+function cellTextAt(t) {
+  let s = "Draft";
+  const del = TYPE_DEL.filter((x) => t >= x).length;
+  s = s.slice(0, 5 - del);
+  const add = TYPE_ADD.filter((x) => t >= x).length;
+  return add ? "Done".slice(0, add) : s;
+}
+function pageState(t) {
+  const src = Math.max(eio(prog(t, T.toSrc + 0.05, T.toSrc + 0.4)) * (1 - eio(prog(t, T.toEdit + 0.05, T.toEdit + 0.4))), 0);
+  let caret = null, caretStart = 0;
+  if (t >= T.beta && t < T.spec) { caret = "beta"; caretStart = T.beta; }
+  else if (t >= T.spec && t < T.cell) { caret = "spec"; caretStart = T.spec; }
+  else if (t >= T.cell && t < T.select) { caret = "cell"; caretStart = T.cell; }
+  const typing = t >= TYPE_DEL[0] - 0.05 && t <= TYPE_ADD[3] + 0.3;
+  const caretOn = typing || ((t - caretStart) % 1.1) < 0.6;
+  return {
+    src,
+    b: sw(t, T.beta, T.spec, 0.12),
+    l: sw(t, T.spec, T.cell, 0.12),
+    checked: t >= T.check,
+    cbPop: t >= T.check ? lerp(1.25, 1, eo(prog(t, T.check, T.check + 0.25))) : 1,
+    cellText: cellTextAt(t),
+    cellEdit: t >= T.cell && t < T.select,
+    caret, caretOn,
+    diagPct: Math.round(lerp(100, 62, eio(prog(t, T.drag[0], T.drag[1]))) * 10) / 10,
+    diagSel: t >= T.select,
+    diagHover: t >= T.select - 0.3,
+  };
+}
+
+/** 스테이지 좌표(요소 중심 + 오프셋). */
+function at(el, fx = 0.5, fy = 0.5, dx = 0, dy = 0) {
+  const r = el.getBoundingClientRect();
+  return [r.left + r.width * fx + dx, r.top + r.height * fy + dy];
+}
+const cpAt = (name) => () => at(MAIN.cp[name], 0.5, 0.55, 2, 4);
+const drift = (f, dx, dy) => () => { const [x, y] = f(); return [x + dx, y + dy]; };
+const PATH = [
+  [3.9, () => [1340, 1000]],
+  [4.6, () => at(fileIco, 0.52, 0.5)],
+  [5.3, () => at(fileIco, 0.52, 0.5)],
+  // scene 2 — 클릭 뒤엔 포인터를 살짝 비켜 캐럿·마커를 가리지 않는다
+  [7.45, () => [980, 760]],
+  [7.85, () => at($("mSrc"), 0.5, 0.5)],
+  [8.65, () => at($("mSrc"), 0.5, 0.5)],
+  [8.97, () => at($("mEdit"), 0.5, 0.5)],
+  [9.6, () => at($("mEdit"), 0.5, 0.5)],
+  [10.27, cpAt("beta")],
+  [10.4, cpAt("beta")],
+  [10.7, drift(cpAt("beta"), 26, 58)],
+  [11.0, drift(cpAt("beta"), 26, 58)],
+  [11.37, cpAt("spec")],
+  [11.5, cpAt("spec")],
+  [11.8, drift(cpAt("spec"), 26, 58)],
+  [12.55, drift(cpAt("spec"), 26, 58)],
+  [12.87, () => at(MAIN.cb, 0.5, 0.5)],
+  [13.05, () => at(MAIN.cb, 0.5, 0.5)],
+  [13.85, () => at(MAIN.ct, 1, 0.55, 6, 0)],
+  [14.0, () => at(MAIN.ct, 1, 0.55, 6, 0)],
+  [14.3, () => at(MAIN.ct, 1, 0.55, 40, 60)],
+  [14.8, () => at(MAIN.ct, 1, 0.55, 40, 60)],
+  [15.3, () => at(MAIN.dbox, 0.3, 0.62)],
+  [15.55, () => at(MAIN.dbox, 0.3, 0.62)],
+  [15.9, () => at(MAIN.dh, 0.5, 0.5)],
+  [17.15, () => at(MAIN.dh, 0.5, 0.5)],
+  [17.7, () => at(MAIN.dh, 0.5, 0.5, 70, 90)],
+];
+function pointerAt(t) {
+  if (t <= PATH[0][0]) return PATH[0][1]();
+  for (let i = 0; i < PATH.length - 1; i++) {
+    const [t0, f0] = PATH[i], [t1, f1] = PATH[i + 1];
+    if (t >= t0 && t <= t1) {
+      const a = f0(), b = f1();
+      const e = eio(prog(t, t0, t1));
+      return [lerp(a[0], b[0], e), lerp(a[1], b[1], e)];
+    }
+  }
+  return PATH[PATH.length - 1][1]();
+}
+
+// ---------------------------------------------------------------- master
+let ready = false;
+window.__render = function (t) {
+  blobs.forEach((b, i) => { b.style.transform = `translate(${Math.sin(t * .35 + i * 2) * 90}px,${Math.cos(t * .3 + i) * 70}px)`; });
+
+  // scene 0 — logo
+  const s0 = vis(t, 0, 0.01, 3.25, 3.75);
+  const pop = eb(prog(t, 0.15, 1.0));
+  put(logoWrap, s0, 0, -40 * prog(t, 3.25, 3.75));
+  put(icon, clamp(pop * 1.4), 0, 0, lerp(.5, 1, pop));
+  letters.forEach((l, i) => { const a = eo(prog(t, 1.0 + i * .04, 1.35 + i * .04)); l.style.opacity = a; l.style.transform = `translateY(${(1 - a) * 40}px)`; });
+  put(sub0, eo(prog(t, 1.9, 2.5)), 0, (1 - eo(prog(t, 1.9, 2.5))) * 24);
+  put(tag0, eo(prog(t, 2.6, 3.0)) * .9);
+
+  // brand + captions
+  put(brand, vis(t, 3.9, 4.3, 25.8, 26.2));
+  for (const c of CAPTIONS) {
+    const o = vis(t, c.a, c.a + .35, c.b - .3, c.b);
+    put(c.el, o, 0, (1 - prog(t, c.a, c.a + .35)) * 22 - prog(t, c.b - .3, c.b) * 12);
+  }
+
+  // scene 1 — file icon, double-click
+  const fo = vis(t, 3.5, 4.0, 5.15, 5.5);
+  put(file, fo, 0, (1 - eo(prog(t, 3.5, 4.0))) * 30, lerp(1, 1.08, prog(t, 5.0, 5.5)));
+  const selF = t >= 4.72 ? 1 : 0;
+  fileIco.style.background = selF ? "rgba(255,255,255,.16)" : "transparent";
+  fileLbl.style.background = selF ? "#4f46e5" : "transparent";
+
+  // app window — zooms open from the file icon
+  const wIn = eo(prog(t, T.open, T.open + 0.7));
+  const wOut = prog(t, T.out[0], T.out[1]);
+  put(win, Math.min(clamp(wIn * 1.6), 1 - wOut), 0, lerp(-50, 0, wIn) - wOut * 20, lerp(.14, 1, wIn) * lerp(1, .96, wOut));
+  if (t >= T.open - 0.1 && t < T.out[1] + 0.1) {
+    const st = pageState(t);
+    applyPage(MAIN, st);
+    // 모드 표시: 편집 ↔ 소스
+    const mE = $("mEdit"), mS = $("mSrc"), k = st.src;
+    const hl = $("modehl");
+    hl.style.left = lerp(mE.offsetLeft, mS.offsetLeft, k) + "px";
+    hl.style.width = lerp(mE.offsetWidth, mS.offsetWidth, k) + "px";
+    mE.style.color = k < .5 ? "#4f46e5" : ""; mS.style.color = k >= .5 ? "#4f46e5" : "";
+    // 스크롤: 'Timeline' 제목이 보기 맨 위로 — 표·수식·다이어그램이 한 화면에 든다
+    const target = MAIN.root.querySelector(".h2").offsetTop + MAIN.root.offsetTop - 14;
+    scroller.style.transform = `translateY(${-target * eio(prog(t, T.scroll[0], T.scroll[1]))}px)`;
+  }
+
+  // pointer
+  const po = Math.max(vis(t, 3.9, 4.15, 5.15, 5.4), vis(t, 7.45, 7.65, 17.8, 18.2));
+  ptr.style.opacity = po;
+  if (po > 0) {
+    const [px, py] = pointerAt(t);
+    ptr.style.transform = `translate(${px}px,${py}px)`;
+    const ew = t >= 15.85 && t < 17.3;
+    $("pArrow").style.display = ew ? "none" : "block";
+    $("pEw").style.display = ew ? "block" : "none";
+    const c = CLICKS.filter((x) => t >= x && t < x + 0.4).pop();
+    if (c != null) {
+      const a = prog(t, c, c + 0.4), r = lerp(6, 34, eo(a));
+      Object.assign(ripple.style, { left: -r + "px", top: -r + "px", width: 2 * r + "px", height: 2 * r + "px", opacity: (1 - a) * .9 });
+    } else ripple.style.opacity = 0;
+  }
+
+  // scene 4 — export cards + loupe
+  const x4 = vis(t, 18.45, 18.8, 22.2, 22.6);
+  put(s4, x4);
+  if (x4 > 0) {
+    xcards.forEach((c, i) => {
+      const a = eb(prog(t, 18.55 + i * .15, 19.15 + i * .15));
+      put(c.el, clamp(a * 1.5), c.x, 250 + (1 - a) * 80, lerp(.9, 1, clamp(a)));
+    });
+    // 돋보기: PDF 카드의 다이어그램 마름모 위
+    const lo = vis(t, 20.5, 20.85, 22.2, 22.6);
+    const R = 200;
+    const node = xcards[0].P.dbox.querySelectorAll(".node")[1];
+    if (node && lo > 0) {
+      const [cx, cy] = at(node, 0.5, 0.5);
+      const pr = xcards[0].P.root.getBoundingClientRect();
+      const u = (cx - pr.left) / MINI_S, v = (cy - pr.top) / MINI_S;
+      const s = lerp(.4, 1, eb(prog(t, 20.5, 21.0)));
+      put(loupe, lo, cx - R + 130 * eo(prog(t, 20.5, 21.0)), cy - R - 150 * eo(prog(t, 20.5, 21.0)), s);
+      bigWrap.style.transform = `translate(${R - 6 - u * LOUPE_S}px,${R - 6 - v * LOUPE_S}px) scale(${LOUPE_S})`;
+    } else loupe.style.opacity = 0;
+  }
+
+  // scene 5 — principles
+  put(s5, vis(t, 22.3, 22.7, 25.8, 26.3));
+  put(head5, eo(prog(t, 22.5, 23.0)), 0, (1 - eo(prog(t, 22.5, 23.0))) * 30);
+  for (const c of CARDS) { const a = eb(prog(t, c.at, c.at + .5)); put(c.el, clamp(a), c.x, c.y + (1 - a) * 50, lerp(.92, 1, clamp(a))); }
+
+  // scene 6 — outro
+  put(s6, vis(t, 26.2, 26.7, 99, 100));
+  put(icon6, eb(prog(t, 26.3, 27.0)), 0, 0, lerp(.6, 1, eb(prog(t, 26.3, 27.0))));
+  put(t6, eo(prog(t, 26.8, 27.3)), 0, (1 - eo(prog(t, 26.8, 27.3))) * 30);
+  put(l6, eo(prog(t, 27.4, 27.9)));
+  put(u6, eo(prog(t, 28.0, 28.5)), 0, (1 - eo(prog(t, 28.0, 28.5))) * 16);
+  put(g6, eo(prog(t, 28.6, 29.0)) * .9);
+  fade.style.opacity = prog(t, 29.4, 30);
+};
+
+// ---------------------------------------------------------------- 수식·다이어그램 (앱과 같은 렌더러)
+window.__ready = (async () => {
+  const pages = [MAIN, BIG, ...xcards.map((c) => c.P)];
+  for (const P of pages) katex.render(TEX, P.math, { displayMode: true, throwOnError: false });
+  mermaid.initialize({
+    startOnLoad: false, securityLevel: "strict", theme: "default",
+    fontFamily: '-apple-system, "SF Pro Text", "Apple SD Gothic Neo", "Helvetica Neue", sans-serif',
+    flowchart: { htmlLabels: false },
+  });
+  const { svg } = await mermaid.render("mmdIntro", MERMAID_SRC);
+  for (const P of pages) {
+    P.dbox.insertAdjacentHTML("afterbegin", svg);
+    const el = P.dbox.querySelector("svg");
+    el.removeAttribute("width"); el.removeAttribute("height");
+    el.style.width = "100%"; el.style.maxWidth = "100%";
+  }
+  await document.fonts.ready;
+  for (const c of xcards) applyPage(c.P, FINAL);
+  applyPage(BIG, FINAL);
+  ready = true;
+  window.__render(0);
+  return true;
+})();
+window.__render(0);
+</script>
+</body>
+</html>
